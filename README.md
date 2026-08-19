@@ -1,4 +1,4 @@
-﻿# DSH-Hotplug-Hub
+﻿# Dseam世界（DSH-Hotplug-Hub）
 
 DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 

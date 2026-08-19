@@ -39,7 +39,7 @@ namespace DSHHotplugHub
 
         public MainForm()
         {
-            Text = "DSH 热插拔中枢 / DSH Hotplug Hub";
+            Text = "Dseam世界";
             Width = 1180;
             Height = 800;
             MinimumSize = new Size(900, 600);
@@ -137,7 +137,7 @@ namespace DSHHotplugHub
             }
             catch (Exception ex)
             {
-                MessageBox.Show("WebView2 初始化失败：\n" + ex.Message, "DSH 热插拔中枢",
+                MessageBox.Show("WebView2 初始化失败：\n" + ex.Message, "Dseam世界",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -316,14 +316,14 @@ namespace DSHHotplugHub
             {
                 DialogResult choose = MessageBox.Show(
                     "未找到官方 DSH 桌面端（DSH Desktop / DeepSeek Harness）。\n\n是否手动选择 DSH 桌面端启动程序？",
-                    "DSH 热插拔中枢", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    "Dseam世界", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                 if (choose == DialogResult.Yes)
                 {
                     harnessPath = ChooseHarnessManually();
                 }
                 if (harnessPath == null)
                 {
-                    MessageBox.Show("未选择官方 DSH 桌面端。", "DSH 热插拔中枢",
+                    MessageBox.Show("未选择官方 DSH 桌面端。", "Dseam世界",
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
@@ -349,7 +349,7 @@ namespace DSHHotplugHub
             }
             catch (Exception ex)
             {
-                MessageBox.Show("启动官方 DSH 桌面端失败：\n" + ex.Message, "DSH 热插拔中枢",
+                MessageBox.Show("启动官方 DSH 桌面端失败：\n" + ex.Message, "Dseam世界",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -378,7 +378,7 @@ namespace DSHHotplugHub
             }
             catch (Exception ex)
             {
-                MessageBox.Show("打开官方下载页失败：\n" + ex.Message, "DSH 热插拔中枢",
+                MessageBox.Show("打开官方下载页失败：\n" + ex.Message, "Dseam世界",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
@@ -391,7 +391,7 @@ namespace DSHHotplugHub
             }
             catch (Exception ex)
             {
-                MessageBox.Show("打开项目下载页失败：\n" + ex.Message, "DSH 热插拔中枢",
+                MessageBox.Show("打开项目下载页失败：\n" + ex.Message, "Dseam世界",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
