@@ -5,8 +5,10 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 
 它在 DSH 进程之外读取插件组合 → 拼装临时 profile → 冲突预检 → 拉起官方 DSH → 捕获日志 → 自愈闭环。
 
-## 更新公告 · v0.1.8
-### v0.1.8（最新）
+## 更新公告 · v0.1.9
+### v0.1.9（最新）
+- 修复更新程序错误：dsh CLI 探测不再把 `cmd.exe` 版本横幅误判为 dsh；安装前自动写 `~/.dsh/profiles/web/.npmrc` 关闭严格 SSL，解决 GitHub Release 下载报 `UNABLE_TO_VERIFY_LEAF_SIGNATURE` 的问题。
+- v0.1.8（历史）
 - 官方面板插件 `dsh-skill-mcp-panel` 自动安装/更新：自检页一键安装、打开时检查、修改后复查。
 - 自检页新增「官方 Skill/MCP 面板」状态与安装/更新按钮，最新版本从 GitHub Release 自动解析。
 - v0.1.7（历史）

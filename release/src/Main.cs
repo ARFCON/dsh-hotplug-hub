@@ -34,7 +34,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.1.8";
+        private const string APP_VERSION = "0.1.9";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_REPO = "Fishquito7/dsh-skill-mcp-panel";
         // GitHub Token 不再硬编码进源码（仓库会触发 secret scanning）。
@@ -635,14 +635,7 @@ namespace DSHHotplugHub
         // 返回 dsh 命令启动方式：{可执行文件, 参数前缀}；找不到返回 null。
         private static string[] FindDshCommand()
         {
-            // 1. PATH 中直接有 dsh（npm/pnpm 全局安装）
-            string probe = RunCli("cmd.exe", "/c dsh --version");
-            if (!string.IsNullOrEmpty(probe) && probe.Contains("."))
-            {
-                return new string[] { "cmd.exe", "/c dsh" };
-            }
-
-            // 2. 官方 DSH Desktop 内置 dsh CLI
+            // 1. 官方 DSH Desktop 内置 dsh CLI（最可靠，优先）
             string harness = FindOfficialHarness();
             if (harness != null)
             {
@@ -657,6 +650,16 @@ namespace DSHHotplugHub
                 }
             }
 
+            // 2. PATH 中直接有 dsh（npm/pnpm 全局安装）。
+            //    注意：cmd.exe /c dsh --version 在找不到 dsh 时会打印 cmd 自身版本横幅，
+            //    必须排除 "Microsoft"/"Windows" 字样，避免把 cmd 横幅误判成 dsh 版本。
+            string probe = RunCli("cmd.exe", "/c dsh --version");
+            if (!string.IsNullOrEmpty(probe) && probe.Contains(".")
+                && !probe.Contains("Microsoft") && !probe.Contains("Windows"))
+            {
+                return new string[] { "cmd.exe", "/c dsh" };
+            }
+
             // 3. Linux/macOS 常见位置（本 EXE 在 Windows 上运行，此项保留给未来移植）
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string altBin = Path.Combine(home, ".dsh", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
@@ -668,6 +671,35 @@ namespace DSHHotplugHub
             return null;
         }
 
+
+        // 部分 Windows 环境的 pnpm 访问 GitHub Release 会报 UNABLE_TO_VERIFY_LEAF_SIGNATURE，
+        // 需要给 web profile 写 .npmrc 关闭严格 SSL，否则 dsh plugin add 必然失败。
+        private static void EnsureProfileNpmrc()
+        {
+            try
+            {
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string profileDir = Path.Combine(home, ".dsh", "profiles", "web");
+                Directory.CreateDirectory(profileDir);
+                string npmrc = Path.Combine(profileDir, ".npmrc");
+                const string line = "strict-ssl=false";
+                if (File.Exists(npmrc))
+                {
+                    string text = File.ReadAllText(npmrc);
+                    if (!text.Contains(line))
+                    {
+                        File.AppendAllText(npmrc, Environment.NewLine + line + Environment.NewLine);
+                    }
+                }
+                else
+                {
+                    File.WriteAllText(npmrc, line + Environment.NewLine);
+                }
+            }
+            catch
+            {
+            }
+        }
         private static string RunDshPanelInstall(string tarballUrl)
         {
             string[] cmd = FindDshCommand();
@@ -713,6 +745,7 @@ namespace DSHHotplugHub
                 {
                     return "官方面板插件已是最新 v" + installed;
                 }
+                EnsureProfileNpmrc();
                 string output = RunDshPanelInstall(info["url"]);
                 if (output == null)
                 {
