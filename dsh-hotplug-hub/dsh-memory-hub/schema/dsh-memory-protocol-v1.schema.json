@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ARFCON/dsh-hotplug-hub/blob/main/dsh-hotplug-hub/dsh-memory-hub/schema/dsh-memory-protocol-v1.schema.json",
+  "title": "dsh-memory-protocol v1",
+  "description": "DSH 记忆中枢（dsh-memory-hub）协议 v1：记忆包 / 条目 / 写意图 / 检索结果 的规范性 JSON Schema。写语义见 lib/protocol.mjs（MemoryProtocolCore），审批门强制点在协议层。",
+  "type": "object",
+  "definitions": {
+    "memoryPackId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["global", "project"]
+    },
+    "memoryType": {
+      "type": "string",
+      "enum": ["user", "feedback", "project", "reference"]
+    },
+    "activation": {
+      "type": "string",
+      "enum": ["relevant", "pinned"]
+    },
+    "volatility": {
+      "type": "string",
+      "enum": ["evergreen", "stable", "volatile"]
+    },
+    "isoDate": {
+      "type": "string",
+      "description": "ISO-8601 或 YYYY-MM-DD"
+    },
+    "entryId": {
+      "type": "string",
+      "pattern": "^(mem-[0-9a-f]{16}|legacy-[0-9a-f]{12})$"
+    },
+    "proposalId": {
+      "type": "string",
+      "pattern": "^p-[0-9]+-[a-z0-9]+$"
+    }
+  },
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "protocol": { "const": "dsh-memory-protocol" },
+    "memoryPack": {
+      "type": "object",
+      "required": ["memoryPackId", "scope", "schemaVersion", "keywords", "entries"],
+      "additionalProperties": true,
+      "properties": {
+        "memoryPackId": { "$ref": "#/definitions/memoryPackId" },
+        "scope": { "$ref": "#/definitions/scope" },
+        "schemaVersion": { "const": 1 },
+        "keywords": { "type": "array", "items": { "type": "string" }, "maxItems": 128 },
+        "entries": { "type": "integer", "minimum": 0 },
+        "createdAt": { "$ref": "#/definitions/isoDate" },
+        "updatedAt": { "$ref": "#/definitions/isoDate" }
+      }
+    },
+    "memoryEntry": {
+      "type": "object",
+      "required": ["id", "revision", "name", "title"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "$ref": "#/definitions/entryId" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+        "title": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 500 },
+        "type": { "$ref": "#/definitions/memoryType" },
+        "scope": { "$ref": "#/definitions/scope" },
+        "activation": { "$ref": "#/definitions/activation" },
+        "volatility": { "$ref": "#/definitions/volatility" },
+        "subjectKey": { "type": "string", "pattern": "^$|^[a-z0-9][a-z0-9_-]*([.][a-z0-9][a-z0-9_-]*)*$" },
+        "expiresAt": { "anyOf": [{ "$ref": "#/definitions/isoDate" }, { "type": "null" }] },
+        "lastVerifiedAt": { "type": ["string", "null"] },
+        "keywords": { "type": "array", "items": { "type": "string" }, "maxItems": 24 },
+        "tagged": { "type": "array", "items": { "type": "string" }, "maxItems": 24 },
+        "body": { "type": "string" }
+      }
+    },
+    "writeIntent": {
+      "type": "object",
+      "required": ["action", "packId"],
+      "additionalProperties": true,
+      "properties": {
+        "action": { "enum": ["create", "update", "remove"] },
+        "packId": { "$ref": "#/definitions/memoryPackId" },
+        "entryId": { "$ref": "#/definitions/entryId" },
+        "entry": { "type": "object" },
+        "reason": { "type": "string" }
+      }
+    },
+    "proposal": {
+      "type": "object",
+      "required": ["id", "packId", "status", "kind", "createdAt"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "$ref": "#/definitions/proposalId" },
+        "packId": { "$ref": "#/definitions/memoryPackId" },
+        "status": { "enum": ["pending", "adopted", "rejected"] },
+        "kind": { "enum": ["create", "update", "remove"] },
+        "entry": { "type": ["object", "null"] },
+        "reason": { "type": "string" },
+        "createdAt": { "$ref": "#/definitions/isoDate" },
+        "resolvedAt": { "type": ["string", "null"] }
+      }
+    },
+    "searchResult": {
+      "type": "object",
+      "required": ["query", "pack", "hits", "count"],
+      "additionalProperties": true,
+      "properties": {
+        "query": { "type": "string" },
+        "pack": { "type": "string" },
+        "hits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "packId", "title", "score"],
+            "additionalProperties": true,
+            "properties": {
+              "id": { "$ref": "#/definitions/entryId" },
+              "name": { "type": "string" },
+              "packId": { "$ref": "#/definitions/memoryPackId" },
+              "title": { "type": "string" },
+              "freshness": { "enum": ["fresh", "stale", "expired"] },
+              "score": { "type": "number" },
+              "matched": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "count": { "type": "integer" },
+        "warning": { "type": "string" }
+      }
+    },
+    "auditRow": {
+      "type": "object",
+      "required": ["at", "action", "outcome"],
+      "additionalProperties": true,
+      "properties": {
+        "at": { "$ref": "#/definitions/isoDate" },
+        "action": { "type": "string" },
+        "packId": { "type": ["string", "null"] },
+        "entryId": { "type": ["string", "null"] },
+        "operator": { "enum": ["agent", "user", "system"] },
+        "outcome": { "type": "string" },
+        "via": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
