@@ -4,6 +4,12 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 
 它在 DSH 进程之外读取插件组合 → 拼装临时 profile → 冲突预检 → 拉起官方 DSH → 捕获日志 → 自愈闭环。
 
+## 仓库整理状态
+
+本仓库已经过整理，当前文件即为整理后的最终结构。
+- 文档目录已统一：`开发文档/团队/`、`开发文档/规范/`
+- 生成文件已忽略：`assembly/*/resolvedAssembly.json`、`sandbox/.sandbox/`
+- 任何修改请在修改记录中说明原因和影响。
 ## 特性
 
 - **独立启动器**：不依赖 `dsh plugin add link:` 装进 DSH
