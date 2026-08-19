@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 // launcher/index.js — DSH-Hotplug-Hub 独立启动器 CLI
+// 文本输出风格遵循 开发文档/DSH-统一UI开发标准.md §4.4：
+//   状态行 = 大写动词徽标（ASSEMBLE OK / CHECK OK / HEAL OK / LAUNCH OK ...）
+//   失败走 console.error；详情子项统一缩进；不引入 ANSI。
 // 用法:
 //   node launcher/index.js assemble <id>
 //   node launcher/index.js check <id>
