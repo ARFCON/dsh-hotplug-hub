@@ -21,7 +21,7 @@ DeepSeek Harness（dsh）是插座，这个插件是插在插座上的**空排�
 | 页签 | 功能 |
 |---|---|
 | 插件中枢 | 导入 hotpack JSON（粘贴或选文件）、包列表、预览（复用/待下载）、激活/停用/移除、store 缓存展示 |
-| 插件包市场 | **真实 GitHub 市场**：按标签（topic）搜索项目（官方 API + 国内镜像兜底），对比文件（README.zh.md/README.md、package.json、hotpack.json/.dshpack.json）提取介绍与安装方法，生成可导入 manifest；支持搜索/标签筛选/来源切换/分页/本地缓存 |
+| 插件包市场 | **真实 GitHub 市场**：按标签（topic）搜索项目（官方 API + 多镜像全并发测速取最快），对比文件（README.zh.md/README.md、package.json、hotpack.json/.dshpack.json）提取介绍与安装方法，生成可导入 manifest；支持搜索/标签筛选/来源切换/分页/本地缓存 |
 | AI 组装 | 输入需求描述 → 关键词匹配场景 → 5 步日志动画 → 生成 hotpack manifest + README → 复制 JSON 或一键导入 |
 | 记忆中枢 | 展示 `~/.dsh/memory` 全局记忆目录路径与 store 缓存条目 |
 | 自检更新 | 调用 `check()` 远程方法，展示 Node/pnpm 版本、profile 状态、patch 状态、插件冲突矩阵、包数/store 数 |

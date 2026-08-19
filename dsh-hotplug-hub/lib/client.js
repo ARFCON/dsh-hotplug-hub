@@ -86,11 +86,12 @@ window.__ModuleLoader__.load({
 			marketOffline: "无法连接 GitHub（官方与镜像均失败），显示内置示例目录",
 			marketCached: "缓存于",
 			marketTotal: "个结果",
+			marketVia: "数据源",
 			marketStars: "★",
 			marketForks: "⑂",
 			marketLicense: "许可",
 			marketUpdated: "更新",
-			marketNote: "数据来源：GitHub 标签搜索（官方 API + 国内镜像），README 对比提取介绍与安装方法",
+			marketNote: "数据来源：GitHub 标签搜索（官方 API + 多镜像站全并发测速取最快），README 对比提取介绍与安装方法",
 			aiTitle: "AI 组装器",
 			aiPlaceholder: "描述你的工作场景和需要的插件能力",
 			aiCompose: "开始组装",
@@ -554,7 +555,7 @@ window.__ModuleLoader__.load({
 					),
 					h("div", { className: "hp_bar" },
 						marketCats.map((cat) => h("button", { key: cat, className: "hp_chip", "data-on": cat === marketFilter, onClick: () => setMarketFilter(cat) }, cat)),
-						marketData ? h("span", { className: "hp_stat" }, marketData.total + t("marketTotal") + (marketData.cached && marketData.cachedAt ? " · " + t("marketCached") + " " + String(marketData.cachedAt).slice(0, 10) : "")) : null
+						marketData ? h("span", { className: "hp_stat" }, marketData.total + t("marketTotal") + (marketData.fetchedVia ? " · " + t("marketVia") + " " + marketData.fetchedVia : "") + (marketData.cached && marketData.cachedAt ? " · " + t("marketCached") + " " + String(marketData.cachedAt).slice(0, 10) : "")) : null
 					)
 				),
 				marketLoading && !marketData ? h("div", { className: "hp_card" }, h("p", { className: "hp_loading" }, h("span", { className: "hp_spin" }), t("marketFetching") + (marketSource === "mirror" ? "（镜像站）" : "")), h("p", { className: "hp_info" }, t("marketNote"))) : null,

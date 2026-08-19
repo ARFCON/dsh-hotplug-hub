@@ -55,13 +55,24 @@ const TAR_BIN = IS_WIN ? 'tar.exe' : 'tar'
 const ENSURE_TIMEOUT_MS = 5 * 60 * 1000
 const DOWNLOAD_TIMEOUT_MS = 120 * 1000
 const OUTPUT_CAP = 65536
-const GITHUB_MIRRORS = ['https://ghfast.top/', 'https://gh-proxy.com/', 'https://ghproxy.net/']
+// GitHub 官方通道 + 多个镜像站全并发测速，取第一个成功响应。
+// 镜像站仅代理公开只读内容，不携带凭据、不触发写操作；官方 api.github.com / raw.githubusercontent.com 始终保留。
+const GITHUB_MIRRORS = [
+  'https://ghfast.top/',
+  'https://gh-proxy.com/',
+  'https://ghproxy.net/',
+  'https://mirror.ghproxy.com/',
+  'https://ghproxy.cc/',
+  'https://gh-proxy.net/',
+]
 
 // 插件包市场（详见下方「插件包市场」节）：GitHub topic 即「标签」
 const MARKET_CACHE_FILE = () => join(hotplugRoot(), 'market-cache.json')
 const MARKET_PAGE_SIZE = 10
 const MARKET_DETAIL_CONCURRENCY = 4
 const MARKET_TIMEOUT_MS = 15000
+// 仓库存活探测用更短超时：死仓库（已删除/改名）应立即判 404，不能拖慢整页
+const MARKET_PROBE_TIMEOUT_MS = 5000
 const MARKET_README_CANDIDATES = ['README.zh.md', 'README.md', 'readme.md', 'README_CN.md', 'README_ZH.md', 'Readme.md', 'README.txt']
 const MARKET_PACK_CANDIDATES = ['hotpack.json', '.dshpack.json', 'dshpack.json']
 
@@ -610,9 +621,14 @@ async function httpGet(url, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {}) {
   return { ok: false, status: 0, text: '' }
 }
 
+/** 从成功响应的 url 提取域名（如 api.github.com / ghfast.top），用作"来源"展示。 */
+function hostOf(url) {
+  try { return new URL(url).host } catch { return '' }
+}
+
 /**
  * 多通道竞速：官方与镜像 URL 同时发起请求，取第一个成功响应（"哪个快用哪个"）。
- * 仅用于市场检索（searchMarketRepos）等公开只读抓取；不改变 scanFiles 的 404 短路语义。
+ * 仅用于市场检索（searchMarketRepos）等公开只读抓取；不改变 404 短路语义。
  */
 async function raceFetch(urls, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {}) {
   if (!Array.isArray(urls) || urls.length === 0) return { ok: false, text: '' }
@@ -624,24 +640,46 @@ async function raceFetch(urls, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {})
         if (settled) return
         if (res.ok) { settled = true; resolve({ ...res, url, raced: true }); return }
         failures += 1
-        if (failures === urls.length) resolve({ ok: false, status: res.status, text: '' })
+        if (failures === urls.length) resolve({ ok: false, status: res.status, url, text: '' })
       }).catch(() => {
         if (settled) return
         failures += 1
-        if (failures === urls.length) resolve({ ok: false, status: 0, text: '' })
+        if (failures === urls.length) resolve({ ok: false, status: 0, url, text: '' })
       })
     }
   })
 }
 
-/** 按候选 URL 依次抓取；官方返回 404 视为文件不存在，不再试镜像。 */
-async function scanFiles(urls, timeoutMs, extraHeaders) {
-  for (const url of urls) {
-    const res = await httpGet(url, timeoutMs, extraHeaders)
-    if (res.ok) return { ok: true, text: res.text, url }
-    if (res.status === 404) return { ok: false, status: 404, text: '' }
-  }
-  return { ok: false, text: '' }
+/**
+ * 按候选 URL（README/package.json/hotpack 等原始文件）全并发测速，取第一个「确定性结论」。
+ * 确定性结论 = 成功(200) 或 明确不存在(404/403/410)。
+ * 这样文件存在→官方 200 立即返回（最快通道获胜）；文件不存在→官方 404 立即跳过该候选，
+ * 不会因某些镜像通道 curl 挂起而空等 ~30s（这是市场加载慢的根因）。
+ * 仅当通道普遍是「网络失败」（fetch/https/curl 全抛错，无 HTTP 状态）时才等全部通道结算兜底。
+ */
+async function raceFiles(urls, timeoutMs, extraHeaders) {
+  if (!Array.isArray(urls) || urls.length === 0) return { ok: false, status: 0, text: '' }
+  return new Promise((resolve) => {
+    let settled = false
+    let failures = 0
+    let firstFail = null
+    const done = (res) => { if (!settled) { settled = true; resolve(res) } }
+    for (const url of urls) {
+      httpGet(url, timeoutMs, extraHeaders).then((res) => {
+        if (settled) return
+        if (res.ok) { done({ ...res, url, raced: true }); return }
+        // 确定性「不存在」→ 立即结算，不空等镜像
+        if (res.status && res.status !== 0 && res.status < 500) { done({ ...res, url, raced: false }); return }
+        if (!firstFail) firstFail = res
+        failures += 1
+        if (failures === urls.length) done({ ok: false, status: firstFail ? firstFail.status : 0, url: firstFail ? firstFail.url : '', text: '' })
+      }).catch(() => {
+        if (settled) return
+        failures += 1
+        if (failures === urls.length) done({ ok: false, status: firstFail ? firstFail.status : 0, url: firstFail ? firstFail.url : '', text: '' })
+      })
+    }
+  })
 }
 
 function apiSearchUrls(topic, q, page, source) {
@@ -659,6 +697,35 @@ function rawFileUrls(repo, ref, path, source) {
   if (source === 'github') return [base]
   if (source === 'mirror') return GITHUB_MIRRORS.map((m) => m + base)
   return [base, ...GITHUB_MIRRORS.map((m) => m + base)]
+}
+
+/** 仓库元数据端点的候选 URL（官方 + 镜像前缀），供存活探测用。 */
+function apiRepoUrls(repo, source) {
+  const base = 'https://api.github.com/repos/' + repo
+  if (source === 'github') return [base]
+  if (source === 'mirror') return GITHUB_MIRRORS.map((m) => m + base)
+  return [base, ...GITHUB_MIRRORS.map((m) => m + base)]
+}
+
+/**
+ * 仓库存活探测：用极短超时快速判定仓库是否还存在。
+ * GitHub 搜索索引滞后于真实仓库——已删除/改名的仓库仍会出现在搜索结果里，
+ * 但其 raw/contents 通道会长时间超时，是市场加载慢的主因。
+ * 官方元数据端点能明确给出 200(存活)/404/410(死仓库)，优先用它判断；
+ * 仅在官方网络失败时才回退镜像通道做 best-effort（镜像可能 403 误判，不采信）。
+ */
+async function probeRepo(repo, source) {
+  const probeUrl = (s) => apiRepoUrls(repo, s)
+  if (source !== 'mirror') {
+    const off = await httpGet(probeUrl('github')[0], MARKET_PROBE_TIMEOUT_MS, { Accept: 'application/vnd.github+json' })
+    if (off.ok) return { ok: true, status: off.status }
+    if (off.status === 404 || off.status === 410) return { ok: false, status: off.status }
+    // 官方网络失败/其它 → 落到下面走镜像兜底
+  }
+  const res = await raceFetch(probeUrl('mirror'), MARKET_PROBE_TIMEOUT_MS, { Accept: 'application/vnd.github+json' })
+  if (res.ok) return { ok: true, status: res.status }
+  // 镜像全失败：不轻易判死（可能是镜像本身不可达），让详情抓取做 best-effort 兜底
+  return { ok: true, status: res.status }
 }
 
 async function searchMarketRepos(topic, q, page, source) {
@@ -683,7 +750,7 @@ async function searchMarketRepos(topic, q, page, source) {
         topics: Array.isArray(item.topics) ? item.topics.slice(0, 12) : [],
         updatedAt: item.updated_at ?? '',
       }))
-    return { ok: true, total: json.total_count ?? items.length, items, url: res.url }
+    return { ok: true, total: json.total_count ?? items.length, items, url: res.url, fetchedVia: hostOf(res.url) }
   } catch (error) {
     return { ok: false, error: String(error.message ?? error) }
   }
@@ -803,22 +870,29 @@ async function fetchRepoDetail(repo, ref, meta, source) {
     manifest: null,
   }
   const raw = (name) => rawFileUrls(repo, ref, name, source)
-  // 三路并发：包清单（hotpack/.dshpack）· package.json · README（候选对比）
+  // 存活探测：已删除/改名的仓库（如搜索索引里的失效条目）立即判死，不再走耗时抓取
+  const alive = await probeRepo(repo, source)
+  if (!alive.ok) {
+    entry.importable = false
+    entry.importError = '仓库不存在或已被删除/改名'
+    return entry
+  }
+  // 三路并发：包清单（hotpack/.dshpack）· package.json · README（候选对比）；每路内部官方+镜像全并发测速取最快
   const [packScan, pkgRes, readmeScan] = await Promise.all([
     (async () => {
       for (const name of MARKET_PACK_CANDIDATES) {
-        const res = await scanFiles(raw(name), MARKET_TIMEOUT_MS)
+        const res = await raceFiles(raw(name), MARKET_TIMEOUT_MS)
         if (!res.ok) continue
         const parsed = name === 'hotpack.json' ? parseHotpack(res.text) : dshpackToHotpack(res.text)
         if (parsed.ok) return { name, pack: parsed.pack }
       }
       return null
     })(),
-    scanFiles(raw('package.json'), MARKET_TIMEOUT_MS),
+    raceFiles(raw('package.json'), MARKET_TIMEOUT_MS),
     (async () => {
       for (const name of MARKET_README_CANDIDATES) {
-        const res = await scanFiles(raw(name), MARKET_TIMEOUT_MS)
-        if (res.ok) return { name, text: res.text }
+        const res = await raceFiles(raw(name), MARKET_TIMEOUT_MS)
+        if (res.ok) return { name, text: res.text, url: res.url }
       }
       return null
     })(),
@@ -868,7 +942,7 @@ async function marketListAsync(params) {
   if (!valid.refresh) {
     const cache = readJson(MARKET_CACHE_FILE())
     if (cache && cache.key === cacheKey && Array.isArray(cache.entries)) {
-      return { ok: true, cached: true, cachedAt: cache.cachedAt, total: cache.total, page: cache.page, source: cache.source, entries: cache.entries }
+      return { ok: true, cached: true, cachedAt: cache.cachedAt, total: cache.total, page: cache.page, source: cache.source, fetchedVia: cache.fetchedVia, entries: cache.entries }
     }
   }
   const search = await searchMarketRepos(valid.topic, valid.q, valid.page, valid.source)
@@ -895,7 +969,7 @@ async function marketListAsync(params) {
   }
   await Promise.all(Array.from({ length: MARKET_DETAIL_CONCURRENCY }, () => worker()))
   entries.sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0))
-  const result = { ok: true, cached: false, cachedAt: null, total: search.total, page: valid.page, source: valid.source, entries }
+  const result = { ok: true, cached: false, cachedAt: null, total: search.total, page: valid.page, source: valid.source, fetchedVia: search.fetchedVia, entries }
   try {
     writeJsonSafe(MARKET_CACHE_FILE(), { key: cacheKey, ...result, cachedAt: new Date().toISOString() })
   } catch {}
