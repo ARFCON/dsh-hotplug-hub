@@ -758,6 +758,26 @@ namespace DSHHotplugHub
                     dlg.DialogResult = DialogResult.OK;
                 };
 
+                Button testBtn = new Button();
+                testBtn.Text = "测试连接";
+                testBtn.SetBounds(20, 270, 110, 32);
+                testBtn.Click += delegate
+                {
+                    ApiConfig testCfg = new ApiConfig();
+                    testCfg.provider = provider.SelectedItem == null ? "DeepSeek 官方" : provider.SelectedItem.ToString();
+                    testCfg.baseUrl = baseUrl.Text.Trim();
+                    testCfg.apiKey = apiKey.Text.Trim();
+                    testCfg.models = models.Text.Trim();
+                    testCfg.defaultModel = defaultModel.Text.Trim();
+                    if (testCfg.defaultModel.Length == 0 && testCfg.models.Length > 0)
+                    {
+                        testCfg.defaultModel = testCfg.models.Split(',')[0].Trim();
+                    }
+                    string err;
+                    bool ok = TestApiConnection(testCfg, out err);
+                    MessageBox.Show(ok ? "连接成功 ✅" : "连接失败 ❌\n" + err, "Dseam世界 模型测试",
+                        MessageBoxButtons.OK, ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                };
                 Button close = new Button();
                 close.Text = "关闭";
                 close.SetBounds(360, 270, 80, 32);
@@ -877,6 +897,38 @@ namespace DSHHotplugHub
             }
         }
 
+        private static bool TestApiConnection(ApiConfig cfg, out string error)
+        {
+            error = "";
+            try
+            {
+                string endpoint = (cfg.baseUrl.TrimEnd('/')) + "/chat/completions";
+                string body = "{\"model\":" + JsString(cfg.defaultModel) +
+                    ",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":1}";
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(endpoint);
+                request.Method = "POST";
+                request.ContentType = "application/json";
+                request.Accept = "application/json";
+                request.Headers["Authorization"] = "Bearer " + cfg.apiKey;
+                request.Timeout = 15000;
+                byte[] data = Encoding.UTF8.GetBytes(body);
+                request.ContentLength = data.Length;
+                using (Stream stream = request.GetRequestStream()) { stream.Write(data, 0, data.Length); }
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                {
+                    using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                    {
+                        reader.ReadToEnd();
+                    }
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
         private string CallLlm(string userText, string model, ApiConfig cfg)
         {
             try
