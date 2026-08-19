@@ -3,7 +3,8 @@
 $ErrorActionPreference = 'Stop'
 
 $uninstallerDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = Split-Path -Parent $uninstallerDir
+# 本脚本位于 uninstaller/hotplug-hub/，项目根需上溯两级
+$projectRoot = Split-Path -Parent (Split-Path -Parent $uninstallerDir)
 $src = Join-Path $uninstallerDir 'Uninstall_Hotplug_Hub.cs'
 $icon = Join-Path $projectRoot 'release\src\app.ico'
 $tmpOut = Join-Path $uninstallerDir 'Uninstall_Hotplug_Hub_new.exe'
