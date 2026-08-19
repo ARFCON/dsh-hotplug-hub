@@ -8,15 +8,15 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 ## 更新公告 · v0.1.9
 ### v0.1.9（最新）
 - 修复更新程序错误：dsh CLI 探测不再把 `cmd.exe` 版本横幅误判为 dsh；安装前自动写 `~/.dsh/profiles/web/.npmrc` 关闭严格 SSL，解决 GitHub Release 下载报 `UNABLE_TO_VERIFY_LEAF_SIGNATURE` 的问题。
-- v0.1.8（历史）
+### v0.1.8（历史）
 - 官方面板插件 `dsh-skill-mcp-panel` 自动安装/更新：自检页一键安装、打开时检查、修改后复查。
 - 自检页新增「官方 Skill/MCP 面板」状态与安装/更新按钮，最新版本从 GitHub Release 自动解析。
-- v0.1.7（历史）
+### v0.1.7（历史）
 - 记忆中枢真实化：读取/写入 `~/.dsh/memory-hub`，UI 按规范展示真实记忆。
 - 功能审查：移除插件包市场示例、默认 Skill/MCP；审查清单写入开发踩坑记录。
 - EXE 启动自动安装/注册 memory-hub 到本地 DeepSeek Harness。
 - 新增跨平台自动安装脚本 scripts/install-plugins.mjs，适配 Windows/macOS/Linux。
-### v0.1.6（最新）
+### v0.1.6（历史）
 - AI 协作：新增「必须逐条汇报遵守流程」规则，每次任务开始/结束都强制自检。
 - 任务审查：2026-08-19 已执行并通过。
 - 任务审查：2026-08-19 Skill/MCP 接入官方 Harness 已通过。
@@ -32,7 +32,7 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 - 打开客户端时自动检查 GitHub 最新版本，发现新版本会提示。
 - 修改/同步仓库时自动检查最新版本，有新版本先更新再修改。
 - 每次更新完成后自动 git push，并同步更新 README 更新公告。
-### v0.1.5 修复（最新）
+### v0.1.5 修复（历史）
 - 模型配置：提供方列表只读取官方配置中真实存在的提供方，不再显示假的 OpenAI/通义/智谱/自定义。
 - 每个提供方的 Base URL、模型列表、默认模型均按官方 `~/.dsh/settings.yaml` 真实解析。
 - 修复模型不全、与官方配置对不上的问题。
