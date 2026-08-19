@@ -727,99 +727,208 @@ namespace DSHHotplugHub
             catch
             {
             }
-        }
-
-                private static void ShowApiConfigDialog()
+        }        private static void ShowApiConfigDialog()
         {
             ApiConfig cfg = LoadApiConfig();
             using (Form dlg = new Form())
             {
-                dlg.Text = "DSH 多厂商 API 配置";
-                dlg.Width = 560;
-                dlg.Height = 420;
+                dlg.Text = "模型";
+                dlg.Width = 760;
+                dlg.Height = 480;
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
                 dlg.MinimizeBox = false;
                 dlg.Font = new Font("Microsoft YaHei UI", 9F);
 
-                Label l1 = new Label(); l1.Text = "厂商"; l1.SetBounds(20, 20, 120, 24);
-                ComboBox provider = new ComboBox(); provider.DropDownStyle = ComboBoxStyle.DropDownList;
-                provider.Items.AddRange(new object[] { "DeepSeek 官方", "OpenAI 兼容", "通义千问", "智谱", "自定义" });
-                provider.SelectedItem = cfg.provider; provider.SetBounds(150, 18, 360, 26);
+                Label lProviders = new Label(); lProviders.Text = "AI 服务提供方"; lProviders.SetBounds(16, 14, 140, 24);
+                ListBox lstProviders = new ListBox();
+                lstProviders.SetBounds(16, 42, 200, 320);
+                lstProviders.Items.AddRange(LoadProviderIds());
 
-                Label l2 = new Label(); l2.Text = "Base URL"; l2.SetBounds(20, 56, 120, 24);
-                TextBox baseUrl = new TextBox(); baseUrl.Text = cfg.baseUrl; baseUrl.SetBounds(150, 54, 360, 26);
+                Label lName = new Label(); lName.Text = "名称"; lName.SetBounds(240, 42, 100, 24);
+                TextBox txtName = new TextBox(); txtName.SetBounds(340, 40, 380, 26);
 
-                Label l3 = new Label(); l3.Text = "API Key"; l3.SetBounds(20, 92, 120, 24);
-                TextBox apiKey = new TextBox(); apiKey.Text = cfg.apiKey; apiKey.UseSystemPasswordChar = true; apiKey.SetBounds(150, 90, 360, 26);
+                Label lUrl = new Label(); lUrl.Text = "Base URL"; lUrl.SetBounds(240, 78, 100, 24);
+                TextBox txtUrl = new TextBox(); txtUrl.Text = cfg.baseUrl; txtUrl.SetBounds(340, 76, 380, 26);
 
-                Label l4 = new Label(); l4.Text = "模型列表"; l4.SetBounds(20, 128, 120, 24);
-                TextBox models = new TextBox(); models.Text = cfg.models; models.SetBounds(150, 126, 360, 26);
+                Label lKey = new Label(); lKey.Text = "API Key"; lKey.SetBounds(240, 114, 100, 24);
+                TextBox txtKey = new TextBox(); txtKey.Text = cfg.apiKey; txtKey.UseSystemPasswordChar = true; txtKey.SetBounds(340, 112, 380, 26);
 
-                Label l5 = new Label(); l5.Text = "默认模型"; l5.SetBounds(20, 164, 120, 24);
-                ComboBox defaultModel = new ComboBox(); defaultModel.DropDownStyle = ComboBoxStyle.DropDown; defaultModel.Items.AddRange(cfg.models.Split(',')); defaultModel.Text = cfg.defaultModel; defaultModel.SetBounds(150, 162, 360, 26);
+                Label lModels = new Label(); lModels.Text = "模型列表"; lModels.SetBounds(240, 150, 100, 24);
+                TextBox txtModels = new TextBox(); txtModels.Text = cfg.models; txtModels.SetBounds(340, 148, 380, 26);
 
-                Label hint = new Label();
-                hint.Text = "保存后写入 ~/.dsh/.credentials.yaml 与 ~/.dsh/settings.yaml（与官方 DSH 共用同一份数据）。";
-                hint.SetBounds(20, 210, 500, 40);
-                hint.ForeColor = Color.FromArgb(102, 115, 110);
+                Label lDefault = new Label(); lDefault.Text = "默认模型"; lDefault.SetBounds(240, 186, 100, 24);
+                ComboBox cboDefault = new ComboBox(); cboDefault.DropDownStyle = ComboBoxStyle.DropDown;
+                cboDefault.Items.AddRange(cfg.models.Split(','));
+                cboDefault.Text = cfg.defaultModel; cboDefault.SetBounds(340, 184, 380, 26);
 
-                Button save = new Button();
-                save.Text = "保存并应用到官方 DSH";
-                save.BackColor = Color.FromArgb(14, 124, 107);
-                save.ForeColor = Color.White;
-                save.FlatStyle = FlatStyle.Flat;
-                save.SetBounds(150, 270, 200, 32);
-
-                save.Click += delegate
+                lstProviders.SelectedIndexChanged += delegate
                 {
-                    cfg.provider = provider.SelectedItem == null ? "DeepSeek 官方" : provider.SelectedItem.ToString();
-                    cfg.baseUrl = baseUrl.Text.Trim();
-                    cfg.apiKey = apiKey.Text.Trim();
-                    cfg.models = models.Text.Trim();
-                    cfg.defaultModel = defaultModel.Text.Trim();
-                    if (cfg.defaultModel.Length == 0 && cfg.models.Length > 0)
-                    {
-                        cfg.defaultModel = cfg.models.Split(',')[0].Trim();
-                    }
-                    SaveApiConfig(cfg);
-                    SyncApiConfigToOfficialDesktop(cfg);
-                    MessageBox.Show("已保存并同步到官方 DSH 配置。", "DSH 多厂商 API 配置",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    dlg.DialogResult = DialogResult.OK;
+                    if (lstProviders.SelectedItem == null) return;
+                    string id = lstProviders.SelectedItem.ToString();
+                    ApiConfig p = LoadProviderConfig(id);
+                    if (p == null) return;
+                    txtName.Text = id;
+                    txtUrl.Text = p.baseUrl;
+                    txtKey.Text = p.apiKey;
+                    txtModels.Text = p.models;
+                    cboDefault.Items.Clear();
+                    cboDefault.Items.AddRange(p.models.Split(','));
+                    cboDefault.Text = p.defaultModel;
                 };
 
-                Button testBtn = new Button();
-                testBtn.Text = "测试连接";
-                testBtn.SetBounds(20, 270, 110, 32);
-                testBtn.Click += delegate
+                Button btnAdd = new Button(); btnAdd.Text = "＋ 添加提供方"; btnAdd.SetBounds(16, 372, 200, 30);
+                btnAdd.Click += delegate
                 {
-                    ApiConfig testCfg = new ApiConfig();
-                    testCfg.provider = provider.SelectedItem == null ? "DeepSeek 官方" : provider.SelectedItem.ToString();
-                    testCfg.baseUrl = baseUrl.Text.Trim();
-                    testCfg.apiKey = apiKey.Text.Trim();
-                    testCfg.models = models.Text.Trim();
-                    testCfg.defaultModel = defaultModel.Text.Trim();
-                    if (testCfg.defaultModel.Length == 0 && testCfg.models.Length > 0)
+                    string id = "provider-" + DateTime.Now.Ticks.ToString("x");
+                    lstProviders.Items.Add(id);
+                    lstProviders.SelectedItem = id;
+                };
+
+                Button btnDel = new Button(); btnDel.Text = "删除提供方"; btnDel.SetBounds(16, 408, 200, 30);
+                btnDel.Click += delegate
+                {
+                    if (lstProviders.SelectedItem != null)
                     {
-                        testCfg.defaultModel = testCfg.models.Split(',')[0].Trim();
+                        DeleteProviderFile(lstProviders.SelectedItem.ToString());
+                        lstProviders.Items.Remove(lstProviders.SelectedItem);
                     }
+                };
+
+                Button btnTest = new Button(); btnTest.Text = "测试连接"; btnTest.SetBounds(340, 240, 110, 30);
+                btnTest.Click += delegate
+                {
+                    ApiConfig t = new ApiConfig();
+                    t.baseUrl = txtUrl.Text.Trim();
+                    t.apiKey = txtKey.Text.Trim();
+                    t.defaultModel = cboDefault.Text.Trim();
+                    t.models = txtModels.Text.Trim();
                     string err;
-                    bool ok = TestApiConnection(testCfg, out err);
+                    bool ok = TestApiConnection(t, out err);
                     MessageBox.Show(ok ? "连接成功 ✅" : "连接失败 ❌\n" + err, "Dseam世界 模型测试",
                         MessageBoxButtons.OK, ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
                 };
-                Button close = new Button();
-                close.Text = "关闭";
-                close.SetBounds(360, 270, 80, 32);
-                close.Click += delegate { dlg.Close(); };
 
-                dlg.Controls.AddRange(new Control[] { l1, provider, l2, baseUrl, l3, apiKey, l4, models, l5, defaultModel, hint, save, close });
+                Button btnSave = new Button(); btnSave.Text = "保存"; btnSave.BackColor = Color.FromArgb(14,124,107); btnSave.ForeColor = Color.White; btnSave.FlatStyle = FlatStyle.Flat; btnSave.SetBounds(340, 280, 120, 30);
+                btnSave.Click += delegate
+                {
+                    cfg.provider = txtName.Text.Trim();
+                    cfg.baseUrl = txtUrl.Text.Trim();
+                    cfg.apiKey = txtKey.Text.Trim();
+                    cfg.models = txtModels.Text.Trim();
+                    cfg.defaultModel = cboDefault.Text.Trim();
+                    if (cfg.defaultModel.Length == 0 && cfg.models.Length > 0) cfg.defaultModel = cfg.models.Split(',')[0].Trim();
+                    SaveApiConfig(cfg);
+                    SaveProviderToOfficial(cfg);
+                    SyncApiConfigToOfficialDesktop(cfg);
+                    MessageBox.Show("已保存并同步到官方 DSH。", "模型", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                };
+
+                Button btnClose = new Button(); btnClose.Text = "关闭"; btnClose.SetBounds(470, 280, 80, 30);
+                btnClose.Click += delegate { dlg.Close(); };
+
+                dlg.Controls.AddRange(new Control[] { lProviders, lstProviders, lName, txtName, lUrl, txtUrl, lKey, txtKey, lModels, txtModels, lDefault, cboDefault, btnAdd, btnDel, btnTest, btnSave, btnClose });
                 dlg.ShowDialog();
             }
         }
 
+        private static string[] LoadProviderIds()
+        {
+            string[] defaults = new string[] { "DeepSeek 官方", "OpenAI 兼容", "通义千问", "智谱", "自定义" };
+            try
+            {
+                string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "settings.yaml");
+                if (!File.Exists(settings)) return defaults;
+                string yaml = File.ReadAllText(settings);
+                int idx = yaml.IndexOf("llm-pi-ai:");
+                if (idx < 0) return defaults;
+                int prov = yaml.IndexOf("providers:", idx);
+                if (prov < 0) return defaults;
+                string block = yaml.Substring(prov);
+                List<string> ids = new List<string>();
+                foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(block, @"^\s{4}([a-zA-Z0-9_-]+):", System.Text.RegularExpressions.RegexOptions.Multiline))
+                {
+                    if (ids.Count >= 20) break;
+                    ids.Add(m.Groups[1].Value);
+                }
+                if (ids.Count == 0) return defaults;
+                return ids.ToArray();
+            }
+            catch { return defaults; }
+        }
+
+        private static ApiConfig LoadProviderConfig(string id)
+        {
+            ApiConfig cfg = new ApiConfig();
+            cfg.provider = id;
+            cfg.baseUrl = "https://api.deepseek.com/v1";
+            cfg.models = "deepseek-chat,deepseek-reasoner";
+            cfg.defaultModel = "deepseek-chat";
+            try
+            {
+                string cred = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", ".credentials.yaml");
+                if (File.Exists(cred))
+                {
+                    string keyName = ProviderKeyName(id);
+                    foreach (string line in File.ReadAllLines(cred))
+                    {
+                        if (line.StartsWith(keyName + ":"))
+                        {
+                            cfg.apiKey = line.Substring(line.IndexOf(':') + 1).Trim();
+                            break;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return cfg;
+        }
+
+        private static string ProviderKeyName(string id)
+        {
+            if (id.Contains("DeepSeek") || id.Contains("deepseek")) return "DEEPSEEK_API_KEY";
+            if (id.Contains("OpenAI") || id.Contains("openai")) return "OPENAI_API_KEY";
+            if (id.Contains("通义") || id.Contains("dashscope")) return "DASHSCOPE_API_KEY";
+            if (id.Contains("智谱") || id.Contains("zhipu")) return "ZHIPU_API_KEY";
+            return id.ToUpperInvariant().Replace('-', '_') + "_API_KEY";
+        }
+
+        private static void DeleteProviderFile(string id)
+        {
+            try
+            {
+                string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "settings.yaml");
+                if (!File.Exists(settings)) return;
+                string yaml = File.ReadAllText(settings);
+                string pattern = @"\n\s{4}" + System.Text.RegularExpressions.Regex.Escape(id) + @":[\s\S]*?(?=\n\s{4}[a-zA-Z0-9_-]+:|\n\s{2}[a-zA-Z0-9_-]+:|\z)";
+                yaml = System.Text.RegularExpressions.Regex.Replace(yaml, pattern, "");
+                File.WriteAllText(settings, yaml);
+            }
+            catch { }
+        }
+
+        private static void SaveProviderToOfficial(ApiConfig cfg)
+        {
+            try
+            {
+                string cred = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", ".credentials.yaml");
+                string keyName = ProviderKeyName(cfg.provider);
+                string keyLine = keyName + ": " + cfg.apiKey;
+                string credText = File.Exists(cred) ? File.ReadAllText(cred) : "";
+                if (credText.Contains(keyName + ":"))
+                {
+                    string[] lines = credText.Replace("\r\n", "\n").Split('\n');
+                    for (int i = 0; i < lines.Length; i++) if (lines[i].StartsWith(keyName + ":")) lines[i] = keyLine;
+                    File.WriteAllText(cred, string.Join(Environment.NewLine, lines));
+                }
+                else
+                {
+                    File.AppendAllText(cred, (credText.Length == 0 || credText.EndsWith("\n") ? "" : Environment.NewLine) + keyLine + Environment.NewLine);
+                }
+            }
+            catch { }
+        }
         private static void SyncApiConfigToOfficialDesktop(ApiConfig cfg)
         {
             try
