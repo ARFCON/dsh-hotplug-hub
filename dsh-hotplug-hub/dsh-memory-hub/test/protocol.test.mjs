@@ -157,3 +157,16 @@ test('restore/reject/not-found 边界', async () => {
   assert.throws(() => service.restoreArchived('global-pack', 'nope'), NotFoundError)
   assert.throws(() => service.reject('global-pack', 'p-none'), NotFoundError)
 })
+
+test('空标题：name 回退 untitled（不塌成 m-），title 回退为 name 不落空', async () => {
+  const { store, service } = mount({ writePolicy: 'auto' })
+  const res = await service.commit({ entry: { title: '', body: '无标题事实' }, reason: '' })
+  assert.ok(res.approved && res.entry, 'auto 直写')
+  assert.notEqual(res.entry.name, 'm-', '空标题不得塌成退化名 m-')
+  assert.ok(res.entry.name.startsWith('m-'), `回退名以 m- 开头：${res.entry.name}`)
+  assert.ok(res.entry.title !== '' && res.entry.title === res.entry.name, '空 title 回退为 name')
+  // 第二个空标题条目同 key 化 → 变更新而非另起一条
+  const again = await service.commit({ entry: { title: '', body: '另一个无标题事实' }, reason: '' })
+  assert.ok(again.approved && again.entry?.revision === 2, '同名 → revision+1 更新')
+  assert.equal(store.allEntries().length, 1, '只保留一条活跃条目')
+})

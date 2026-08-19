@@ -57,7 +57,7 @@ function validate(value, subschema, root, path = '') {
     if (Number.isInteger(subschema.maxLength) && value.length > subschema.maxLength) {
       errors.push(`${path}: 超过 maxLength ${subschema.maxLength}`)
     }
-    if (subschema.pattern && !new RegExp(subschema.pattern).test(value)) {
+    if (subschema.pattern && !new RegExp(subschema.pattern, 'u').test(value)) {
       errors.push(`${path}: 不匹配 pattern ${subschema.pattern}（值 ${JSON.stringify(value)}）`)
     }
   }
