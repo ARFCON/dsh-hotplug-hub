@@ -310,6 +310,8 @@ button { font: inherit; color: inherit; }
 .mkt-topic:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
 .mkt-select { padding: 7px 10px; border: 1px solid var(--border, rgba(128,128,128,0.35)); border-radius: 8px; background: transparent; color: inherit; font-size: 13px; }
 .mkt-select:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
+.mkt-source { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mkt-source-label { font-size: 12px; color: var(--muted); margin-right: 2px; }
 .mkt-desc { font-size: 13px; color: var(--muted); line-height: 1.55; margin: 8px 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .mkt-link { font-size: 12px; color: var(--teal); text-decoration: none; }
 .mkt-link:hover { text-decoration: underline; }
@@ -541,6 +543,9 @@ const MARKET_MIRRORS = [
   'https://ghproxy.cc/',
   'https://gh-proxy.net/'
 ];
+const MARKET_SOURCE_GITHUB = 'github';
+// 来源通道可选项：'github'=官方，其余为镜像站域名（逐个展示域名，多选）
+const MARKET_SOURCE_OPTIONS = [MARKET_SOURCE_GITHUB, ...MARKET_MIRRORS.map((m) => m.replace(/^https?:\/\//, '').replace(/\/+$/, ''))];
 const MARKET_PACK_CANDIDATES = ['hotpack.json', '.dshpack.json', 'dshpack.json'];
 const MARKET_README_CANDIDATES = ['README.zh.md', 'README.md', 'readme.md', 'README_CN.md', 'README_ZH.md', 'Readme.md', 'README.txt'];
 const MARKET_PAGE_SIZE = 10;
@@ -550,7 +555,7 @@ let marketData = [];          // 抓取的条目 {repo,ref,name,author,stars,for
 let marketTotal = 0;          // 搜索命中总数
 let marketLoading = false;    // 是否正在抓取
 let marketError = '';         // 抓取错误（为空则无）
-let marketSource = 'auto';    // auto / github / mirror
+let marketSources = null;     // null=默认(官方+全部镜像)；否则为选中来源数组 ['github','ghfast.top',...]
 let marketTopic = MARKET_DEFAULT_TOPIC; // GitHub 标签
 let marketPage = 1;           // 当前分页
 let marketCachedAt = '';      // 缓存时间（localStorage）
@@ -558,7 +563,7 @@ let marketTagsOpen = false;   // 标签面板是否展开（默认折叠）
 let marketAppending = false; // 加载更多时保留已有卡片，仅底部显示加载中
 let marketFetchedVia = '';   // 本次数据实际来源域名（官方 api.github.com 或命中的镜像站，如 ghfast.top）
 
-function marketCacheKey() { return 'dsh-market-' + marketTopic + '-' + (marketQuery || '').trim() + '-' + marketSource; }
+function marketCacheKey() { return 'dsh-market-' + marketTopic + '-' + (marketQuery || '').trim() + '-' + (marketSources ? marketSources.join(',') : 'default'); }
 
 function sanitizeTopic(t) {
   const m = String(t || '').trim();
@@ -571,22 +576,40 @@ function sanitizeTopic(t) {
   return ok.slice(0, 4).join(' ');
 }
 
-/* ---- 1. 网络请求层：官方 API + 国内镜像兜底 ---- */
-function apiSearchUrls(topic, q, page, source) {
+/* ---- 1. 网络请求层：官方 API + 多镜像源（逐个域名多选，全并发测速取最快） ---- */
+// 把「来源集合」（['github','ghfast.top',...]）映射为候选 URL；github=官方原始 URL
+function candidatesFromSources(sources, officialUrl) {
+  const list = Array.isArray(sources) && sources.length ? sources : MARKET_SOURCE_OPTIONS;
+  const out = [];
+  for (const s of list) {
+    if (s === MARKET_SOURCE_GITHUB) { out.push(officialUrl); }
+    else { out.push('https://' + String(s).replace(/^https?:\/\//, '').replace(/\/+$/, '') + '/' + officialUrl); }
+  }
+  return out;
+}
+
+function apiSearchUrls(topic, q, page, sources) {
   const terms = topic.split(/\s+/).map((t) => 'topic:' + t).join(' ');
   const query = 'q=' + encodeURIComponent(terms + (q ? ' ' + q : '')) +
     '&sort=stars&order=desc&per_page=' + MARKET_PAGE_SIZE + '&page=' + page;
-  const base = 'https://api.github.com/search/repositories?' + query;
-  if (source === 'github') return [base];
-  if (source === 'mirror') return MARKET_MIRRORS.map((m) => m + base);
-  return [base, ...MARKET_MIRRORS.map((m) => m + base)];
+  return candidatesFromSources(sources, 'https://api.github.com/search/repositories?' + query);
 }
 
-function rawFileUrls(repo, ref, path, source) {
-  const target = 'https://raw.githubusercontent.com/' + repo + '/' + ref + '/' + path;
-  if (source === 'github') return [target];
-  if (source === 'mirror') return MARKET_MIRRORS.map((m) => m + target);
-  return [target, ...MARKET_MIRRORS.map((m) => m + target)];
+function rawFileUrls(repo, ref, path, sources) {
+  return candidatesFromSources(sources, 'https://raw.githubusercontent.com/' + repo + '/' + ref + '/' + path);
+}
+
+function apiRepoUrls(repo, sources) {
+  return candidatesFromSources(sources, 'https://api.github.com/repos/' + repo);
+}
+
+// 带超时的 fetch：浏览器 fetch 无自动超时，镜像挂起会永远不 settle，这里用 AbortController 兜底
+const FETCH_TIMEOUT_MS = 12000;
+async function fetchTimeout(url, opts) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try { return await fetch(url, Object.assign({}, opts, { signal: ctrl.signal })); }
+  finally { clearTimeout(timer); }
 }
 
 // 依次尝试多个 URL，全部失败返回最后一个错误信息
@@ -594,7 +617,7 @@ async function fetchAny(urls, opts) {
   let lastErr = '';
   for (const url of urls) {
     try {
-      const res = await fetch(url, opts);
+      const res = await fetchTimeout(url, opts);
       if (!res.ok) { lastErr = 'HTTP ' + res.status; continue; }
       return { ok: true, status: res.status, text: await res.text(), url };
     } catch (e) { lastErr = e && e.message ? e.message : String(e); continue; }
@@ -610,7 +633,7 @@ function raceFetchAny(urls, opts) {
     let settled = false;
     let failures = 0;
     for (const url of urls) {
-      fetch(url, opts).then(async (res) => {
+      fetchTimeout(url, opts).then(async (res) => {
         if (settled) return;
         if (res.ok) {
           settled = true;
@@ -653,7 +676,7 @@ function raceFilesAny(urls, opts) {
     let failures = 0;
     let first = null;
     for (const url of urls) {
-      fetch(url, opts).then(async (res) => {
+      fetchTimeout(url, opts).then(async (res) => {
         if (settled) return;
         if (res.ok) {
           settled = true;
@@ -786,7 +809,7 @@ function buildGithubPluginPack(repo, ref, npmName, version, meta) {
 }
 
 // 拉取单个仓库的详情：包清单 + package.json + README，生成可导入 manifest
-async function fetchRepoDetail(repo, ref, meta, source) {
+async function fetchRepoDetail(repo, ref, meta, sources) {
   const entry = {
     repo, ref: ref || 'main', name: meta.name, author: meta.author,
     stars: meta.stars, forks: meta.forks, license: meta.license,
@@ -798,9 +821,9 @@ async function fetchRepoDetail(repo, ref, meta, source) {
   let manifestErr = '';
   let pkgName = '', pkgVersion = '';
 
-  const packScans = MARKET_PACK_CANDIDATES.map((f) => rawFileUrls(repo, entry.ref, f, source));
-  const pkgUrl = rawFileUrls(repo, entry.ref, 'package.json', source);
-  const readmeUrls = MARKET_README_CANDIDATES.map((f) => rawFileUrls(repo, entry.ref, f, source));
+  const packScans = MARKET_PACK_CANDIDATES.map((f) => rawFileUrls(repo, entry.ref, f, sources));
+  const pkgUrl = rawFileUrls(repo, entry.ref, 'package.json', sources);
+  const readmeUrls = MARKET_README_CANDIDATES.map((f) => rawFileUrls(repo, entry.ref, f, sources));
 
   const runPack = async () => {
     for (const urls of packScans) {
@@ -852,9 +875,9 @@ function parseHotpackJson(text) {
 }
 
 /* ---- 4. 仓库搜索：按标签分页拉取仓库列表 ---- */
-async function searchMarketRepos(topic, q, page, source) {
-  // 官方与镜像两个通道同时发起，取第一个成功响应（"哪个快用哪个"）
-  const urls = apiSearchUrls(topic, q, page, source);
+async function searchMarketRepos(topic, q, page, sources) {
+  // 选中的来源通道同时发起，取第一个成功响应（"哪个快用哪个"）
+  const urls = apiSearchUrls(topic, q, page, sources);
   const r = await raceFetchAny(urls, { headers: { Accept: 'application/vnd.github+json' } });
   if (!r.ok) return { ok: false, error: r.error || '网络请求失败' };
   let json;
@@ -887,11 +910,11 @@ async function loadMarket(params) {
   const topic = sanitizeTopic(params && params.topic !== undefined ? params.topic : marketTopic);
   const q = (params && params.q) || marketQuery || '';
   const page = (params && params.page) || 1;
-  const source = (params && params.source) || marketSource;
+  const sources = (params && params.sources) || marketSources || null;
   const refresh = Boolean(params && params.refresh);
   marketTopic = topic || MARKET_DEFAULT_TOPIC;
   marketQuery = q;
-  marketSource = source;
+  marketSources = sources;
   marketPage = page;
   marketLoading = true;
   marketAppending = page > 1; // 加载更多时不清空已有卡片
@@ -909,13 +932,13 @@ async function loadMarket(params) {
         marketFetchedVia = cached.fetchedVia || '';
         marketLoading = false;
         renderMarket();
-        return { ok: true, cached: true, entries: marketData, total: marketTotal, source, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia };
+        return { ok: true, cached: true, entries: marketData, total: marketTotal, sources, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia };
       }
     } catch (e) { /* 缓存读取失败忽略 */ }
   }
 
   renderMarket(); // 立即展示 loading
-  const search = await searchMarketRepos(marketTopic, q, page, source);
+  const search = await searchMarketRepos(marketTopic, q, page, sources);
   if (!search.ok) {
     marketLoading = false;
     marketAppending = false;
@@ -935,7 +958,7 @@ async function loadMarket(params) {
       const m = metas[idx++];
       if (seen.has(m.repo)) continue;
       seen.add(m.repo);
-      try { entries.push(await fetchRepoDetail(m.repo, m.ref, m, source)); }
+      try { entries.push(await fetchRepoDetail(m.repo, m.ref, m, sources)); }
       catch (e) { /* 单条失败跳过 */ }
     }
   };
@@ -955,16 +978,16 @@ async function loadMarket(params) {
   marketCachedAt = new Date().toISOString();
   if (page === 1) {
     try {
-      localStorage.setItem(cacheKey, JSON.stringify({ topic: marketTopic, source, entries, total: search.total, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia }));
+      localStorage.setItem(cacheKey, JSON.stringify({ topic: marketTopic, sources, entries, total: search.total, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia }));
     } catch (e) { /* file:// 模式无 localStorage */ }
   }
   renderMarket();
-  return { ok: true, cached: false, entries: marketData, total: search.total, source, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia };
+  return { ok: true, cached: false, entries: marketData, total: search.total, sources, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia };
 }
 
-function doMarketSearch() { marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, source: marketSource, refresh: true }); }
-function doMarketRefresh() { marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, source: marketSource, refresh: true }); }
-function doMarketMore() { marketPage += 1; loadMarket({ topic: marketTopic, q: marketQuery, page: marketPage, source: marketSource, refresh: true }); }
+function doMarketSearch() { marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: true }); }
+function doMarketRefresh() { marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: true }); }
+function doMarketMore() { marketPage += 1; loadMarket({ topic: marketTopic, q: marketQuery, page: marketPage, sources: marketSources, refresh: true }); }
 
 // 多选标签筛选：空数组=全部；否则命中任一选中标签即通过
 function matchFilters(tags) {
@@ -1192,7 +1215,7 @@ function renderMarket() {
     ? [...new Set(marketData.flatMap((e) => e.topics || []))]
     : [...new Set(CATALOG.flatMap((p) => p.tags))];
   const q = marketQuery.trim().toLowerCase();
-  const srcLabel = { auto: '自动', github: '官方', mirror: '镜像' }[marketSource] || marketSource;
+  const srcLabel = (marketSources && marketSources.length ? marketSources.join('+') : '官方+全部镜像');
 
   let body = '';
   let statusLine = '';
@@ -1221,11 +1244,11 @@ function renderMarket() {
       <div class="mkt-topic-wrap">标签
         <input id="marketTopic" class="mkt-topic" placeholder="dsh-plugin" value="${esc(marketTopic)}">
       </div>
-      <select id="marketSource" class="mkt-select">
-        <option value="auto" ${marketSource === 'auto' ? 'selected' : ''}>来源·自动</option>
-        <option value="github" ${marketSource === 'github' ? 'selected' : ''}>GitHub 官方</option>
-        <option value="mirror" ${marketSource === 'mirror' ? 'selected' : ''}>镜像站</option>
-      </select>
+      <div class="mkt-source" id="marketSourcesWrap">
+        <span class="mkt-source-label">来源</span>
+        <button class="chip ${!marketSources ? 'on' : ''}" data-src="__all">官方+全部</button>
+        ${MARKET_SOURCE_OPTIONS.map((s) => `<button class="chip ${!marketSources || marketSources.includes(s) ? 'on' : ''}" data-src="${s}">${s === MARKET_SOURCE_GITHUB ? 'GitHub 官方' : s}</button>`).join('')}
+      </div>
       <button class="btn primary" id="doSearchMarket">${ICONS.search} 搜索</button>
       <button class="btn" id="refreshMarket">${ICONS.refresh} 刷新</button>
       <button class="btn" id="importBtn2">${ICONS.upload} 导入文件</button>
@@ -1251,7 +1274,16 @@ function renderMarket() {
   $('marketSearch').addEventListener('input', (e) => { marketQuery = e.target.value; });
   $('marketSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') doMarketSearch(); });
   $('marketTopic').addEventListener('keydown', (e) => { if (e.key === 'Enter') doMarketSearch(); });
-  $('marketSource').addEventListener('change', (e) => { marketSource = e.target.value; });
+  document.querySelectorAll('#marketSourcesWrap .chip').forEach((c) => c.addEventListener('click', () => {
+    const v = c.dataset.src;
+    if (v === '__all') { marketSources = null; }
+    else {
+      const cur = marketSources ? [...marketSources] : [...MARKET_SOURCE_OPTIONS];
+      const next = cur.includes(v) ? cur.filter((x) => x !== v) : cur.concat(v);
+      marketSources = next.length === MARKET_SOURCE_OPTIONS.length ? null : next;
+    }
+    renderMarket();
+  }));
   $('doSearchMarket').addEventListener('click', doMarketSearch);
   $('refreshMarket').addEventListener('click', doMarketRefresh);
   $('importBtn2').addEventListener('click', () => $('importFile').click());

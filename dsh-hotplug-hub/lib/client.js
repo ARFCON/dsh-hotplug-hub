@@ -73,9 +73,11 @@ window.__ModuleLoader__.load({
 			marketUnavailable: "不可导入",
 			marketTopic: "GitHub 标签",
 			marketSource: "来源",
-			marketSourceAuto: "自动",
-			marketSourceOfficial: "官方 GitHub",
-			marketSourceMirror: "镜像站",
+			marketSourceSelect: "抓取通道（可多选）",
+			marketSourceGithub: "官方 GitHub",
+			marketSourceAll: "全选",
+			marketSourceNone: "清空",
+			marketSourceDefault: "默认（官方+全部镜像）",
 			marketInstallMethod: "安装方法",
 			marketRepo: "仓库",
 			marketMore: "加载更多",
@@ -165,6 +167,8 @@ window.__ModuleLoader__.load({
 			const detail = result?.error?.message ?? String(result?.error ?? "remote failed");
 			throw new Error(detail);
 		}
+		// 市场抓取来源通道：'github'=官方，其余为镜像站域名（需与 lib/index.js GITHUB_MIRRORS 一致）
+		const MARKET_SOURCE_OPTIONS = ["github", "ghfast.top", "gh-proxy.com", "ghproxy.net", "mirror.ghproxy.com", "ghproxy.cc", "gh-proxy.net"];
 		const CATALOG = [
 			{ id: "pack-research", name: "科研插座包", tags: ["科研", "论文", "文献"], desc: "文献检索、综述、论文写作、引用与审稿建议", plugins: 4, accent: "#0e7c6b" },
 			{ id: "pack-video", name: "视频制作插座包", tags: ["视频", "剪辑", "字幕"], desc: "脚本、分镜、剪辑清单、字幕与封面生成", plugins: 4, accent: "#b45309" },
@@ -205,7 +209,7 @@ window.__ModuleLoader__.load({
 			const [marketData, setMarketData] = useState(null);
 			const [marketLoading, setMarketLoading] = useState(false);
 			const [marketError, setMarketError] = useState(null);
-			const [marketSource, setMarketSource] = useState("auto");
+			const [marketSources, setMarketSources] = useState(null); // null = 默认(官方+全部镜像)；否则为选中来源数组 ['github','ghfast.top',...]
 			const [marketTopic, setMarketTopic] = useState("dsh-plugin");
 			const [marketPage, setMarketPage] = useState(1);
 			const [marketOpen, setMarketOpen] = useState(null);
@@ -312,7 +316,7 @@ window.__ModuleLoader__.load({
 					} else if (result && Array.isArray(result.entries)) {
 						setMarketData((prev) => {
 							if (!prev || (params.page ?? 1) === 1) {
-								return { entries: result.entries, total: result.total ?? result.entries.length, source: result.source ?? params.source, cachedAt: result.cachedAt ?? null, cached: result.cached === true };
+								return { entries: result.entries, total: result.total ?? result.entries.length, sources: result.sources ?? params.sources ?? null, cachedAt: result.cachedAt ?? null, cached: result.cached === true };
 							}
 							const seen = new Set(prev.entries.map((e) => e.id));
 							return { ...prev, entries: [...prev.entries, ...result.entries.filter((e) => !seen.has(e.id))], total: result.total ?? prev.total };
@@ -326,7 +330,7 @@ window.__ModuleLoader__.load({
 					setMarketLoading(false);
 				}
 			};
-			const marketParams = (page, refresh) => ({ topic: marketTopic, q: marketQuery, source: marketSource, page, refresh });
+			const marketParams = (page, refresh) => ({ topic: marketTopic, q: marketQuery, sources: marketSources, page, refresh });
 			const doMarketSearch = () => { setMarketPage(1); loadMarket(marketParams(1, false)); };
 			const doMarketRefresh = () => { setMarketPage(1); loadMarket(marketParams(1, true)); };
 			const doMarketMore = () => { const next = marketPage + 1; setMarketPage(next); loadMarket(marketParams(next, false)); };
@@ -543,22 +547,33 @@ window.__ModuleLoader__.load({
 					h("div", { className: "hp_bar" },
 						h("input", { className: "hp_input", placeholder: t("marketSearch"), value: marketQuery, onChange: (e) => setMarketQuery(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") doMarketSearch(); } }),
 						h("input", { className: "hp_input hp_topic", placeholder: t("marketTopic"), value: marketTopic, onChange: (e) => setMarketTopic(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") doMarketSearch(); }, title: "GitHub topic，如 dsh-plugin" }),
-						h("select", { className: "hp_select", value: marketSource, onChange: (e) => { setMarketSource(e.target.value); setMarketPage(1); } },
-							h("option", { value: "auto" }, t("marketSourceAuto")),
-							h("option", { value: "github" }, t("marketSourceOfficial")),
-							h("option", { value: "mirror" }, t("marketSourceMirror"))
-						),
 						h("button", { className: "hp_btn hp_primary", disabled: marketLoading, onClick: doMarketSearch }, marketLoading ? t("marketFetching") : t("marketGo")),
 						h("button", { className: "hp_btn", disabled: marketLoading, onClick: doMarketRefresh }, t("marketRefresh")),
 						h("button", { className: "hp_btn", disabled: busy, onClick: () => fileRef.current && fileRef.current.click() }, t("importFile")),
 						h("input", { ref: fileRef, type: "file", accept: ".json,.hotpack.json,application/json", style: { display: "none" }, onChange: onFile })
 					),
 					h("div", { className: "hp_bar" },
+						h("span", { className: "hp_stat" }, t("marketSourceSelect")),
+						MARKET_SOURCE_OPTIONS.map((s) => {
+							const on = !marketSources || marketSources.includes(s);
+							return h("button", { key: s, className: "hp_chip", "data-on": on, title: s === "github" ? "api.github.com" : s, onClick: () => {
+								setMarketSources((prev) => {
+									const cur = prev ? [...prev] : [...MARKET_SOURCE_OPTIONS];
+									const has = cur.includes(s);
+									const next = has ? cur.filter((x) => x !== s) : [...cur, s];
+									return next.length === MARKET_SOURCE_OPTIONS.length ? null : next;
+								});
+								setMarketPage(1);
+							} }, s === "github" ? t("marketSourceGithub") : s);
+						}),
+						h("button", { className: "hp_chip", onClick: () => { setMarketSources(null); setMarketPage(1); } }, t("marketSourceDefault"))
+					),
+					h("div", { className: "hp_bar" },
 						marketCats.map((cat) => h("button", { key: cat, className: "hp_chip", "data-on": cat === marketFilter, onClick: () => setMarketFilter(cat) }, cat)),
 						marketData ? h("span", { className: "hp_stat" }, marketData.total + t("marketTotal") + (marketData.fetchedVia ? " · " + t("marketVia") + " " + marketData.fetchedVia : "") + (marketData.cached && marketData.cachedAt ? " · " + t("marketCached") + " " + String(marketData.cachedAt).slice(0, 10) : "")) : null
 					)
 				),
-				marketLoading && !marketData ? h("div", { className: "hp_card" }, h("p", { className: "hp_loading" }, h("span", { className: "hp_spin" }), t("marketFetching") + (marketSource === "mirror" ? "（镜像站）" : "")), h("p", { className: "hp_info" }, t("marketNote"))) : null,
+				marketLoading && !marketData ? h("div", { className: "hp_card" }, h("p", { className: "hp_loading" }, h("span", { className: "hp_spin" }), t("marketFetching")), h("p", { className: "hp_info" }, t("marketNote"))) : null,
 				marketError && !marketData ? h("div", { className: "hp_card" },
 					h("p", { className: "hp_notice", "data-kind": "error" }, t("marketFetchError") + marketError),
 					h("div", { className: "hp_bar" },

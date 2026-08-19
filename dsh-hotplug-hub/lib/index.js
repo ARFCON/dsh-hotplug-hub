@@ -57,6 +57,7 @@ const DOWNLOAD_TIMEOUT_MS = 120 * 1000
 const OUTPUT_CAP = 65536
 // GitHub 官方通道 + 多个镜像站全并发测速，取第一个成功响应。
 // 镜像站仅代理公开只读内容，不携带凭据、不触发写操作；官方 api.github.com / raw.githubusercontent.com 始终保留。
+// GitHub 官方与镜像站。镜像站域名即「来源」标识（UI 上多选、逐个展示域名）。
 const GITHUB_MIRRORS = [
   'https://ghfast.top/',
   'https://gh-proxy.com/',
@@ -65,12 +66,19 @@ const GITHUB_MIRRORS = [
   'https://ghproxy.cc/',
   'https://gh-proxy.net/',
 ]
+// 官方 GitHub 的来源标识（UI 多选里与镜像域名并列）
+const SOURCE_GITHUB = 'github'
 
 // 插件包市场（详见下方「插件包市场」节）：GitHub topic 即「标签」
 const MARKET_CACHE_FILE = () => join(hotplugRoot(), 'market-cache.json')
 const MARKET_PAGE_SIZE = 10
 const MARKET_DETAIL_CONCURRENCY = 4
 const MARKET_TIMEOUT_MS = 15000
+// 单个原始文件（README/package.json/hotpack）抓取更短超时：文件通常很小，
+// 官方通道几秒内即可返回；设太大会让不可达通道的 curl 兜底拖慢整页。
+const MARKET_FILE_TIMEOUT_MS = 8000
+// 每个仓库全部文件抓取的「总预算」：到期立即结算当前最优，避免 curl 兜底挂满。
+const MARKET_FILE_BUDGET_MS = 12000
 // 仓库存活探测用更短超时：死仓库（已删除/改名）应立即判 404，不能拖慢整页
 const MARKET_PROBE_TIMEOUT_MS = 5000
 const MARKET_README_CANDIDATES = ['README.zh.md', 'README.md', 'readme.md', 'README_CN.md', 'README_ZH.md', 'Readme.md', 'README.txt']
@@ -558,9 +566,23 @@ function sanitizeMarketParams(params) {
   const topic = sanitizeTopic(p.topic ?? 'dsh-plugin')
   if (topic === null) return { ok: false, error: 'topic 只能是标签字符串（字母数字 . _ -，最长 32 字符，最多 4 个，逗号/空格分隔）' }
   const q = typeof p.q === 'string' ? p.q.trim().slice(0, 80) : ''
-  const source = p.source === 'github' || p.source === 'mirror' ? p.source : 'auto'
   const page = Math.min(Math.max(parseInt(String(p.page), 10) || 1, 1), 10)
-  return { ok: true, topic, q, source, page, refresh: p.refresh === true }
+  // 多选来源：sources = ['github', 'ghfast.top', 'gh-proxy.com', ...]；兼容旧单值 source(auto/github/mirror)
+  const mirrorHosts = new Set(GITHUB_MIRRORS.map((m) => m.replace(/^https?:\/\//, '').replace(/\/+$/, '')))
+  let sources = []
+  if (Array.isArray(p.sources)) {
+    for (const s of p.sources) {
+      const v = String(s).trim()
+      if (v === SOURCE_GITHUB) sources.push(SOURCE_GITHUB)
+      else if (mirrorHosts.has(v)) sources.push(v)
+    }
+  } else if (p.source === 'github') {
+    sources = [SOURCE_GITHUB]
+  } else if (p.source === 'mirror') {
+    sources = [...mirrorHosts]
+  }
+  if (sources.length === 0) sources = [SOURCE_GITHUB, ...mirrorHosts] // 默认：官方 + 全部镜像
+  return { ok: true, topic, q, sources, page, refresh: p.refresh === true }
 }
 
 /**
@@ -630,8 +652,15 @@ function hostOf(url) {
  * 多通道竞速：官方与镜像 URL 同时发起请求，取第一个成功响应（"哪个快用哪个"）。
  * 仅用于市场检索（searchMarketRepos）等公开只读抓取；不改变 404 短路语义。
  */
-async function raceFetch(urls, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {}) {
+async function raceFetch(urls, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {}, budgetMs = 0) {
   if (!Array.isArray(urls) || urls.length === 0) return { ok: false, text: '' }
+  if (budgetMs > 0) {
+    const budget = new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ ok: false, status: 0, text: '', budget: true }), budgetMs)
+      if (typeof timer.unref === 'function') timer.unref()
+    })
+    return Promise.race([raceFetch(urls, timeoutMs, extraHeaders, 0), budget])
+  }
   return new Promise((resolve) => {
     let settled = false
     let failures = 0
@@ -657,8 +686,16 @@ async function raceFetch(urls, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {})
  * 不会因某些镜像通道 curl 挂起而空等 ~30s（这是市场加载慢的根因）。
  * 仅当通道普遍是「网络失败」（fetch/https/curl 全抛错，无 HTTP 状态）时才等全部通道结算兜底。
  */
-async function raceFiles(urls, timeoutMs, extraHeaders) {
+async function raceFiles(urls, timeoutMs, extraHeaders, budgetMs = 0) {
   if (!Array.isArray(urls) || urls.length === 0) return { ok: false, status: 0, text: '' }
+  // 总预算：到期立即结算当前最优结果，防止某镜像通道的 curl 兜底挂满拖慢整页
+  if (budgetMs > 0) {
+    const budget = new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ ok: false, status: 0, text: '', budget: true }), budgetMs)
+      if (typeof timer.unref === 'function') timer.unref()
+    })
+    return Promise.race([raceFiles(urls, timeoutMs, extraHeaders, 0), budget])
+  }
   return new Promise((resolve) => {
     let settled = false
     let failures = 0
@@ -682,29 +719,34 @@ async function raceFiles(urls, timeoutMs, extraHeaders) {
   })
 }
 
-function apiSearchUrls(topic, q, page, source) {
+/** 把「来源集合」（['github', 'ghfast.top', ...]）映射为候选 URL 列表；github 指官方原始 URL。 */
+function candidatesFromSources(sources, officialUrl) {
+  const out = []
+  for (const s of sources) {
+    if (s === SOURCE_GITHUB) {
+      out.push(officialUrl)
+    } else {
+      const host = String(s).replace(/^https?:\/\//, '').replace(/\/+$/, '')
+      out.push('https://' + host + '/' + officialUrl)
+    }
+  }
+  return out
+}
+
+function apiSearchUrls(topic, q, page, sources) {
   const topicQuery = topic.split(' ').map((t) => 'topic:' + t).join(' ')
   const query = 'q=' + encodeURIComponent(topicQuery) + (q !== '' ? '+' + encodeURIComponent(q) : '') +
     '&sort=stars&order=desc&per_page=' + MARKET_PAGE_SIZE + '&page=' + page
-  const base = 'https://api.github.com/search/repositories?' + query
-  if (source === 'github') return [base]
-  if (source === 'mirror') return GITHUB_MIRRORS.map((m) => m + base)
-  return [base, ...GITHUB_MIRRORS.map((m) => m + base)]
+  return candidatesFromSources(sources, 'https://api.github.com/search/repositories?' + query)
 }
 
-function rawFileUrls(repo, ref, path, source) {
-  const base = 'https://raw.githubusercontent.com/' + repo + '/' + ref + '/' + path
-  if (source === 'github') return [base]
-  if (source === 'mirror') return GITHUB_MIRRORS.map((m) => m + base)
-  return [base, ...GITHUB_MIRRORS.map((m) => m + base)]
+function rawFileUrls(repo, ref, path, sources) {
+  return candidatesFromSources(sources, 'https://raw.githubusercontent.com/' + repo + '/' + ref + '/' + path)
 }
 
-/** 仓库元数据端点的候选 URL（官方 + 镜像前缀），供存活探测用。 */
-function apiRepoUrls(repo, source) {
-  const base = 'https://api.github.com/repos/' + repo
-  if (source === 'github') return [base]
-  if (source === 'mirror') return GITHUB_MIRRORS.map((m) => m + base)
-  return [base, ...GITHUB_MIRRORS.map((m) => m + base)]
+/** 仓库元数据端点的候选 URL（官方 + 选中的镜像前缀），供存活探测用。 */
+function apiRepoUrls(repo, sources) {
+  return candidatesFromSources(sources, 'https://api.github.com/repos/' + repo)
 }
 
 /**
@@ -714,23 +756,23 @@ function apiRepoUrls(repo, source) {
  * 官方元数据端点能明确给出 200(存活)/404/410(死仓库)，优先用它判断；
  * 仅在官方网络失败时才回退镜像通道做 best-effort（镜像可能 403 误判，不采信）。
  */
-async function probeRepo(repo, source) {
-  const probeUrl = (s) => apiRepoUrls(repo, s)
-  if (source !== 'mirror') {
-    const off = await httpGet(probeUrl('github')[0], MARKET_PROBE_TIMEOUT_MS, { Accept: 'application/vnd.github+json' })
+async function probeRepo(repo, sources) {
+  const probeUrl = () => apiRepoUrls(repo, sources)
+  if (sources.includes(SOURCE_GITHUB)) {
+    const off = await httpGet(probeUrl()[0], MARKET_PROBE_TIMEOUT_MS, { Accept: 'application/vnd.github+json' })
     if (off.ok) return { ok: true, status: off.status }
     if (off.status === 404 || off.status === 410) return { ok: false, status: off.status }
     // 官方网络失败/其它 → 落到下面走镜像兜底
   }
-  const res = await raceFetch(probeUrl('mirror'), MARKET_PROBE_TIMEOUT_MS, { Accept: 'application/vnd.github+json' })
+  const res = await raceFetch(probeUrl(), MARKET_PROBE_TIMEOUT_MS, { Accept: 'application/vnd.github+json' }, MARKET_PROBE_TIMEOUT_MS + 1000)
   if (res.ok) return { ok: true, status: res.status }
   // 镜像全失败：不轻易判死（可能是镜像本身不可达），让详情抓取做 best-effort 兜底
   return { ok: true, status: res.status }
 }
 
-async function searchMarketRepos(topic, q, page, source) {
-  // 官方与镜像两个通道同时发起，取第一个成功响应（"哪个快用哪个"）
-  const res = await raceFetch(apiSearchUrls(topic, q, page, source), 20000, { Accept: 'application/vnd.github+json' })
+async function searchMarketRepos(topic, q, page, sources) {
+  // 选中的来源通道同时发起，取第一个成功响应（"哪个快用哪个"）
+  const res = await raceFetch(apiSearchUrls(topic, q, page, sources), 20000, { Accept: 'application/vnd.github+json' }, 15000)
   if (!res.ok) return { ok: false, error: 'HTTP ' + (res.status ?? 0) || '网络请求失败' }
   try {
     const json = JSON.parse(res.text)
@@ -844,7 +886,7 @@ function buildGithubPluginPack(repo, ref, npmName, version, meta) {
   }))
 }
 
-async function fetchRepoDetail(repo, ref, meta, source) {
+async function fetchRepoDetail(repo, ref, meta, sources) {
   const entry = {
     id: packIdOf(repo),
     repo,
@@ -869,32 +911,39 @@ async function fetchRepoDetail(repo, ref, meta, source) {
     importError: null,
     manifest: null,
   }
-  const raw = (name) => rawFileUrls(repo, ref, name, source)
+  const raw = (name) => rawFileUrls(repo, ref, name, sources)
   // 存活探测：已删除/改名的仓库（如搜索索引里的失效条目）立即判死，不再走耗时抓取
-  const alive = await probeRepo(repo, source)
+  const alive = await probeRepo(repo, sources)
   if (!alive.ok) {
     entry.importable = false
     entry.importError = '仓库不存在或已被删除/改名'
     return entry
   }
-  // 三路并发：包清单（hotpack/.dshpack）· package.json · README（候选对比）；每路内部官方+镜像全并发测速取最快
+  // 三路并发：包清单（hotpack/.dshpack）· package.json · README（候选对比）；
+  // 每路所有候选并行发起、取第一个成功，且受总预算约束（到期立即结算，防 curl 兜底挂满）。
+  const fetchFirstOk = async (candidateNames, budgetMs) => {
+    const start = Date.now()
+    // 每个候选并发发起（官方+选中镜像全竞速）；按候选出现顺序取第一个成功
+    const results = await Promise.all(candidateNames.map(async (name) => {
+      const remain = budgetMs - (Date.now() - start)
+      if (remain <= 0) return { name, res: { ok: false, status: 0, text: '' } }
+      const res = await raceFiles(raw(name), MARKET_FILE_TIMEOUT_MS, undefined, remain)
+      return { name, res }
+    }))
+    return results.find((r) => r.res.ok) || null
+  }
   const [packScan, pkgRes, readmeScan] = await Promise.all([
     (async () => {
-      for (const name of MARKET_PACK_CANDIDATES) {
-        const res = await raceFiles(raw(name), MARKET_TIMEOUT_MS)
-        if (!res.ok) continue
-        const parsed = name === 'hotpack.json' ? parseHotpack(res.text) : dshpackToHotpack(res.text)
-        if (parsed.ok) return { name, pack: parsed.pack }
-      }
-      return null
+      const hit = await fetchFirstOk(MARKET_PACK_CANDIDATES, MARKET_FILE_BUDGET_MS)
+      if (!hit) return null
+      const parsed = hit.name === 'hotpack.json' ? parseHotpack(hit.res.text) : dshpackToHotpack(hit.res.text)
+      return parsed.ok ? { name: hit.name, pack: parsed.pack } : null
     })(),
-    raceFiles(raw('package.json'), MARKET_TIMEOUT_MS),
+    raceFiles(raw('package.json'), MARKET_FILE_TIMEOUT_MS, undefined, MARKET_FILE_BUDGET_MS),
     (async () => {
-      for (const name of MARKET_README_CANDIDATES) {
-        const res = await raceFiles(raw(name), MARKET_TIMEOUT_MS)
-        if (res.ok) return { name, text: res.text, url: res.url }
-      }
-      return null
+      const hit = await fetchFirstOk(MARKET_README_CANDIDATES, MARKET_FILE_BUDGET_MS)
+      if (!hit) return null
+      return { name: hit.name, text: hit.res.text, url: hit.res.url }
     })(),
   ])
   // 1) 包 manifest：repo 本身就是包集合 → 直接作为导入对象
@@ -938,14 +987,14 @@ async function fetchRepoDetail(repo, ref, meta, source) {
 async function marketListAsync(params) {
   const valid = sanitizeMarketParams(params)
   if (!valid.ok) return { ok: false, error: valid.error }
-  const cacheKey = valid.topic + '|' + valid.q + '|' + valid.source + '|' + valid.page
+  const cacheKey = valid.topic + '|' + valid.q + '|' + valid.sources.join(',') + '|' + valid.page
   if (!valid.refresh) {
     const cache = readJson(MARKET_CACHE_FILE())
     if (cache && cache.key === cacheKey && Array.isArray(cache.entries)) {
-      return { ok: true, cached: true, cachedAt: cache.cachedAt, total: cache.total, page: cache.page, source: cache.source, fetchedVia: cache.fetchedVia, entries: cache.entries }
+      return { ok: true, cached: true, cachedAt: cache.cachedAt, total: cache.total, page: cache.page, sources: cache.sources, fetchedVia: cache.fetchedVia, entries: cache.entries }
     }
   }
-  const search = await searchMarketRepos(valid.topic, valid.q, valid.page, valid.source)
+  const search = await searchMarketRepos(valid.topic, valid.q, valid.page, valid.sources)
   if (!search.ok) return { ok: false, error: search.error }
   const entries = []
   let index = 0
@@ -953,7 +1002,7 @@ async function marketListAsync(params) {
     while (index < search.items.length) {
       const item = search.items[index++]
       try {
-        entries.push(await fetchRepoDetail(item.repo, item.ref, item, valid.source))
+        entries.push(await fetchRepoDetail(item.repo, item.ref, item, valid.sources))
       } catch (error) {
         entries.push({
           id: packIdOf(item.repo), repo: item.repo, ref: item.ref,
@@ -969,7 +1018,7 @@ async function marketListAsync(params) {
   }
   await Promise.all(Array.from({ length: MARKET_DETAIL_CONCURRENCY }, () => worker()))
   entries.sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0))
-  const result = { ok: true, cached: false, cachedAt: null, total: search.total, page: valid.page, source: valid.source, fetchedVia: search.fetchedVia, entries }
+  const result = { ok: true, cached: false, cachedAt: null, total: search.total, page: valid.page, sources: valid.sources, fetchedVia: search.fetchedVia, entries }
   try {
     writeJsonSafe(MARKET_CACHE_FILE(), { key: cacheKey, ...result, cachedAt: new Date().toISOString() })
   } catch {}
