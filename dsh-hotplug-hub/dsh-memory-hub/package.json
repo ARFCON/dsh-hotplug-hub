@@ -1,14 +1,15 @@
 {
   "name": "dsh-memory-hub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "DSH 记忆中枢：全局记忆包（memory-pack），与 profile 解耦；memory.search / memory.commit / memory.suggest 工具 + 关键词路由 + 确认制提案队列 + BM25 检索 + 审计。切包不丢，AI 可检索。",
+  "description": "DSH 记忆中枢：全局记忆包（memory-pack），与 profile 解耦；memory.search / memory.commit / memory.suggest / memory.log / memory.review_status 工具 + 关键词路由 + 确认制提案队列 + BM25 检索 + 审计 + 缓存友好注入（pinned 预算/变更尾部）+ GUI 页签。切包不丢，AI 可检索。",
   "type": "module",
   "main": "lib/index.mjs",
   "exports": {
     ".": { "default": "./lib/index.mjs" },
     "./protocol": { "default": "./lib/protocol.mjs" },
     "./store": { "default": "./lib/store.mjs" },
+    "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -18,6 +19,12 @@
     "README.md",
     "cordis.patch.yml"
   ],
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
   "license": "MIT",
   "engines": {
     "node": ">=22.0.0"

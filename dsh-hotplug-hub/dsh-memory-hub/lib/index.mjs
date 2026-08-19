@@ -18,6 +18,7 @@ import {
 } from './constants.mjs'
 import { MemoryStore, defaultHubDir, isExpired } from './store.mjs'
 import { MemoryHubService } from './service.mjs'
+import { buildMemoryApi } from './webapi.mjs'
 import { NotFoundError } from './errors.mjs'
 
 export const name = 'dsh-memory-hub'
@@ -32,6 +33,9 @@ function defaultConfig(config) {
   cfg.snapshotOrder = Number.isFinite(cfg.snapshotOrder) ? cfg.snapshotOrder : 50
   cfg.snapshotChars = Number.isFinite(cfg.snapshotChars) ? cfg.snapshotChars : DEFAULTS.snapshotChars
   cfg.searchLimit = Number.isFinite(cfg.searchLimit) ? cfg.searchLimit : DEFAULTS.searchLimit
+  cfg.reviewEveryTurns = Number.isFinite(cfg.reviewEveryTurns) ? cfg.reviewEveryTurns : 8
+  cfg.tailMaxNotices = Number.isFinite(cfg.tailMaxNotices) ? cfg.tailMaxNotices : DEFAULTS.tailMaxNotices
+  cfg.tailMaxChars = Number.isFinite(cfg.tailMaxChars) ? cfg.tailMaxChars : DEFAULTS.tailMaxChars
   return cfg
 }
 
@@ -215,6 +219,42 @@ function buildTools(service, config) {
     },
   }))
 
+  tools.push(defineTool({
+    name: 'memory.log',
+    description: 'Append one line to the L3 log track (daily / project-<slug>). Logs are NOT injected into the prompt and are never recalled — high-frequency session notes kept out of the stable prefix. Use for work logs, per-task summaries, daily notes.',
+    parameters: {
+      scope: { type: 'string', description: 'Log scope: "daily" (default) or "project-<slug>", lowercase [a-z0-9._-].' },
+      text: { type: 'string', required: true, description: 'One line of log text (auto-prefixed with UTC timestamp).' },
+    },
+    output: TEXT_OUTPUT,
+    timeoutMs: 10_000,
+    isConcurrencySafe: () => true,
+    execute: (args) => {
+      const res = service.log({ scope: args.scope, text: String(args.text ?? '') })
+      return JSON.stringify({ saved: res.path, line: res.line, scope: res.scope }, null, 2)
+    },
+  }))
+
+  tools.push(defineTool({
+    name: 'memory.review_status',
+    description: `Check whether an in-round memory review is due (M3 auto-memory). After ≈${config.reviewEveryTurns ?? 8} memory changes since the last review, due=true — then in the TURN TAIL do a quiet review: memory.suggest worth-remembering facts (never commit directly), then call memory.review_done. Also reports pending proposal count.`,
+    parameters: {},
+    output: TEXT_OUTPUT,
+    timeoutMs: 10_000,
+    isConcurrencySafe: () => true,
+    execute: () => JSON.stringify(service.reviewStatus(), null, 2),
+  }))
+
+  tools.push(defineTool({
+    name: 'memory.review_done',
+    description: 'Mark an in-round memory review as completed (records timestamp + resets the review-due counter). Call it at the end of the review turn, after submitting memory.suggest proposals.',
+    parameters: {},
+    output: TEXT_OUTPUT,
+    timeoutMs: 10_000,
+    isConcurrencySafe: () => true,
+    execute: () => JSON.stringify(service.reviewDone(), null, 2),
+  }))
+
   return tools
 }
 
@@ -245,14 +285,23 @@ function snapshotText(service, config) {
   if (pinned.length > 0) {
     body += `\n\n## 常驻记忆（pinned）\n${pinned.join('\n')}`
   }
-  if (body.length > config.snapshotChars) body = body.slice(0, config.snapshotChars) + '…'
-  return body
+  // 预算：先钳住动态部分，固定提示行永远保留（保证前缀稳定 + 引导收尾自动沉淀）。
+  const fixed = `\n\n> ${STRINGS.fixedPromptLine}`
+  const cap = Math.max(0, (config.snapshotChars ?? DEFAULTS.snapshotChars) - fixed.length - 8)
+  if (body.length > cap) body = body.slice(0, cap) + '…'
+  return body + fixed
 }
 
 // ---------- apply ----------
 
 export function apply(ctx, config) {
   const cfg = defaultConfig(config)
+  // 变更通知（M2 尾部注入）：每插件实例独立的有界滚动队列（跨实例不泄漏）。
+  const changeLog = []
+  const pushChange = (change) => {
+    changeLog.push(change)
+    if (changeLog.length > 64) changeLog.splice(0, changeLog.length - 64)
+  }
   const store = new MemoryStore(cfg.hubDir)
   store.ensureDefaultPack()
   const service = new MemoryHubService({
@@ -260,6 +309,7 @@ export function apply(ctx, config) {
     config: cfg,
     gate: policyGate(cfg),
     sourceLabel: NS,
+    notify: pushChange,
   })
 
   // 服务发布为 ctx.memory（types.d.ts 声明合并）
@@ -291,6 +341,28 @@ export function apply(ctx, config) {
     },
   }), 'dsh-memory-hub.snapshot')
 
+  // M2 变更检测尾部注入：仅在「上次展示后发生过记忆变更」时返回非空文本，
+  // 且每会话消费一次即消失——空闲轮逐字节复用前缀缓存（前缀静态性验收）。
+  const tailSeen = new WeakMap()
+  ctx.effect(() => ctx.systemPrompt.section({
+    name: `${NS}:memory-tail`,
+    order: cfg.snapshotOrder + 1,
+    text: (assemble) => {
+      const agent = assemble && typeof assemble === 'object' ? assemble.agent : null
+      const session = agent && typeof agent === 'object' ? agent.session : null
+      if (session === null || session === undefined) return ''
+      const seen = tailSeen.get(session) ?? 0
+      const fresh = changeLog.filter((change) => change.at > seen)
+      if (fresh.length === 0) return ''
+      const lines = fresh.slice(-(cfg.tailMaxNotices ?? DEFAULTS.tailMaxNotices))
+        .map((c) => `- ${c.action} ${c.packId}${c.name ? `/${c.name}` : ''}${c.proposalId ? ` (${c.proposalId})` : ''}`)
+      let body = `${STRINGS.tailHeader}\n${lines.join('\n')}`
+      if (body.length > (cfg.tailMaxChars ?? DEFAULTS.tailMaxChars)) body = body.slice(0, cfg.tailMaxChars) + '…'
+      tailSeen.set(session, fresh[fresh.length - 1].at)
+      return body
+    },
+  }), 'dsh-memory-hub.tail')
+
   // /memory 命令（commands 服务存在时动态注册；未 inject，用 ctx.get 防抛错）
   const registerCommands = () => {
     let commands
@@ -310,6 +382,9 @@ export function apply(ctx, config) {
   ctx.effect(() => ctx.on('internal/service', (svcName) => {
     if (svcName === 'commands') registerCommands()
   }), 'dsh-memory-hub.command-watch')
+
+  // M4 Web 面板数据面：/memory-hub/api/*（webServer 服务存在时挂载；同源 fence）
+  mountWebApi(ctx, service)
 
   return service
 }
@@ -365,3 +440,89 @@ async function memoryCommand(service, args) {
 }
 
 export { MemoryHubService, snapshotText, policyGate }
+
+// ---------- M4 Web 面板：/memory-hub/api/* 挂载（webServer + 同源 fence） ----------
+
+function mountWebApi(ctx, service) {
+  if (typeof ctx.inject !== 'function') return
+  ctx.inject(['webServer'], (host) => {
+    ctx.effect(() => host.webServer.register({
+      kind: 'prefix',
+      path: '/memory-hub/api',
+      handler: async (req, res) => {
+        if (!trustedOrigin(req)) {
+          return writeJson(res, 403, { ok: false, error: { code: 'forbidden', message: 'forbidden' } })
+        }
+        const base = 'http://dsh.internal'
+        const url = new URL(req.url ?? '/', base)
+        const method = url.pathname.startsWith('/memory-hub/api/') ? url.pathname.slice('/memory-hub/api/'.length) : ''
+        if (method === '' || method.includes('/')) {
+          return writeJson(res, 404, { ok: false, error: { code: 'not-found', message: `unknown api method "${method}"` } })
+        }
+        const api = buildMemoryApi(service)
+        if (typeof api[method] !== 'function') {
+          return writeJson(res, 404, { ok: false, error: { code: 'not-found', message: `unknown api method "${method}"` } })
+        }
+        try {
+          let payload = {}
+          if (req.method === 'POST' || req.method === 'PUT') {
+            payload = await readJsonBody(req)
+          } else {
+            payload = Object.fromEntries(url.searchParams)
+          }
+          const data = await api[method](payload)
+          return writeJson(res, 200, { ok: true, data })
+        } catch (error) {
+          const code = error?.code ?? error?.name ?? 'error'
+          const status = (/NOT_FOUND|not-found/i.test(code)) ? 404
+            : (/WRITE_DENIED|BUDGET_EXCEEDED|SUBJECT_CONFLICT|AMBIGUOUS_MATCH/i.test(code)) ? 409
+              : 500
+          return writeJson(res, status, { ok: false, error: { code, message: error?.message ?? String(error) } })
+        }
+      },
+    }), 'dsh-memory-hub: /memory-hub/api routes')
+  })
+}
+
+/** 同源 fence：Origin 存在则须与 Host 一致；无 Origin 时只认本地监听地址。 */
+function trustedOrigin(req) {
+  const host = String(req.headers?.host ?? '')
+  const origin = String(req.headers?.origin ?? '')
+  if (origin !== '' && origin !== 'null') {
+    try {
+      return new URL(origin).host === host
+    } catch {
+      return false
+    }
+  }
+  return host.startsWith('127.0.0.1') || host.startsWith('localhost') || host.startsWith('[::1]')
+}
+
+function writeJson(res, status, body) {
+  const text = JSON.stringify(body)
+  try {
+    res.writeHead?.(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+    res.end?.(text)
+  } catch {
+    /* host 面差异容忍 */
+  }
+  return true
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    if (typeof req.body === 'object' && req.body !== null) return resolve(req.body)
+    const chunks = []
+    req.on?.('data', (c) => { chunks.push(c) })
+    req.on?.('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8')
+      if (raw.trim() === '') return resolve({})
+      try {
+        resolve(JSON.parse(raw))
+      } catch (error) {
+        reject(error)
+      }
+    })
+    req.on?.('error', reject)
+  })
+}

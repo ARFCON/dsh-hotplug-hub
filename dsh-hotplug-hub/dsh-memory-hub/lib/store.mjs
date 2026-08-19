@@ -27,7 +27,7 @@ import { join, dirname, basename, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import {
   FILES, PACK_SCHEMA_VERSION, PACK_KEYS, SCOPES, TYPES, ACTIVATIONS,
-  DEFAULTS, VOLATILITIES,
+  DEFAULTS, VOLATILITIES, NAME_RE, REF_RE, REVIEW_FILE,
 } from './constants.mjs'
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter.mjs'
 import { newMemoryId, revisionFileName } from './id.mjs'
@@ -88,8 +88,8 @@ function atomicWriteJson(path, value) {
 
 /** 名 → 路径 白名单：只允许 NAME_RE 字符（防路径穿越）。 */
 function assertSafeName(name, label = 'name') {
-  if (typeof name !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name)) {
-    throw new InvalidInputError(`${label} 非法（应为 1-64 位小写字母数字 ._-）：${String(name)}`)
+  if (typeof name !== 'string' || !NAME_RE.test(name)) {
+    throw new InvalidInputError(`${label} 非法（应为 1-64 位 Unicode 字母/数字 ._-）：${String(name)}`)
   }
 }
 
@@ -317,7 +317,7 @@ export class MemoryStore {
   /** 解析给定限定引用的 (packId, name)；不存在的引用返回 null。 */
   resolveReference(ref) {
     if (typeof ref !== 'string') return null
-    const match = /^(project|global)\/([a-z0-9][a-z0-9._-]{0,63})\.md$/.exec(ref.trim())
+    const match = REF_RE.exec(ref.trim())
     if (match === null) return null
     const [, scope, name] = match
     const packId = this.packIdForScope(scope)
@@ -593,6 +593,81 @@ export class MemoryStore {
         )
       }
     }
+  }
+
+  // ----- L3 日志轨（M3：project/daily，不注入、按需读取；<hub>/logs/）-----
+
+  logRoot() {
+    return safeJoin(this.hubDir, 'logs')
+  }
+
+  /** scope → 安全子目录（小写字母数字 .-_，最长 48）。 */
+  safeScopeDir(scope) {
+    const raw = String(scope ?? 'daily').trim().toLowerCase().replace(/^[./\\]+/, '').replace(/[^a-z0-9._-]+/g, '-').slice(0, 48)
+    if (raw === '') throw new InvalidInputError('日志 scope 非法（空）')
+    if (raw === '.' || raw === '..' || /^\./.test(raw)) throw new InvalidInputError(`日志 scope 非法：${String(scope)}`)
+    return raw
+  }
+
+  logPath(scope, date = new Date()) {
+    const day = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+    return safeJoin(this.logRoot(), this.safeScopeDir(scope), `${day}.md`)
+  }
+
+  /**
+   * 追加一条日志（原子写、纯追加、时间戳前缀）。返回落盘信息。
+   * @param {string} scope 'daily' | 'project-<slug>' | 任意安全 slug
+   * @param {string} text
+   */
+  appendLog(scope, text) {
+    const line = `${new Date().toISOString()}  ${String(typeof text === 'string' ? text : '').trim().slice(0, 2000)}`
+    const path = this.logPath(scope)
+    mkdirSync(dirname(path), { recursive: true })
+    const existed = existsSync(path)
+    let content = line + '\n'
+    if (existed) content = readFileSync(path, 'utf8') + content
+    atomicWriteText(path, content)
+    const lines = content.trim().split('\n').length
+    return { path, line: lines, scope: this.safeScopeDir(scope) }
+  }
+
+  /** 列出某 scope 的日志文件（按日期名倒序）。 */
+  listLogs(scope) {
+    const dir = safeJoin(this.logRoot(), this.safeScopeDir(scope))
+    if (!existsSync(dir)) return []
+    return readdirSync(dir).filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f)).sort().reverse()
+  }
+
+  readLog(scope, date) {
+    const dir = safeJoin(this.logRoot(), this.safeScopeDir(scope))
+    const file = /^\d{4}-\d{2}-\d{2}\.md$/.test(String(date ?? '')) ? String(date) : null
+    if (file === null) {
+      const files = this.listLogs(scope)
+      if (files.length === 0) return ''
+      return readFileSync(safeJoin(dir, files[0]), 'utf8')
+    }
+    const path = safeJoin(dir, file)
+    return existsSync(path) ? readFileSync(path, 'utf8') : ''
+  }
+
+  // ----- 审查状态（M3 方案 B：每 N 次变更后到期审查；<hub>/review-state.json）-----
+
+  readReviewState() {
+    const path = safeJoin(this.hubDir, REVIEW_FILE)
+    if (!existsSync(path)) return { lastReviewedAt: null, markedTurns: 0 }
+    try {
+      const raw = JSON.parse(readFileSync(path, 'utf8'))
+      return {
+        lastReviewedAt: typeof raw.lastReviewedAt === 'string' ? raw.lastReviewedAt : null,
+        markedTurns: Number.isFinite(raw.markedTurns) ? Number(raw.markedTurns) : 0,
+      }
+    } catch {
+      return { lastReviewedAt: null, markedTurns: 0 }
+    }
+  }
+
+  writeReviewState(state) {
+    atomicWriteJson(safeJoin(this.hubDir, REVIEW_FILE), state)
   }
 }
 

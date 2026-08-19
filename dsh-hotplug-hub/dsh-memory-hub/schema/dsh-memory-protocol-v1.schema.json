@@ -62,7 +62,7 @@
       "properties": {
         "id": { "$ref": "#/definitions/entryId" },
         "revision": { "type": "integer", "minimum": 1 },
-        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+        "name": { "type": "string", "pattern": "^[\\p{L}\\p{N}][\\p{L}\\p{N}._-]{0,63}$" },
         "title": { "type": "string", "maxLength": 200 },
         "description": { "type": "string", "maxLength": 500 },
         "type": { "$ref": "#/definitions/memoryType" },

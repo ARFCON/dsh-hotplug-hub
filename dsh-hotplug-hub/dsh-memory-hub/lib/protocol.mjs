@@ -9,11 +9,12 @@
  *    rejected=拒绝（denied，Nothing written）——全部落审计。
  *  - 写前 budget 检查、subject 冲突检查、name 唯一化、revision 快照、审计行。
  */
-import { DEFAULTS } from './constants.mjs'
+import { DEFAULTS, NAME_RE, STRINGS } from './constants.mjs'
 import {
   BudgetExceededError, InvalidInputError, NotFoundError, SubjectConflictError, WriteDeniedError,
 } from './errors.mjs'
 import { newMemoryId, isEntryId } from './id.mjs'
+import { isExpired } from './store.mjs'
 
 const ENUM = {
   types: ['user', 'feedback', 'project', 'reference'],
@@ -39,15 +40,19 @@ export class MemoryProtocolCore {
   /**
    * @param {object} deps
    * @param {import('./store.mjs').MemoryStore} deps.store
-   * @param {{writePolicy: string, maxPendingProposals?: number, snapshotChars?: number}} deps.config
+   * @param {{writePolicy: string, maxPendingProposals?: number, snapshotChars?: number, reviewEveryTurns?: number}} deps.config
    * @param {(payload: object, write: object) => Promise<GateResult>} deps.gate  默认门=ask→queued
    * @param {string} [deps.sourceLabel]  审计 source 标签
+   * @param {(change: {action: string, packId: string, name?: string, proposalId?: string}) => void} [deps.notify]  变更回调（M2 尾部注入）
    */
   constructor(deps) {
     this.store = deps.store
     this.config = deps.config
     this.sourceLabel = deps.sourceLabel ?? 'memory-hub'
     this.gate = deps.gate ?? (async () => ({ outcome: 'queued', source: 'proposals' }))
+    this.notify = typeof deps.notify === 'function' ? deps.notify : null
+    /** 会话内记忆变更计数（M3 审查定级用；跨 restarts 以 review-state.json 存 lastReviewedAt）。 */
+    this.changeCount = 0
   }
 
   /**
@@ -85,6 +90,7 @@ export class MemoryProtocolCore {
 
     if (result.outcome === 'queued') {
       const proposal = this.enqueueProposal(packId, { kind: action, entry, reason: write.reason })
+      this._postChange({ action: 'proposal', packId, proposalId: proposal.id, name: entry?.title })
       return { approved: false, proposalId: proposal.id }
     }
 
@@ -157,6 +163,35 @@ export class MemoryProtocolCore {
 
   // ----- 落盘（被门放行后） -----
 
+  /** 变更计数 + 通知（尾部注入回调；协议层单一入口，不依赖 DSH）。 */
+  _postChange(change) {
+    this.changeCount += 1
+    this.notify?.({ at: Date.now(), ...change })
+  }
+
+  /**
+   * pinned 预算校验（M2）：若该条目 activation=pinned，估算入前缀字符，
+   * 超 snapshotChars 抛 BUDGET_EXCEEDED（提示常驻规则进指令文件）。
+   * 更新场景排除自身（同名），避免更新自己时误判。
+   */
+  validatePinnedBudget(packId, entry) {
+    if (entry === null || typeof entry !== 'object' || entry.activation !== 'pinned') return
+    const budget = Number.isFinite(this.config.snapshotChars) ? this.config.snapshotChars : DEFAULTS.snapshotChars
+    const pad = DEFAULTS.pinnedEstimatePad
+    const est = (e) => String(e.title ?? '').length + String(e.description ?? '').length + pad
+    const current = this.store.allEntries()
+      .filter(({ entry: e }) => e.activation === 'pinned' && !isExpired(e))
+      .filter(({ packId: p, entry: e }) => !(p === packId && e.name === entry.name))
+      .reduce((sum, { entry: e }) => sum + est(e), 0)
+    const total = current + est(entry)
+    if (total > budget) {
+      throw new BudgetExceededError(
+        `pinned 预算超限：常驻记忆估算 ${total} 字符 > ${budget}（snapshotChars）。${STRINGS.pinnedBudgetHint}`,
+        { chars: total, budget },
+      )
+    }
+  }
+
   applyCreateOrUpdate(packId, entry) {
     const normalized = this.normalizeEntry(entry)
     this.validateEntryShape(normalized)
@@ -181,15 +216,19 @@ export class MemoryProtocolCore {
         body: normalized.body ?? prev.body,
         want: undefined,
       }
+      this.validatePinnedBudget(packId, next)
       this.store.writeEntryFile(packId, next)
       this.store.rebuildIndex(packId)
       this.store.syncPackCount(packId)
+      this._postChange({ action: 'update', packId, name: next.name })
       return next
     }
+    this.validatePinnedBudget(packId, normalized)
     this.assertSubjectFree(packId, normalized)
     this.store.writeEntryFile(packId, normalized)
     this.store.rebuildIndex(packId)
     this.store.syncPackCount(packId)
+    this._postChange({ action: 'create', packId, name: normalized.name })
     return normalized
   }
 
@@ -201,13 +240,14 @@ export class MemoryProtocolCore {
     this.store.deleteEntryFile(found.packId, found.entry.name)
     this.store.rebuildIndex(packId)
     this.store.syncPackCount(packId)
+    this._postChange({ action: 'remove', packId, name: found.entry.name })
     return { id: found.entry.id, name: found.entry.name }
   }
 
   /** 统一条目规范化（补默认、校验）；生成 id/name/timestamps。 */
   normalizeEntry(input) {
     const now = new Date().toISOString()
-    const name = typeof input.name === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.name)
+    const name = typeof input.name === 'string' && NAME_RE.test(input.name)
       ? input.name
       : slugify(typeof input.title === 'string' ? input.title : 'untitled')
     return {
@@ -282,6 +322,7 @@ export class MemoryProtocolCore {
   reject(packId, proposalId, reason) {
     this.store.setProposalStatus(packId, proposalId, 'rejected', { reason: reason ?? '' })
     this.store.auditAppend({ action: 'reject', packId, proposalId, operator: 'user', outcome: 'ok', detail: reason })
+    this._postChange({ action: 'reject', packId, proposalId })
   }
 
   restoreArchived(packId, name) {
@@ -298,21 +339,23 @@ export class MemoryProtocolCore {
     this.store.rebuildIndex(packId)
     this.store.syncPackCount(packId)
     this.store.auditAppend({ action: 'restore', packId, entryId: restored.id, operator: 'user', outcome: 'ok' })
+    this._postChange({ action: 'restore', packId, name: restored.name })
     return restored
   }
 }
 
-/** name 由 title 求 slug（kebab，1-64 位，字母开头）。 */
+/**
+ * name 由 title 求 slug（kebab，1-64 位，Unicode 字母/数字开头）。
+ * Unicode 感知：纯中文标题原样保留中文字符（Windows/文件系统友好），不再塌成 'm-'。
+ */
 export function slugify(title) {
   const raw = String(title ?? '')
     .toLowerCase()
     .trim()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/[\s_]+/g, '-')
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 64)
-  if (/^[a-z0-9]/.test(raw)) return raw
-  const fallback = `m-${raw.replace(/^-*/g, '')}`.slice(0, 64)
-  return /^[a-z0-9]/.test(fallback) ? fallback : 'untitled'
+  if (NAME_RE.test(raw)) return raw
+  return 'm-' + String(title ?? 'untitled').slice(0, 62)
 }
