@@ -186,3 +186,28 @@ git push origin feature/文档1-<改动内容>
 - 每次打开客户端：自动检查 GitHub 最新版本，有新版本提示下载。
 - 每次修改文件前（同步时）：自动检查最新版本，有新版本必须先更新再修改。
 - 每次更新完成后：自动 `git push`，并同步更新 `README.md` 的更新公告。
+
+## 16. 必须逐条汇报遵守情况（强制）
+
+每次任务开始和结束时，AI 必须逐条汇报自己是否遵守了以下流程，不允许省略：
+
+### 动手前（必须逐条确认）
+- [ ] 已运行 `pwsh -File scripts/sync-repo.ps1`（同步最新 + 检查最新版）
+- [ ] 已运行 `pwsh -File scripts/check-recent.ps1 -Path <要改的文件>`（检查最近改动）
+- [ ] 已阅读 `README.md` / `AI_AGENTS.md` 相关规则
+
+### 修改后（必须逐条确认）
+- [ ] 已更新 `README.md` 更新公告
+- [ ] 已运行 `pwsh -File scripts/remember-doc.ps1 -DocPath README.md`
+- [ ] 已运行 `pwsh -File scripts/remember-doc.ps1 -DocPath AI_AGENTS.md`
+
+### 上传前（必须逐条确认）
+- [ ] 已运行 `pwsh -File scripts/check-before-upload.ps1`
+- [ ] 已确认全部检查通过
+- [ ] 已确认 README 更新公告已写
+
+### 任务结束后
+- [ ] 已询问：是否执行本轮任务审查？
+- [ ] 已按用户选择登记到 `开发文档/团队/确认审查.md`
+
+任何一项未执行，AI 必须明确说明原因，并先补做再继续。
