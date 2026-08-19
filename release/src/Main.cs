@@ -46,7 +46,7 @@ namespace DSHHotplugHub
             catch { Icon = SystemIcons.Application; }
 
             webView.Dock = DockStyle.Fill;
-            webView.DefaultBackgroundColor = DshTheme.Bg; // 与 Web --bg 一致，避免加载瞬间白闪
+            webView.DefaultBackgroundColor = Color.White;
 
             Controls.Add(webView);
             Load += async delegate { await InitializeAsync(); };
@@ -150,16 +150,15 @@ namespace DSHHotplugHub
         // 左侧栏底部版本信息上方注入居中启动按钮；同时补上原型缺失的 .hidden 规则，让左侧导航真正切换视图
         private static string InjectSidebarLaunchButton(string html)
         {
-            // 注入样式直接引用页面 :root 令牌（var(--teal) 等），与 prototype.html 单一配色源保持一致
             string style = "<style>" +
                 ".hidden { display: none !important; }" +
                 ".side-launch { margin: 4px 0 12px; text-align: center; }" +
                 ".side-launch .launch-btn {" +
-                " width: 100%; padding: 10px 12px; border: 0; border-radius: var(--rad);" +
-                " background: var(--teal); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;" +
+                " width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;" +
+                " background: #0e7c6b; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;" +
                 " }" +
-                ".side-launch .launch-btn:hover { background: var(--teal-hover); }" +
-                ".side-launch .launch-btn.secondary { background: transparent; border: 1px solid rgba(255,255,255,0.35); color: var(--sidebar-ink); margin-top: 8px; }" +
+                ".side-launch .launch-btn:hover { background: #0a6a5c; }" +
+                ".side-launch .launch-btn.secondary { background: transparent; border: 1px solid rgba(255,255,255,0.35); color: #e7f0ec; margin-top: 8px; }" +
                 ".side-launch .launch-btn.secondary:hover { background: rgba(255,255,255,0.08); }" +
                 "</style>";
 
@@ -181,7 +180,7 @@ namespace DSHHotplugHub
         private static string BuildNativeSelfCheckScript()
         {
             string node = RunCli("node", "--version");
-            string pnpm = RunCli("pnpm", "--version");
+            string pnpm = GetPnpmVersion();
             string dshDesktop = FindOfficialHarness();
             string dshVersion = null;
             if (dshDesktop != null)
@@ -244,6 +243,30 @@ namespace DSHHotplugHub
             {
                 return null;
             }
+        }
+
+        // pnpm 在 Windows 下通常是 pnpm.ps1 / pnpm.cmd，直接 spawn "pnpm" 会失败，这里做多路探测
+        private static string GetPnpmVersion()
+        {
+            // 1) 通过 cmd.exe 解析 pnpm（能识别 PATH 里的 pnpm.cmd / pnpm.ps1）
+            string v = RunCli("cmd.exe", "/c pnpm --version");
+            if (!string.IsNullOrEmpty(v)) return v;
+
+            // 2) 直接尝试 pnpm.cmd
+            v = RunCli("pnpm.cmd", "--version");
+            if (!string.IsNullOrEmpty(v)) return v;
+
+            // 3) 常见 npm 全局目录
+            string known = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "npm", "pnpm.cmd");
+            if (File.Exists(known))
+            {
+                v = RunCli(known, "--version");
+                if (!string.IsNullOrEmpty(v)) return v;
+            }
+
+            return null;
         }
 
         private static string DetectProfiles()
@@ -603,9 +626,7 @@ namespace DSHHotplugHub
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
                 dlg.MinimizeBox = false;
-                dlg.Font = DshTheme.UiFont;
-                dlg.BackColor = DshTheme.Panel;   // --panel
-                dlg.ForeColor = DshTheme.Ink;     // --ink
+                dlg.Font = new Font("Microsoft YaHei UI", 9F);
 
                 Label info = new Label();
                 info.Text =
@@ -617,7 +638,7 @@ namespace DSHHotplugHub
                     "请在官方 DSH Desktop 的模型设置中修改 API 配置，\r\n" +
                     "修改后点击“重新读取”即可生效。";
                 info.SetBounds(20, 16, 500, 160);
-                info.ForeColor = DshTheme.Ink; // --ink
+                info.ForeColor = Color.FromArgb(23, 32, 29);
 
                 Button refresh = new Button();
                 refresh.Text = "重新读取";
@@ -658,9 +679,6 @@ namespace DSHHotplugHub
                 Button launch = new Button();
                 launch.Text = "启动官方 DSH 配置";
                 launch.SetBounds(270, 200, 140, 32);
-                launch.BackColor = DshTheme.Teal;      // 与 .btn.primary 语义一致
-                launch.ForeColor = Color.White;
-                launch.FlatStyle = FlatStyle.Flat;
                 launch.Click += delegate { LaunchOfficialHarness(); };
 
                 Button close = new Button();
@@ -838,26 +856,5 @@ namespace DSHHotplugHub
 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
-    }
-
-    // ---- 设计令牌（与 dsh-pack-hub/prototype.html :root 保持同值；禁止另发明色值）----
-    // 唯一权威色表见 开发文档/DSH-统一UI开发标准.md §2.1
-    internal static class DshTheme
-    {
-        public static readonly Color Teal = Color.FromArgb(14, 124, 107);        // --teal
-        public static readonly Color TealDark = Color.FromArgb(15, 47, 42);      // --teal-dark
-        public static readonly Color TealSoft = Color.FromArgb(220, 238, 234);   // --teal-soft
-        public static readonly Color TealHover = Color.FromArgb(10, 106, 92);    // --teal-hover
-        public static readonly Color Bg = Color.FromArgb(241, 242, 236);         // --bg
-        public static readonly Color Panel = Color.FromArgb(255, 254, 249);      // --panel
-        public static readonly Color Ink = Color.FromArgb(23, 32, 29);           // --ink
-        public static readonly Color Muted = Color.FromArgb(102, 115, 110);      // --muted
-        public static readonly Color Line = Color.FromArgb(217, 221, 212);       // --line
-        public static readonly Color SidebarInk = Color.FromArgb(231, 240, 236); // --sidebar-ink
-        public static readonly Color Green = Color.FromArgb(26, 127, 75);        // --green
-        public static readonly Color Amber = Color.FromArgb(180, 83, 9);         // --amber
-        public static readonly Color Red = Color.FromArgb(179, 38, 30);          // --red
-        public static readonly Color SurfaceDark = Color.FromArgb(16, 36, 31);   // --surface-dark
-        public static readonly Font UiFont = new Font("Microsoft YaHei UI", 9F); // --font-sans 对应
     }
 }
