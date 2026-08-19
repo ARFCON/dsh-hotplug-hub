@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
@@ -32,13 +32,15 @@ namespace DSHHotplugHubInstaller
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            Font = new Font("Microsoft YaHei UI", 9F);
+            BackColor = Palette.Panel; // --panel
+            ForeColor = Palette.Ink;   // --ink
+            Font = Palette.UiFont;
 
             Label title = new Label();
             title.Text = "DSH 热插拔中枢 / DSH-Hotplug-Hub\n独立启动器 + 桌面 GUI 安装程序";
             title.SetBounds(20, 14, 500, 44);
-            title.Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
-            title.ForeColor = Color.FromArgb(14, 124, 107);
+            title.Font = Palette.TitleFont;
+            title.ForeColor = Palette.Teal; // --teal
 
             Label lbl = new Label();
             lbl.Text = "安装目录（C 盘，可更改）：";
@@ -67,7 +69,7 @@ namespace DSHHotplugHubInstaller
             progress.Maximum = 100;
 
             btnInstall.Text = "开始安装";
-            btnInstall.BackColor = Color.FromArgb(14, 124, 107);
+            btnInstall.BackColor = Palette.Teal; // --teal
             btnInstall.ForeColor = Color.White;
             btnInstall.FlatStyle = FlatStyle.Flat;
             btnInstall.SetBounds(390, 160, 120, 34);
@@ -203,5 +205,17 @@ namespace DSHHotplugHubInstaller
             sc.Description = "DSH 热插拔中枢（独立启动器）";
             sc.Save();
         }
+    }
+
+    // ---- 设计令牌（与 dsh-pack-hub/prototype.html :root 同值；禁止另发明色值）----
+    // 唯一权威色表见 开发文档/DSH-统一UI开发标准.md §2.1
+    internal static class Palette
+    {
+        public static readonly Color Teal = Color.FromArgb(14, 124, 107);       // --teal
+        public static readonly Color TealHover = Color.FromArgb(10, 106, 92);   // --teal-hover
+        public static readonly Color Ink = Color.FromArgb(23, 32, 29);          // --ink
+        public static readonly Color Panel = Color.FromArgb(255, 254, 249);     // --panel
+        public static readonly Font UiFont = new Font("Microsoft YaHei UI", 9F);
+        public static readonly Font TitleFont = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
     }
 }
