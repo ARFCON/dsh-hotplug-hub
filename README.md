@@ -5,8 +5,13 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 
 它在 DSH 进程之外读取插件组合 → 拼装临时 profile → 冲突预检 → 拉起官方 DSH → 捕获日志 → 自愈闭环。
 
-## 更新公告 · v0.1.9
-### v0.1.9（最新）
+## 更新公告 · v0.2.0
+### v0.2.0（最新）
+- 修复 Skill/MCP 面板与 memory-hub 不挂载的问题：插件安装统一走官方 `dsh plugin --profile web add <tgz>`，自动写入 `package.json` 依赖与 `dsh.profile.bundles`，不再手写 `cordis.patch.yml` 插入块。
+- 修复记忆中枢在 WebView 中拿不到真实数据的问题：启动时注入 `window.__setMemory` 并自动拉取 `~/.dsh/memory-hub`，移除 3 个演示用假记忆包。
+- EXE 启动时后台自动安装/更新 `dsh-memory-hub`（从 GitHub Release 解析 tgz 资产，失败写日志不阻塞启动）。
+- 跨平台安装脚本 `scripts/install-plugins.mjs` 同步改为 `dsh plugin add` 方式。
+### v0.1.9（历史）
 - 修复更新程序错误：dsh CLI 探测不再把 `cmd.exe` 版本横幅误判为 dsh；安装前自动写 `~/.dsh/profiles/web/.npmrc` 关闭严格 SSL，解决 GitHub Release 下载报 `UNABLE_TO_VERIFY_LEAF_SIGNATURE` 的问题。
 ### v0.1.8（历史）
 - 官方面板插件 `dsh-skill-mcp-panel` 自动安装/更新：自检页一键安装、打开时检查、修改后复查。

@@ -34,7 +34,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.1.9";
+        private const string APP_VERSION = "0.2.0";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_REPO = "Fishquito7/dsh-skill-mcp-panel";
         // GitHub Token 不再硬编码进源码（仓库会触发 secret scanning）。
@@ -83,7 +83,7 @@ namespace DSHHotplugHub
         {
             try
             {
-                InstallPluginsToHarness();
+                var installTask = Task.Run(() => InstallPluginsToHarness());
                 string html = ReadEmbeddedHtml();
                 html = InjectSidebarLaunchButton(html);
 
@@ -150,7 +150,8 @@ namespace DSHHotplugHub
                         else if (message == "listMemory")
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory(" + GetMemoryJson() + ");");
-                        }                        else if (message == "listSkills")
+                        }
+                        else if (message == "listSkills")
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
                         }
@@ -204,7 +205,7 @@ namespace DSHHotplugHub
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildApiIntegrationScript());
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listMcp');");
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory=function(d){window.__memoryData=d||[];if(typeof renderMemory==='function')renderMemory();if(typeof renderShell==='function')renderShell();};window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.chrome.webview.postMessage('listMemory');window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listMcp');");
                             string latestCheck = GetLatestReleaseVersion();
                             if (!_updateNotified && !string.IsNullOrEmpty(latestCheck) && latestCheck != APP_VERSION)
                             {
@@ -700,12 +701,17 @@ namespace DSHHotplugHub
             {
             }
         }
-        private static string RunDshPanelInstall(string tarballUrl)
+        private static string RunDshPluginAdd(string tarballUrl)
         {
             string[] cmd = FindDshCommand();
             if (cmd == null) return null;
             string args = cmd[1] + " plugin --profile web add " + tarballUrl;
             return RunCliLong(cmd[0], args);
+        }
+
+        private static string RunDshPanelInstall(string tarballUrl)
+        {
+            return RunDshPluginAdd(tarballUrl);
         }
 
         private static string RunCliLong(string fileName, string arguments)
@@ -1390,7 +1396,7 @@ namespace DSHHotplugHub
             }
             catch (Exception ex)
             {
-                webView.CoreWebView2.ExecuteScriptAsync("window.__onAiError(" + JsString("AI 调用异常：" + ex.Message) + ");");
+                var aiErrorTask = webView.CoreWebView2.ExecuteScriptAsync("window.__onAiError(" + JsString("AI 调用异常：" + ex.Message) + ");");
             }
         }
 
@@ -1406,66 +1412,241 @@ namespace DSHHotplugHub
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "mcp.json");
         }
 
-        // 启动时自动把仓库插件安装/注册到本地 DeepSeek Harness
+        // 启动时自动把 dsh-memory-hub 安装/注册到本地 DeepSeek Harness。
+        // 使用官方 dsh plugin --profile web add <tgz> 安装（自动写 package.json dependencies 与 dsh.profile.bundles），
+        // 不再手写 cordis.patch.yml 插入块，避免与插件自带 bundle patch 重复。
         private static void InstallPluginsToHarness()
         {
             try
             {
-                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                string src = Path.GetFullPath(Path.Combine(baseDir, "..", "dsh-hotplug-hub", "dsh-memory-hub"));
-                if (!Directory.Exists(src)) return;
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string target = Path.Combine(home, ".dsh", "plugin-src", "dsh-memory-hub");
-                if (Directory.Exists(target)) { try { Directory.Delete(target, true); } catch { } }
-                CopyDirectory(src, target);
-
-                string patch = Path.Combine(home, ".dsh", "profiles", "web", "cordis.patch.yml");
-                if (File.Exists(patch))
+                EnsureProfileNpmrc();
+                Dictionary<string, string> info = GetMemoryHubReleaseInfo();
+                string url = info != null && info.ContainsKey("url")
+                    ? info["url"]
+                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.2.0/dsh-memory-hub-0.2.1.tgz";
+                string latest = info != null && info.ContainsKey("latest") ? info["latest"] : null;
+                string installed = GetInstalledMemoryHubVersion();
+                if (!string.IsNullOrEmpty(installed) && !string.IsNullOrEmpty(latest) && installed == latest)
                 {
-                    string text = File.ReadAllText(patch);
-                    text = text.Replace("# [已禁用]     - id: memory-hub", "    - id: memory-hub");
-                    text = text.Replace("# [已禁用]       name: 'dsh-memory-hub'", "      name: 'dsh-memory-hub'");
-                    if (!text.Contains("name: 'dsh-memory-hub'"))
+                    return;
+                }
+                string output = RunDshPluginAdd(url);
+                if (output == null) return;
+                if (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:"))
+                {
+                    try
                     {
-                        text = text.TrimEnd() + "\n- insert:\n    - id: memory-hub\n      name: 'dsh-memory-hub'\n      config: { \"hubDir\": null, \"writePolicy\": \"ask\", \"snapshotOrder\": -50 }\n";
+                        string logDir = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                            "DSH-Hotplug-Hub");
+                        Directory.CreateDirectory(logDir);
+                        File.AppendAllText(Path.Combine(logDir, "plugin-install.log"),
+                            DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " memory-hub install failed: " + output + Environment.NewLine);
                     }
-                    File.WriteAllText(patch, text);
+                    catch { }
                 }
             }
             catch { }
         }
 
-        private static void CopyDirectory(string source, string target)
+        private static Dictionary<string, string> GetMemoryHubReleaseInfo()
         {
-            Directory.CreateDirectory(target);
-            foreach (string file in Directory.GetFiles(source))
+            try
             {
-                File.Copy(file, Path.Combine(target, Path.GetFileName(file)), true);
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/" + PROJECT_REPO + "/releases/latest");
+                request.Method = "GET";
+                request.UserAgent = "DSH-Hotplug-Hub";
+                request.Accept = "application/vnd.github+json";
+                string githubToken = GetGithubToken();
+                if (!string.IsNullOrEmpty(githubToken)) request.Headers.Add("Authorization", "Bearer " + githubToken);
+                request.Timeout = 15000;
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                {
+                    string json = reader.ReadToEnd();
+                    JavaScriptSerializer ser = new JavaScriptSerializer();
+                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(json);
+                    if (root == null || !root.ContainsKey("assets")) return null;
+                    object[] assets = root["assets"] as object[];
+                    if (assets == null) return null;
+                    foreach (object assetObj in assets)
+                    {
+                        Dictionary<string, object> asset = assetObj as Dictionary<string, object>;
+                        if (asset == null) continue;
+                        string name = Convert.ToString(asset.ContainsKey("name") ? asset["name"] : "");
+                        if (!name.StartsWith("dsh-memory-hub-") || !name.EndsWith(".tgz")) continue;
+                        if (!asset.ContainsKey("browser_download_url")) continue;
+                        Dictionary<string, string> info = new Dictionary<string, string>();
+                        info["url"] = Convert.ToString(asset["browser_download_url"]);
+                        string ver = name.Substring("dsh-memory-hub-".Length);
+                        if (ver.EndsWith(".tgz")) ver = ver.Substring(0, ver.Length - ".tgz".Length);
+                        info["latest"] = ver;
+                        return info;
+                    }
+                }
             }
-            foreach (string dir in Directory.GetDirectories(source))
+            catch { }
+            return null;
+        }
+
+        private static string GetInstalledMemoryHubVersion()
+        {
+            try
             {
-                CopyDirectory(dir, Path.Combine(target, Path.GetFileName(dir)));
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                List<string> candidates = new List<string>();
+                string profilesDir = Path.Combine(home, ".dsh", "profiles");
+                if (Directory.Exists(profilesDir))
+                {
+                    foreach (string profileDir in Directory.GetDirectories(profilesDir))
+                    {
+                        candidates.Add(Path.Combine(profileDir, "node_modules", "dsh-memory-hub", "package.json"));
+                    }
+                }
+                candidates.Add(Path.Combine(home, ".dsh", "plugin-src", "dsh-memory-hub", "package.json"));
+                foreach (string pkgFile in candidates)
+                {
+                    if (!File.Exists(pkgFile)) continue;
+                    JavaScriptSerializer ser = new JavaScriptSerializer();
+                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
+                    if (root != null && root.ContainsKey("version"))
+                    {
+                        string v = Convert.ToString(root["version"]);
+                        if (!string.IsNullOrEmpty(v)) return v;
+                    }
+                }
             }
+            catch { }
+            return null;
         }
         private static string GetMemoryJson()
         {
             try
             {
-                string repo = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".."));
-                ProcessStartInfo psi = new ProcessStartInfo("node", "scripts/memoryhub-list.mjs");
-                psi.WorkingDirectory = repo;
-                psi.UseShellExecute = false;
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.CreateNoWindow = true;
-                using (Process p = Process.Start(psi))
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string hubDir = Path.Combine(home, ".dsh", "memory-hub");
+                List<Dictionary<string, object>> rows = new List<Dictionary<string, object>>();
+                if (!Directory.Exists(hubDir)) return "[]";
+                foreach (string packDir in Directory.GetDirectories(hubDir))
                 {
-                    string output = p.StandardOutput.ReadToEnd().Trim();
-                    p.WaitForExit(10000);
-                    return string.IsNullOrEmpty(output) ? "[]" : output;
+                    string packFile = Path.Combine(packDir, "pack.json");
+                    if (!File.Exists(packFile)) continue;
+                    string packId = Path.GetFileName(packDir);
+                    string entriesDir = Path.Combine(packDir, "entries");
+                    if (!Directory.Exists(entriesDir)) continue;
+                    foreach (string entryFile in Directory.GetFiles(entriesDir, "*.md"))
+                    {
+                        Dictionary<string, object> entry = ParseMemoryEntry(entryFile);
+                        Dictionary<string, object> row = new Dictionary<string, object>();
+                        row["packId"] = packId;
+                        row["id"] = entry.ContainsKey("id") ? entry["id"] : Path.GetFileNameWithoutExtension(entryFile);
+                        row["title"] = entry.ContainsKey("title") ? entry["title"] : Path.GetFileNameWithoutExtension(entryFile);
+                        row["type"] = entry.ContainsKey("type") ? entry["type"] : "";
+                        row["body"] = entry.ContainsKey("body") ? entry["body"] : "";
+                        row["keywords"] = entry.ContainsKey("keywords") ? entry["keywords"] : new List<string>();
+                        row["updatedAt"] = entry.ContainsKey("updatedAt") ? entry["updatedAt"] : "";
+                        rows.Add(row);
+                        if (rows.Count >= 50) break;
+                    }
+                    if (rows.Count >= 50) break;
                 }
+                return new JavaScriptSerializer().Serialize(rows);
             }
             catch { return "[]"; }
+        }
+
+        // 解析 memory-hub 条目文件（entries/*.md）：frontmatter 键值 + body 前 200 字符。
+        private static Dictionary<string, object> ParseMemoryEntry(string file)
+        {
+            Dictionary<string, object> m = new Dictionary<string, object>();
+            string body = "";
+            try
+            {
+                string text = File.ReadAllText(file);
+                body = text;
+                if (text.StartsWith("---"))
+                {
+                    int end = text.IndexOf("\n---", 3);
+                    if (end > 0)
+                    {
+                        string fm = text.Substring(3, end - 3);
+                        body = text.Substring(end + 4).Trim();
+                        List<string> keywords = new List<string>();
+                        foreach (string raw in fm.Split('\n'))
+                        {
+                            string line = raw.TrimEnd('\r');
+                            int ci = line.IndexOf(':');
+                            if (ci <= 0) continue;
+                            string k = line.Substring(0, ci).Trim();
+                            string v = line.Substring(ci + 1).Trim();
+                            if (k == "keywords")
+                            {
+                                if (v.StartsWith("["))
+                                {
+                                    try
+                                    {
+                                        object[] arr = new JavaScriptSerializer().Deserialize<object[]>(v);
+                                        if (arr != null)
+                                        {
+                                            foreach (object o in arr)
+                                            {
+                                                string p = Convert.ToString(o).Trim().Trim('\'', '"');
+                                                if (p.Length > 0) keywords.Add(p);
+                                            }
+                                        }
+                                    }
+                                    catch
+                                    {
+                                        foreach (string part in v.Trim('[', ']').Split(','))
+                                        {
+                                            string p = part.Trim().Trim('\'', '"');
+                                            if (p.Length > 0) keywords.Add(p);
+                                        }
+                                    }
+                                }
+                                else if (v.Length > 0)
+                                {
+                                    foreach (string part in v.Split(','))
+                                    {
+                                        string p = part.Trim().Trim('\'', '"');
+                                        if (p.Length > 0) keywords.Add(p);
+                                    }
+                                }
+                            }
+                            else if (k == "id") m["id"] = v;
+                            else if (k == "title") m["title"] = v.Trim('\'', '"');
+                            else if (k == "type") m["type"] = v;
+                            else if (k == "updatedAt") m["updatedAt"] = v;
+                        }
+                        if (keywords.Count == 0)
+                        {
+                            bool inKwList = false;
+                            foreach (string raw in fm.Split('\n'))
+                            {
+                                string line = raw.TrimEnd('\r');
+                                if (line.StartsWith("keywords:")) { inKwList = true; continue; }
+                                if (inKwList && line.StartsWith("- "))
+                                {
+                                    string p = line.Substring(2).Trim().Trim('\'', '"');
+                                    if (p.Length > 0) keywords.Add(p);
+                                }
+                                else if (inKwList && line.Length > 0 && !line.StartsWith(" "))
+                                {
+                                    inKwList = false;
+                                }
+                            }
+                        }
+                        m["keywords"] = keywords;
+                    }
+                }
+            }
+            catch
+            {
+            }
+            if (!m.ContainsKey("title")) m["title"] = Path.GetFileNameWithoutExtension(file);
+            string bodyText = string.IsNullOrEmpty(body) ? "" : body;
+            m["body"] = bodyText.Length > 200 ? bodyText.Substring(0, 200) : bodyText;
+            return m;
         }
         private static string GetSkillsJson()
         {

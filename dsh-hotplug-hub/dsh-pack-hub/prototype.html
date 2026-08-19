@@ -316,7 +316,7 @@ button { font: inherit; color: inherit; }
       </div>
       <div>
         <div class="brand-name">Dseam世界</div>
-        <div class="brand-sub">Dseam v0.1.9</div>
+        <div class="brand-sub">Dseam v0.2.0</div>
       </div>
     </div>
     <nav class="nav" id="nav"></nav>
@@ -396,11 +396,7 @@ const DEFAULT_STATE = {
   installed: [],
   imported: [],
   aiCount: 0,
-  memories: [
-    { id: 'global.research', name: '科研记忆包', keywords: ['论文', '文献', '引用', '方法论'], entries: 12 },
-    { id: 'global.video', name: '视频记忆包', keywords: ['视频', '剪辑', '脚本'], entries: 7 },
-    { id: 'global.study', name: '学习记忆包', keywords: ['考研', '闪卡', '语法'], entries: 9 }
-  ],
+  memories: [],
   memoryLog: [],
     panelInstalled: null,
     panelLatest: null,
@@ -471,7 +467,7 @@ $('dlgBackdrop').addEventListener('click', (e) => { if (e.target === $('dlgBackd
 function renderShell() {
   $('nav').innerHTML = NAV.map((n) => `
     <button class="${n.id === currentView ? 'active' : ''}" data-view="${n.id}" aria-label="${n.label}">
-      ${ICONS[n.icon]}<span>${n.label}</span><span class="n-count">${n.id === 'hub' ? state.installed.length : n.id === 'memory' ? state.memories.length : ''}</span>
+      ${ICONS[n.icon]}<span>${n.label}</span><span class="n-count">${n.id === 'hub' ? state.installed.length : n.id === 'memory' ? (window.__memoryData || state.memories || []).length : ''}</span>
     </button>`).join('');
   document.querySelectorAll('#nav button').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
   const restartable = state.pendingRestart > 0;
@@ -767,79 +763,30 @@ function compose() {
 }
 
 function renderMemory() {
-    if (window.chrome && window.chrome.webview) {
-      const rows = window.__memoryData || [];
-      $('view-memory').innerHTML = `
-        <div class="section-head">
-          <div><h2>记忆中枢</h2><div class="sub">真实读取 ~/.dsh/memory-hub</div></div>
-        </div>
-        <div class="mem-list">
-          ${rows.length ? rows.map((m) => `
-            <div class="mem">
-              <div class="mem-top">
-                <div class="pack-icon" style="background:var(--teal)">${esc((m.title || 'M').slice(0, 1))}</div>
-                <div class="pack-title">
-                  <h3>${esc(m.title || m.id)}</h3>
-                  <div class="meta">${esc(m.packId || '')} · ${esc(m.type || '')}</div>
-                </div>
-                <span class="badge ok">已记忆</span>
-              </div>
-              <div class="tags">${(m.keywords || []).map((k) => `<span class="kw">${esc(k)}</span>`).join('')}</div>
-              <div style="font-size:12px;color:var(--muted)">${esc((m.body || '').slice(0, 200))}</div>
-            </div>`).join('') : '<div class="empty">还没有真实记忆，读取文档后会自动写入 memory-hub</div>'}
-        </div>`;
-      return;
-    }
-  const totalEntries = state.memories.reduce((s, m) => s + m.entries, 0) + state.memoryLog.length;
+  const isWebView = !!(window.chrome && window.chrome.webview);
+  const rows = isWebView ? (window.__memoryData || []) : [];
+  const emptyHint = isWebView
+    ? '还没有真实记忆，读取文档后会自动写入 memory-hub'
+    : '记忆中枢已接入 ~/.dsh/memory-hub，请在 DSH Desktop 中查看真实记忆。';
   $('view-memory').innerHTML = `
-    <div class="grid-4">
-      <div class="stat"><div class="label">${ICONS.brain} 记忆包</div><div class="num">${state.memories.length}</div></div>
-      <div class="stat"><div class="label">${ICONS.box} 记忆条目</div><div class="num">${totalEntries}</div></div>
-      <div class="stat"><div class="label">${ICONS.spark} 本轮新增</div><div class="num">${state.memoryLog.length}</div></div>
-      <div class="stat"><div class="label">${ICONS.shield} 路由状态</div><div class="num" style="font-size:18px;line-height:1.4">全局命中</div><div class="hint">关键词路由</div></div>
-    </div>
     <div class="section-head">
-      <div><h2>全局记忆包</h2><div class="sub">切换插座包不影响记忆</div></div>
-      <button class="btn primary" id="commitBtn">${ICONS.plus} 打包本轮记忆</button>
+      <div><h2>记忆中枢</h2><div class="sub">真实读取 ~/.dsh/memory-hub</div></div>
     </div>
     <div class="mem-list">
-      ${state.memories.map((m) => `
+      ${rows.length ? rows.map((m) => `
         <div class="mem">
           <div class="mem-top">
-            <div class="pack-icon" style="background:var(--teal)">${esc(m.name.slice(0, 1))}</div>
+            <div class="pack-icon" style="background:var(--teal)">${esc((m.title || 'M').slice(0, 1))}</div>
             <div class="pack-title">
-              <h3>${esc(m.name)}</h3>
-              <div class="meta">${m.id} · ${m.entries} 条</div>
+              <h3>${esc(m.title || m.id)}</h3>
+              <div class="meta">${esc(m.packId || '')} · ${esc(m.type || '')}</div>
             </div>
-            <button class="switch" role="switch" aria-checked="true" aria-label="切换 ${esc(m.name)}" data-mem="${esc(m.id)}"></button>
+            <span class="badge ok">已记忆</span>
           </div>
-          <div class="tags">${m.keywords.map((k) => `<span class="kw">${esc(k)}</span>`).join('')}</div>
-          <div style="font-size:12px;color:var(--muted)">建议路由：任务命中任一关键词时装载</div>
-        </div>`).join('')}
-    </div>
-    ${state.memoryLog.length ? `
-      <div class="section-head"><div><h2>最近打包</h2></div></div>
-      <div class="pack-list">
-        ${state.memoryLog.slice(-5).reverse().map((e) => `
-          <div class="check-row">
-            <span class="badge ok">${ICONS.check} 已提交</span>
-            <div><div class="name">${esc(e.title)}</div><div class="desc">${esc(e.time)} · ${esc(e.tags.join(' / '))}</div></div>
-            <div class="val">${esc(e.pack)}</div>
-          </div>`).join('')}
-      </div>` : ''}`;
-  $('commitBtn').addEventListener('click', () => {
-    const entry = {
-      title: '本轮任务记忆',
-      time: new Date().toLocaleString('zh-CN', { hour12: false }),
-      tags: ['research', 'prototype'],
-      pack: 'global.research'
-    };
-    state.memoryLog.push(entry);
-    const m = state.memories.find((x) => x.id === 'global.research');
-    if (m) m.entries += 1;
-    save(); renderMemory();
-    toast('已完成记忆打包，全局可用');
-  });
+          <div class="tags">${(m.keywords || []).map((k) => `<span class="kw">${esc(k)}</span>`).join('')}</div>
+          <div style="font-size:12px;color:var(--muted)">${esc((m.body || '').slice(0, 200))}</div>
+        </div>`).join('') : `<div class="empty">${emptyHint}</div>`}
+    </div>`;
 }
 
 function getChecks() {
@@ -850,7 +797,7 @@ function getChecks() {
     { name: 'pnpm', desc: '包管理器', val: state.pnpmVersion, status: 'ok', text: '就绪' },
     { name: 'Profile 清单', desc: 'dsh.profile.bundles 可解析', val: 'desktop', status: 'ok', text: StateOk() ? '完好' : '需检查' },
     { name: '插件健康', desc: '已装包自检', val: conflicts.length + ' 冲突', status: conflicts.length ? 'warn' : 'ok', text: conflicts.length ? '见冲突矩阵' : '健康' },
-    { name: '记忆中枢', desc: '全局记忆包状态', val: state.memories.length + ' 包', status: 'ok', text: '在线' },
+    { name: '记忆中枢', desc: '全局记忆包状态', val: (window.__memoryData || state.memories || []).length + ' 条', status: 'ok', text: (window.__memoryData || state.memories || []).length ? '在线' : '暂无真实记忆' },
     { name: '官方 Skill/MCP 面板', desc: 'dsh-skill-mcp-panel 插件', val: state.panelInstalled || '未安装', status: state.panelInstalled ? (state.panelLatest && state.panelInstalled !== state.panelLatest ? 'update' : 'ok') : 'warn', text: state.panelInstalled ? (state.panelInstalled === state.panelLatest ? '已最新' : '可更新至 v' + (state.panelLatest || '?')) : '可安装 v' + (state.panelLatest || '?') }
   ];
 }
