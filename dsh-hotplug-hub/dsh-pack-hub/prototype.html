@@ -330,6 +330,8 @@ button { font: inherit; color: inherit; }
       <section id="view-ai" class="view hidden"></section>
       <section id="view-memory" class="view hidden"></section>
       <section id="view-check" class="view hidden"></section>
+        <section id="view-skills" class="view hidden"></section>
+        <section id="view-mcp" class="view hidden"></section>
     </div>
   </main>
 </div>
@@ -352,7 +354,9 @@ const NAV = [
   { id: 'market', label: '插件包市场', icon: 'store' },
   { id: 'ai', label: 'AI 组装', icon: 'spark' },
   { id: 'memory', label: '记忆中枢', icon: 'brain' },
-  { id: 'check', label: '自检更新', icon: 'shield' }
+  { id: 'check', label: '自检更新', icon: 'shield' },
+  { id: 'skills', label: 'Skill 管理', icon: 'spark' },
+  { id: 'mcp', label: 'MCP 管理', icon: 'box' }
 ];
 
 const ICONS = {
@@ -455,7 +459,15 @@ const DEFAULT_STATE = {
     { id: 'global.video', name: '视频记忆包', keywords: ['视频', '剪辑', '脚本'], entries: 7 },
     { id: 'global.study', name: '学习记忆包', keywords: ['考研', '闪卡', '语法'], entries: 9 }
   ],
-  memoryLog: []
+  memoryLog: [],
+    skills: [
+      { id: 'deepseek-research', name: 'DeepSeek 深度研究', enabled: true, desc: '深度推理与研究技能' },
+      { id: 'code-review', name: '代码审查', enabled: true, desc: '代码质量与安全审查' }
+    ],
+    mcps: [
+      { id: 'filesystem', name: '文件系统 MCP', enabled: false, command: 'npx', args: '-y @modelcontextprotocol/server-filesystem' },
+      { id: 'fetch', name: '网络抓取 MCP', enabled: false, command: 'npx', args: '-y @modelcontextprotocol/server-fetch' }
+    ]
 };
 
 let state;
@@ -561,6 +573,8 @@ function renderCurrent() {
   if (currentView === 'ai') renderAi();
   if (currentView === 'memory') renderMemory();
   if (currentView === 'check') renderCheck();
+    if (currentView === 'skills') renderSkills();
+    if (currentView === 'mcp') renderMcp();
 }
 
 function renderHub() {
@@ -880,6 +894,76 @@ function getChecks() {
 }
 function StateOk() { return true; }
 
+function renderSkills() {
+  const rows = state.skills || [];
+  $('view-skills').innerHTML = `
+    <div class="section-head">
+      <div><h2>Skill 管理</h2><div class="sub">AI 技能开关与新增</div></div>
+    </div>
+    <div class="pack-list">
+      ${rows.length ? rows.map((s) => `
+        <div class="pack">
+          <div class="pack-top">
+            <div class="pack-icon" style="background:#0e7c6b">${esc(s.name.slice(0, 1))}</div>
+            <div class="pack-title"><h3>${esc(s.name)}</h3><div class="meta">${esc(s.desc || '')}</div></div>
+            <span class="badge ${s.enabled ? 'ok' : 'neutral'}">${s.enabled ? '已启用' : '已停用'}</span>
+          </div>
+          <div class="pack-foot">
+            <div class="spacer"></div>
+            <button class="switch" role="switch" aria-checked="${s.enabled}" data-skill="${esc(s.id)}"></button>
+          </div>
+        </div>`).join('') : '<div class="empty">还没有 Skill</div>'}
+    </div>
+    <div class="toolbar">
+      <input class="search" id="newSkillName" placeholder="技能名称">
+      <button class="btn primary" id="addSkillBtn">＋ 新增 Skill</button>
+    </div>`;
+  const add = $('addSkillBtn');
+  if (add) add.addEventListener('click', () => {
+    const name = $('newSkillName').value.trim();
+    if (!name) return;
+    state.skills = state.skills || [];
+    state.skills.push({ id: 'skill-' + Date.now().toString(36), name, enabled: true, desc: '新增技能' });
+    save(); renderSkills();
+  });
+}
+
+function renderMcp() {
+  const rows = state.mcps || [];
+  $('view-mcp').innerHTML = `
+    <div class="section-head">
+      <div><h2>MCP 管理</h2><div class="sub">Model Context Protocol 服务器开关与新增</div></div>
+    </div>
+    <div class="pack-list">
+      ${rows.length ? rows.map((m) => `
+        <div class="pack">
+          <div class="pack-top">
+            <div class="pack-icon" style="background:#1d5f9e">${esc(m.name.slice(0, 1))}</div>
+            <div class="pack-title"><h3>${esc(m.name)}</h3><div class="meta">${esc(m.command || '')} ${esc(m.args || '')}</div></div>
+            <span class="badge ${m.enabled ? 'ok' : 'neutral'}">${m.enabled ? '已启用' : '已停用'}</span>
+          </div>
+          <div class="pack-foot">
+            <div class="spacer"></div>
+            <button class="switch" role="switch" aria-checked="${m.enabled}" data-mcp="${esc(m.id)}"></button>
+          </div>
+        </div>`).join('') : '<div class="empty">还没有 MCP 服务器</div>'}
+    </div>
+    <div class="toolbar">
+      <input class="search" id="newMcpName" placeholder="MCP 名称">
+      <input class="search" id="newMcpCmd" placeholder="命令，如 npx">
+      <input class="search" id="newMcpArgs" placeholder="参数">
+      <button class="btn primary" id="addMcpBtn">＋ 新增 MCP</button>
+    </div>`;
+  const add = $('addMcpBtn');
+  if (add) add.addEventListener('click', () => {
+    const name = $('newMcpName').value.trim();
+    const command = $('newMcpCmd').value.trim();
+    if (!name || !command) return;
+    state.mcps = state.mcps || [];
+    state.mcps.push({ id: 'mcp-' + Date.now().toString(36), name, enabled: false, command, args: $('newMcpArgs').value.trim() });
+    save(); renderMcp();
+  });
+}
 function renderCheck() {
   const checks = getChecks();
   $('view-check').innerHTML = `
@@ -975,6 +1059,10 @@ function bindGlobal() {
     if (un) { uninstallPack(un.dataset.uninstall); return; }
     const mem = e.target.closest('[data-mem]');
     if (mem) { toast('记忆包保持全局激活'); return; }
+      const sk = e.target.closest('[data-skill]');
+      if (sk) { const row = (state.skills||[]).find((s) => s.id === sk.dataset.skill); if (row) { row.enabled = !row.enabled; save(); renderSkills(); } return; }
+      const mc = e.target.closest('[data-mcp]');
+      if (mc) { const row = (state.mcps||[]).find((m) => m.id === mc.dataset.mcp); if (row) { row.enabled = !row.enabled; save(); renderMcp(); } return; }
   });
   $('importFile').addEventListener('change', (e) => {
     const file = e.target.files && e.target.files[0];
