@@ -12,7 +12,7 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 - 任务审查：2026-08-19 Skill/MCP 接入官方 Harness 已通过。
 - 任务审查：改为 AI 自动执行，不再询问用户；2026-08-19 自动审查通过。
 - 确认官方 DSH Desktop 内置 `dsh-skill-filesystem` 与 `dsh-mcp-client`；Skill 已写成官方 frontmatter 格式，MCP 已注册到 web profile。
-- 移除默认 MCP 自动填充/注册，只保留用户手动添加的真实 MCP。
+- 移除默认 MCP 自动填充/注册，只保留用户手动添加的真实 MCP；自动审查通过。
 - 真实接入官方 Harness：
   - Skill 按官方 `skill-filesystem` 格式写入 `~/.dsh/skills/*.md`（YAML frontmatter）
   - MCP 保存时自动注册 `@deepseek-ai/dsh-mcp-client` 到 web profile 的 `cordis.patch.yml`
