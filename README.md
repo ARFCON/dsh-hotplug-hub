@@ -10,7 +10,7 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 - AI 协作：新增「必须逐条汇报遵守流程」规则，每次任务开始/结束都强制自检。
 - 任务审查：2026-08-19 已执行并通过。
 - 任务审查：2026-08-19 Skill/MCP 接入官方 Harness 已通过。
-- 任务审查：改为 AI 自动执行，不再询问用户。
+- 任务审查：改为 AI 自动执行，不再询问用户；2026-08-19 自动审查通过。
 - 真实接入官方 Harness：
   - Skill 按官方 `skill-filesystem` 格式写入 `~/.dsh/skills/*.md`（YAML frontmatter）
   - MCP 保存时自动注册 `@deepseek-ai/dsh-mcp-client` 到 web profile 的 `cordis.patch.yml`
