@@ -1,0 +1,19 @@
+# 仓库所有权规则
+# 默认：所有文件由 ARFCON 负责
+* @ARFCON
+
+# 团队个人文档：由对应成员负责（请替换成实际 GitHub 用户名）
+开发文档/团队/开发文档1.md @ARFCON
+开发文档/团队/开发文档2.md @ARFCON
+开发文档/团队/开发文档3.txt @ARFCON
+开发文档/团队/开发文档模板.md @ARFCON
+
+# 核心内容：只有 Owner 能改
+README.md @ARFCON
+AI_AGENTS.md @ARFCON
+CONTRIBUTING.md @ARFCON
+合作开发指南.md @ARFCON
+LICENSE @ARFCON
+开发文档/README.md @ARFCON
+开发文档/规范/ @ARFCON
+package.json @ARFCON

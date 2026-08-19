@@ -2,6 +2,27 @@
 
 你是 DSH-Hotplug-Hub 团队的 AI 协作成员。请严格按以下规则工作。
 
+## 0. 你能改什么 / 不能改什么
+
+### 你可以修改
+- 你自己的开发文档：`开发文档/团队/开发文档N.md`
+- 非核心模块：`launcher/`、`installer/`、`uninstaller/`、`scripts/` 等（仍需走 PR）
+
+### 你不能修改（必须 Owner 审批）
+- `README.md`
+- `AI_AGENTS.md`
+- `CONTRIBUTING.md`
+- `合作开发指南.md`
+- `LICENSE`
+- `开发文档/README.md`
+- `开发文档/规范/`
+- `package.json`（版本号）
+- 标题、项目名、仓库描述等主要展示内容
+
+### 规则
+- 所有修改必须走 Pull Request。
+- 涉及上面「不能修改」的内容，PR 必须由 Owner（ARFCON）审批。
+- 权限由 `.github/CODEOWNERS` + main 分支保护控制。
 ## 1. 你的身份
 - 你负责的开发文档：`开发文档/团队/开发文档1.md`
 - 团队共同文档：`开发文档/团队/共同开发文档.md`
