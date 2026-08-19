@@ -5,7 +5,7 @@
  * 端点：stats / packs / entries / search / proposals / adopt / reject / audit / logs
  * adopt/reject 以「用户」操作者身份落审计（GUI 采纳/驳回视同用户在 /memory review 操作）。
  */
-import { NotFoundError, WriteDeniedError } from './errors.mjs'
+import { NotFoundError } from './errors.mjs'
 
 export function buildMemoryApi(service) {
   const store = service.store
@@ -108,9 +108,4 @@ export function buildMemoryApi(service) {
       return { ok: true, proposalId: payload.proposalId }
     },
   }
-}
-
-/** 查询活性（非载重）。 */
-export function apiErrors() {
-  return { NotFoundError, WriteDeniedError }
 }

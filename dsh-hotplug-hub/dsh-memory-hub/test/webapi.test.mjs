@@ -9,9 +9,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MemoryStore } from '../lib/store.mjs'
 import { MemoryHubService } from '../lib/service.mjs'
-import { buildMemoryApi, apiErrors } from '../lib/webapi.mjs'
-
-const { NotFoundError } = apiErrors()
+import { buildMemoryApi } from '../lib/webapi.mjs'
+import { NotFoundError } from '../lib/errors.mjs'
 
 function makeApi(hubDir, writePolicy = 'ask') {
   const store = new MemoryStore(hubDir)

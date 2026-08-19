@@ -154,7 +154,6 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
     }, [pack, q])
 
     React.useEffect(() => { reload() }, [reload])
-    if (!injectStyles) { /* styles injected imperatively below */ }
     React.useEffect(() => { injectStyles() }, [])
 
     const act = async (fn) => {
@@ -203,7 +202,7 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
                   h('button', { className: 'dshmh-btn primary', disabled: busy, onClick: () => act(() => apiPost('adopt', { packId: p.packId, proposalId: p.id })) }, t('adopt')),
                   h('button', { className: 'dshmh-btn', disabled: busy, onClick: () => act(() => apiPost('reject', { packId: p.packId, proposalId: p.id })) }, t('reject')))),
             h('div', { className: 'dshmh-sec', key: 'sec4' }, t('secAudit')),
-            h('div', { className: 'dshmh-log', key: 'audit', children: audit.map((r) => `${r.at}  ${r.outcome.padEnd(10)} ${r.action.padEnd(8)} ${r.packId}/${r.entryId ?? r.entryId ?? '-'} (${r.operator})`).join('\n') || t('noEntry') }),
+            h('div', { className: 'dshmh-log', key: 'audit', children: audit.map((r) => `${r.at}  ${r.outcome.padEnd(10)} ${r.action.padEnd(8)} ${r.packId}/${r.entryId ?? '-'} (${r.operator})`).join('\n') || t('noEntry') }),
             h('div', { className: 'dshmh-sec', key: 'sec5' }, t('secLogs')),
             h('div', { className: 'dshmh-log', key: 'logs', children: logs || t('noEntry') }),
             h('div', { className: 'dshmh-hint', key: 'hint' }, t('untrustedNote')),

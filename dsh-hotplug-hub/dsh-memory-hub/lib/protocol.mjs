@@ -256,7 +256,7 @@ export class MemoryProtocolCore {
       createdAt: now,
       updatedAt: now,
       name,
-      title: typeof input.title === 'string' ? input.title.slice(0, 200) : name,
+      title: (typeof input.title === 'string' && input.title.trim() !== '') ? input.title.trim().slice(0, 200) : name,
       description: typeof input.description === 'string' ? input.description.slice(0, 500) : '',
       type: input.type ?? 'project',
       scope: input.scope ?? 'global',
@@ -357,5 +357,6 @@ export function slugify(title) {
     .replace(/^-+|-+$/g, '')
     .slice(0, 64)
   if (NAME_RE.test(raw)) return raw
-  return 'm-' + String(title ?? 'untitled').slice(0, 62)
+  const src = String(title ?? '').trim()
+  return 'm-' + (src === '' ? 'untitled' : src).slice(0, 62)
 }
