@@ -161,3 +161,14 @@ git push origin feature/文档1-<改动内容>
   - 任务摘要
   - 审查结果（通过 / 需要修改 / 跳过）
 - 如果用户选择不审查，AI 记录“跳过审查”。
+
+## 13. 强制全局记忆（必做）
+
+- 重要内容必须写入全局记忆：`~/.dsh/memory/memories.jsonl`。
+- 每次查看以下内容后，必须执行记忆脚本：
+  - `README.md`：`pwsh -File scripts/remember-doc.ps1 -DocPath README.md`
+  - `AI_AGENTS.md`：`pwsh -File scripts/remember-doc.ps1 -DocPath AI_AGENTS.md`
+  - 检查流程：`pwsh -File scripts/remember-doc.ps1 -DocPath scripts/check-before-upload.ps1`
+  - 同步流程：`pwsh -File scripts/remember-doc.ps1 -DocPath scripts/sync-repo.ps1`
+- 记忆条目格式：`{type:'doc-view', doc, at, reader, summary}`。
+- 如果发现重要决策/踩坑/版本信息，也必须主动写入全局记忆。

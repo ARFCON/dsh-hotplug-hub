@@ -107,3 +107,12 @@ Launcher：sandbox 同步为 ~/.dsh/profiles/<id>
 ## License
 
 MIT
+## 全局记忆
+
+- 重要内容必须写入 `~/.dsh/memory/memories.jsonl`。
+- 每次查看 README / AI_AGENTS / 检查流程后，执行：
+  ```powershell
+  pwsh -File scripts/remember-doc.ps1 -DocPath README.md
+  pwsh -File scripts/remember-doc.ps1 -DocPath AI_AGENTS.md
+  pwsh -File scripts/remember-doc.ps1 -DocPath scripts/check-before-upload.ps1
+  ```
