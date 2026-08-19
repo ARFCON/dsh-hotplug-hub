@@ -867,6 +867,50 @@ namespace DSHHotplugHub
             cfg.defaultModel = "deepseek-chat";
             try
             {
+                string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "settings.yaml");
+                if (File.Exists(settings))
+                {
+                    string yaml = File.ReadAllText(settings);
+                    bool isDeepSeek = id.Contains("DeepSeek") || id.Contains("deepseek");
+                    if (isDeepSeek || yaml.Contains("llm-deepseek:"))
+                    {
+                        int di = yaml.IndexOf("llm-deepseek:");
+                        if (di >= 0)
+                        {
+                            string block = yaml.Substring(di);
+                            int end = block.IndexOf("\nllm-", 1);
+                            if (end > 0) block = block.Substring(0, end);
+                            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(block, @"^\s{4}-\s+id:\s*([^\s]+)", System.Text.RegularExpressions.RegexOptions.Multiline))
+                            {
+                                if (cfg.models.Length == 0) cfg.models = m.Groups[1].Value; else cfg.models += "," + m.Groups[1].Value;
+                            }
+                            if (cfg.models.Length == 0) { cfg.models = "deepseek-chat,deepseek-reasoner"; }
+                            cfg.defaultModel = cfg.models.Split(',')[0].Trim();
+                        }
+                    }
+                    else
+                    {
+                        string pattern = @"\n\s{4}" + System.Text.RegularExpressions.Regex.Escape(id) + @":([\s\S]*?)(?=\n\s{4}[a-zA-Z0-9_-]+:|\n\s{2}[a-zA-Z0-9_-]+:|\z)";
+                        System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(yaml, pattern, System.Text.RegularExpressions.RegexOptions.Multiline);
+                        if (m.Success)
+                        {
+                            string block = m.Groups[1].Value;
+                            System.Text.RegularExpressions.Match bm = System.Text.RegularExpressions.Regex.Match(block, @"baseURL:\s*([^\s]+)");
+                            if (bm.Success) cfg.baseUrl = bm.Groups[1].Value.Trim();
+                            System.Text.RegularExpressions.MatchCollection ms = System.Text.RegularExpressions.Regex.Matches(block, @"^\s{8}-\s+id:\s*([^\s]+)", System.Text.RegularExpressions.RegexOptions.Multiline);
+                            if (ms.Count > 0)
+                            {
+                                cfg.models = "";
+                                foreach (System.Text.RegularExpressions.Match mm in ms)
+                                {
+                                    if (cfg.models.Length == 0) cfg.models = mm.Groups[1].Value; else cfg.models += "," + mm.Groups[1].Value;
+                                }
+                                cfg.defaultModel = cfg.models.Split(',')[0].Trim();
+                            }
+                        }
+                    }
+                }
+
                 string cred = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", ".credentials.yaml");
                 if (File.Exists(cred))
                 {
