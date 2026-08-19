@@ -40,7 +40,13 @@ try {
     if ($json -and $json.tag_name) {
       $latest = $json.tag_name.TrimStart('v')
       if ($latest -ne $current) {
-        Write-Output "⚠️ 有新版本 v$latest（当前 v$current），请更新客户端后再修改。"
+        $lv = [System.Version]::new($latest)
+        $cv = [System.Version]::new($current)
+        if ($lv -gt $cv) {
+          Write-Output "⚠️ 有新版本 v$latest（当前 v$current），请更新客户端后再修改。"
+        } else {
+          Write-Output "✅ 本地已领先 v$current（GitHub Release 为 v$latest），可发布新 Release。"
+        }
       } else {
         Write-Output "✅ 已是最新版本 v$current"
       }
