@@ -1,0 +1,43 @@
+{
+  "assemblyId": "example",
+  "pack": {
+    "hotpack": "1.0",
+    "id": "example",
+    "name": "示例科研启动组合",
+    "version": "1.0.0",
+    "description": "启动器示例：科研热插拔包",
+    "tags": [
+      "科研",
+      "示例"
+    ],
+    "plugins": [
+      {
+        "id": "literature",
+        "name": "@dsh-community/dsh-tool-literature",
+        "source": {
+          "type": "npm"
+        },
+        "config": {
+          "bundlePatch": true,
+          "role": "文献检索"
+        },
+        "version": "1.2.3"
+      },
+      {
+        "id": "websearch",
+        "name": "dsh-web-search-exa",
+        "source": {
+          "type": "npm"
+        },
+        "config": {
+          "apiKeyEnv": "EXA_API_KEY",
+          "role": "搜索"
+        },
+        "version": "0.4.2"
+      }
+    ]
+  },
+  "pinnedAt": "2026-08-19T05:25:51.602Z",
+  "conflicts": [],
+  "healActions": []
+}

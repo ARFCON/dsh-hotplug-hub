@@ -1,0 +1,24 @@
+# Node
+node_modules/
+*.log
+
+# WebView2 / runtime data
+*.WebView2/
+EBWebView/
+Local Storage/
+Session Storage/
+GPUCache/
+Code Cache/
+
+# 启动器临时工作区
+sandbox/.sandbox/
+launcher-workspace/
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 构建输出（如需上传 release 请保留）
+# release/*.exe

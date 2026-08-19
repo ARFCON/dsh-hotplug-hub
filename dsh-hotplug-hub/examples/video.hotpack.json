@@ -1,0 +1,29 @@
+{
+  "hotpack": "1.0",
+  "id": "pack.video",
+  "name": "视频制作热插拔包",
+  "version": "1.0.0",
+  "description": "脚本、分镜与字幕；websearch 插件与科研包相同，激活时直接复用、不重复下载",
+  "tags": ["视频", "剪辑", "字幕"],
+  "plugins": [
+    {
+      "id": "script",
+      "name": "@dsh-community/dsh-video-script",
+      "version": "1.4.0",
+      "source": { "type": "npm" }
+    },
+    {
+      "id": "subtitle",
+      "name": "@dsh-community/dsh-subtitle",
+      "version": "1.0.5",
+      "source": { "type": "npm" }
+    },
+    {
+      "id": "websearch",
+      "name": "dsh-web-search-exa",
+      "version": "0.4.2",
+      "source": { "type": "npm" },
+      "config": { "apiKeyEnv": "EXA_API_KEY" }
+    }
+  ]
+}

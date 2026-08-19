@@ -1,0 +1,1079 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH 插座中枢 · 原型</title>
+<style>
+:root {
+  --bg: #f1f2ec;
+  --panel: #fffef9;
+  --ink: #17201d;
+  --muted: #66736e;
+  --line: #d9ddd4;
+  --teal: #0e7c6b;
+  --teal-dark: #0f2f2a;
+  --teal-soft: #dceeea;
+  --amber: #b45309;
+  --amber-soft: #fbeede;
+  --red: #b3261e;
+  --red-soft: #fbe7e4;
+  --green: #1a7f4b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: ui-sans-serif, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  letter-spacing: 0;
+}
+button { font: inherit; color: inherit; }
+.app {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  min-height: 100vh;
+}
+.sidebar {
+  background: var(--teal-dark);
+  color: #e7f0ec;
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+.brand-mark {
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  background: #e7f0ec;
+  border-radius: 8px;
+  color: var(--teal-dark);
+}
+.brand-name { font-weight: 700; font-size: 15px; line-height: 1.2; }
+.brand-sub { font-size: 11px; opacity: 0.72; margin-top: 3px; }
+.nav { display: grid; gap: 4px; }
+.nav button {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 10px 12px;
+  border: 0; border-radius: 8px;
+  background: transparent; color: #d9e7e0;
+  text-align: left; cursor: pointer;
+  font-size: 14px;
+}
+.nav button:hover { background: rgba(255, 255, 255, 0.08); }
+.nav button.active { background: var(--teal); color: #fff; }
+.nav .n-count {
+  margin-left: auto; font-size: 11px;
+  background: rgba(255,255,255,.16); border-radius: 10px; padding: 2px 8px;
+}
+.nav button.active .n-count { background: rgba(255,255,255,.24); }
+.side-foot {
+  margin-top: auto;
+  background: rgba(255,255,255,0.07);
+  border-radius: 8px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+.side-row { display: flex; justify-content: space-between; gap: 8px; }
+.side-row .v { color: #fff; font-weight: 600; }
+.side-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #c2410c; color: #fff;
+  border-radius: 10px; padding: 4px 10px; font-size: 12px; font-weight: 600;
+}
+.main { min-width: 0; display: flex; flex-direction: column; }
+.topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 22px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 5;
+}
+.topbar h1 { margin: 0; font-size: 18px; }
+.topbar .ctx { font-size: 12px; color: var(--muted); }
+.topbar .spacer { flex: 1; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); background: #f7f8f3;
+  color: var(--muted); border-radius: 20px; padding: 5px 12px; font-size: 12px;
+}
+.pill.good { color: var(--green); background: #e7f5eb; border-color: #bfe0c6; }
+.pill.warn { color: var(--amber); background: var(--amber-soft); border-color: #efd3ae; }
+.wrap { padding: 22px; display: grid; gap: 18px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.stat {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 14px 16px;
+}
+.stat .label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.stat .num { font-size: 26px; font-weight: 700; margin-top: 8px; }
+.stat .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.section-head h2 { margin: 0; font-size: 15px; }
+.section-head .sub { font-size: 12px; color: var(--muted); }
+.toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 12px;
+}
+.search {
+  flex: 1 1 240px; min-width: 180px;
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; background: #fff;
+}
+.search input {
+  border: 0; outline: 0; background: transparent; width: 100%; font: inherit;
+  color: var(--ink);
+}
+.chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip {
+  border: 1px solid var(--line); background: #fff; color: var(--muted);
+  border-radius: 20px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+}
+.chip.on { background: var(--teal); border-color: var(--teal); color: #fff; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid var(--line); background: #fff; color: var(--ink);
+  border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover { border-color: #b8c1b6; background: #f8faf6; }
+.btn.primary { background: var(--teal); border-color: var(--teal); color: #fff; }
+.btn.primary:hover { background: #0a6a5c; }
+.btn.danger { color: var(--red); border-color: #e6b7b1; }
+.btn.danger:hover { background: var(--red-soft); }
+.btn.sm { padding: 5px 9px; font-size: 12px; }
+.btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+.pack-list, .pack-grid, .mem-list, .check-list { display: grid; gap: 10px; }
+.pack-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pack {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 14px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.pack-top, .mem-top { display: flex; align-items: flex-start; gap: 10px; }
+.pack-icon {
+  width: 38px; height: 38px; border-radius: 8px; flex: 0 0 auto;
+  display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 14px;
+}
+.pack-title { flex: 1; min-width: 0; }
+.pack-title h3 { margin: 0; font-size: 15px; line-height: 1.35; }
+.pack-title .meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag {
+  font-size: 11px; color: var(--muted);
+  background: #f1f3ed; border: 1px solid var(--line);
+  padding: 2px 8px; border-radius: 10px;
+}
+.plugins { display: grid; gap: 4px; }
+.plugin-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--muted);
+  padding: 5px 8px; background: #f6f8f3; border: 1px solid #e9ece4; border-radius: 6px;
+}
+.plugin-row .role { margin-left: auto; color: var(--ink); }
+.pack-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; }
+.pack-foot .spacer { flex: 1; }
+.switch {
+  width: 42px; height: 24px; border-radius: 16px;
+  border: 1px solid var(--line); background: #d6dbd2;
+  position: relative; cursor: pointer; transition: background 0.15s;
+  flex: 0 0 auto;
+}
+.switch::after {
+  content: ""; position: absolute; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff; top: 2px; left: 2px;
+  transition: left 0.15s; box-shadow: 0 1px 3px rgba(0,0,0,.25);
+}
+.switch[aria-checked="true"] { background: var(--teal); border-color: var(--teal); }
+.switch[aria-checked="true"]::after { left: 20px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; border-radius: 10px; padding: 3px 9px; font-weight: 600;
+}
+.badge.ok { background: #e7f5eb; color: var(--green); }
+.badge.warn { background: var(--amber-soft); color: var(--amber); }
+.badge.err { background: var(--red-soft); color: var(--red); }
+.badge.neutral { background: #f0f2ec; color: var(--muted); }
+.panel {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 16px;
+}
+.ai-pane { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 14px; }
+.ai-main, .ai-side { display: grid; gap: 12px; align-content: start; }
+.req-box {
+  width: 100%; min-height: 120px; resize: vertical;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff;
+  padding: 12px; font: inherit; color: var(--ink);
+}
+.req-box:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
+.log-box {
+  background: #10241f; color: #cde8dd; border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; line-height: 1.7; padding: 12px 14px;
+  min-height: 220px; max-height: 360px; overflow-y: auto;
+  white-space: pre-wrap;
+}
+.log-box .ok { color: #7fd6a8; }
+.log-box .warn { color: #f3c076; }
+.result {
+  display: none;
+  border: 1px solid var(--teal); background: #f2faf7; border-radius: 8px; padding: 14px;
+}
+.result.show { display: block; }
+.result h3 { margin: 0 0 8px; font-size: 14px; }
+.json-pre {
+  background: #fff; border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px; font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px; max-height: 220px; overflow: auto; white-space: pre;
+  margin: 0;
+}
+.check-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px;
+}
+.check-row .name { font-size: 13px; font-weight: 600; }
+.check-row .desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.check-row .val { margin-left: auto; font-size: 13px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.check-row .act { margin-left: 4px; }
+.mem-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mem { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.kw { font-size: 11px; color: var(--teal); background: var(--teal-soft); border-radius: 10px; padding: 2px 8px; }
+.empty { color: var(--muted); font-size: 13px; padding: 12px; text-align: center; }
+.dialog-backdrop {
+  position: fixed; inset: 0; background: rgba(10, 24, 20, 0.45);
+  display: none; align-items: center; justify-content: center; z-index: 30; padding: 16px;
+}
+.dialog-backdrop.show { display: flex; }
+.dialog {
+  width: min(520px, 100%);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 18px;
+  display: grid; gap: 12px;
+}
+.dialog h3 { margin: 0; font-size: 16px; }
+.dialog .body { font-size: 13px; color: var(--muted); line-height: 1.6; }
+.dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: #10241f; color: #fff; border-radius: 8px; padding: 10px 16px;
+  font-size: 13px; z-index: 40; box-shadow: 0 8px 24px rgba(0,0,0,.2);
+  opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+.footnote { font-size: 11px; color: var(--muted); }
+@media (max-width: 1000px) {
+  .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pack-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ai-pane { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .app { grid-template-columns: 72px minmax(0, 1fr); }
+  .brand-name, .brand-sub, .nav span, .nav .n-count, .side-foot { display: none; }
+  .sidebar { padding: 12px 10px; }
+  .nav button { justify-content: center; padding: 10px 0; }
+  .grid-4, .pack-grid, .mem-list { grid-template-columns: 1fr; }
+  .wrap { padding: 14px; }
+  .topbar { padding: 12px 14px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v7a3 3 0 0 1-3 3H4"/><path d="M15 2v7a3 3 0 0 0 3 3h2"/><path d="M6 12v2a6 6 0 0 0 6 6h0a6 6 0 0 0 6-6v-2"/><path d="M12 20v2"/></svg>
+      </div>
+      <div>
+        <div class="brand-name">DSH 插座中枢</div>
+        <div class="brand-sub">pack hub v0.1</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot" id="sideFoot"></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"></header>
+    <div class="wrap">
+      <section id="view-hub" class="view"></section>
+      <section id="view-market" class="view hidden"></section>
+      <section id="view-ai" class="view hidden"></section>
+      <section id="view-memory" class="view hidden"></section>
+      <section id="view-check" class="view hidden"></section>
+    </div>
+  </main>
+</div>
+<div class="dialog-backdrop" id="dlgBackdrop">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+    <h3 id="dlgTitle"></h3>
+    <div class="body" id="dlgBody"></div>
+    <div class="actions">
+      <button class="btn" id="dlgCancel">取消</button>
+      <button class="btn primary" id="dlgOk">确认</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="importFile" hidden accept=".json,application/json">
+<div class="toast" id="toast"></div>
+
+<script>
+const NAV = [
+  { id: 'hub', label: '插件中枢', icon: 'box' },
+  { id: 'market', label: '插件包市场', icon: 'store' },
+  { id: 'ai', label: 'AI 组装', icon: 'spark' },
+  { id: 'memory', label: '记忆中枢', icon: 'brain' },
+  { id: 'check', label: '自检更新', icon: 'shield' }
+];
+
+const ICONS = {
+  box: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>',
+  store: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9 6 3h12l2 6"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M5 12v8h14v-8"/><path d="M9 20v-5h6v5"/></svg>',
+  spark: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.2"/></svg>',
+  brain: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 2a2.5 2.5 0 0 0-2.5 2.5v.55A3.5 3.5 0 0 0 3 8.5 3.5 3.5 0 0 0 5.5 12 3.5 3.5 0 0 0 3 15.5a3.5 3.5 0 0 0 4 3.45V20a2 2 0 0 0 4 0v-.55A3.5 3.5 0 0 0 15 16a3.5 3.5 0 0 0 2.5-3.5A3.5 3.5 0 0 0 15 9a3.5 3.5 0 0 0 2.5-3.5A3.5 3.5 0 0 0 13.5 2H13"/><path d="M9.5 2c.83 0 1.5.67 1.5 1.5V8"/></svg>',
+  shield: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>',
+  search: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
+  download: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>',
+  upload: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>',
+  refresh: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>',
+  plus: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  restart: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/></svg>',
+  check: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
+  warn: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  trash: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'
+};
+
+const CATALOG = [
+  {
+    id: 'pack-research', name: '科研插座包', author: 'Arito', stars: 2840, version: '1.0.0',
+    tags: ['科研', '论文', '文献'], desc: '文献检索、综述、论文写作、引用与审稿建议',
+    bundles: [
+      { name: '@dsh-community/dsh-tool-literature', role: '文献检索', version: '1.2.3' },
+      { name: '@dsh-community/dsh-cite', role: '引用管理', version: '0.9.1' },
+      { name: '@dsh-community/dsh-paper-writer', role: '论文写作', version: '2.0.0' },
+      { name: '@dsh-community/dsh-review-board', role: '审稿建议', version: '1.1.0' }
+    ],
+    memory: ['global.research'], accent: '#0e7c6b'
+  },
+  {
+    id: 'pack-video', name: '视频制作插座包', author: '清泫', stars: 1920, version: '0.8.2',
+    tags: ['视频', '剪辑', '字幕'], desc: '脚本、分镜、剪辑清单、字幕与封面生成',
+    bundles: [
+      { name: '@dsh-community/dsh-video-script', role: '脚本', version: '1.4.0' },
+      { name: '@dsh-community/dsh-shots', role: '分镜', version: '0.6.2' },
+      { name: '@dsh-community/dsh-subtitle', role: '字幕', version: '1.0.5' },
+      { name: '@dsh-community/dsh-cover', role: '封面', version: '0.3.1' }
+    ],
+    memory: ['global.video'], accent: '#b45309'
+  },
+  {
+    id: 'pack-social', name: '自媒体插座包', author: '笑笑熊', stars: 1530, version: '1.1.0',
+    tags: ['自媒体', '选题', '文案'], desc: '热点选题、拆解、文案与发布清单',
+    bundles: [
+      { name: '@dsh-community/dsh-topic-radar', role: '选题', version: '1.0.2' },
+      { name: '@dsh-community/dsh-copy-kit', role: '文案', version: '2.2.1' },
+      { name: '@dsh-community/dsh-crosspost', role: '发布', version: '0.5.0' }
+    ],
+    memory: ['global.social'], accent: '#8b5e3c'
+  },
+  {
+    id: 'pack-kaoyan', name: '考研冲刺插座包', author: 'Moss 小组', stars: 980, version: '0.6.1',
+    tags: ['考研', '学习', '闪卡'], desc: '背诵计划、真题梳理、中日双语文法和闪卡导出',
+    bundles: [
+      { name: '@dsh-community/dsh-recall', role: '背诵', version: '1.3.0' },
+      { name: '@dsh-community/dsh-paper-miner', role: '真题', version: '0.8.3' },
+      { name: '@dsh-community/dsh-flashcard', role: '闪卡', version: '1.2.0' }
+    ],
+    memory: ['global.study'], accent: '#1d5f9e'
+  },
+  {
+    id: 'pack-fullstack', name: '全栈开发插座包', author: '黄昏', stars: 2160, version: '1.4.0',
+    tags: ['开发', '全栈', 'DevOps'], desc: '脚手架、代码评审、测试和安全检查',
+    bundles: [
+      { name: '@dsh-community/dsh-scaffold', role: '脚手架', version: '3.0.0' },
+      { name: '@dsh-community/dsh-review', role: '评审', version: '1.8.1' },
+      { name: '@dsh-community/dsh-test-runner', role: '测试', version: '0.9.5' },
+      { name: '@dsh-community/dsh-sec-scan', role: '安全', version: '1.0.4' }
+    ],
+    memory: ['global.dev'], accent: '#5b5488'
+  },
+  {
+    id: 'pack-notes', name: '知识管理插座包', author: '清泫', stars: 1240, version: '1.0.3',
+    tags: ['笔记', '知识库', '整理'], desc: '网页收藏、笔记整理、书摘提取与双链',
+    bundles: [
+      { name: '@dsh-community/dsh-web-clipper', role: '收藏', version: '1.1.1' },
+      { name: '@dsh-community/dsh-notes', role: '笔记', version: '2.0.2' },
+      { name: '@dsh-community/dsh-book-extract', role: '书摘', version: '0.7.0' }
+    ],
+    memory: ['global.knowledge'], accent: '#237a57'
+  }
+];
+
+const DEFAULT_STATE = {
+  dshVersion: '0.1.0-rc.7',
+  latestVersion: '0.1.0-rc.8',
+  nodeVersion: '22.19.0',
+  pnpmVersion: '11.7.0',
+  pendingRestart: 0,
+  installed: [
+    { packId: 'pack-research', active: true, installedAt: '2026-08-18', status: 'healthy' },
+    { packId: 'pack-notes', active: true, installedAt: '2026-08-18', status: 'healthy' }
+  ],
+  imported: [],
+  aiCount: 0,
+  memories: [
+    { id: 'global.research', name: '科研记忆包', keywords: ['论文', '文献', '引用', '方法论'], entries: 12 },
+    { id: 'global.video', name: '视频记忆包', keywords: ['视频', '剪辑', '脚本'], entries: 7 },
+    { id: 'global.study', name: '学习记忆包', keywords: ['考研', '闪卡', '语法'], entries: 9 }
+  ],
+  memoryLog: []
+};
+
+let state;
+try {
+  state = JSON.parse(localStorage.getItem('dsh-pack-hub-prototype')) || JSON.parse(JSON.stringify(DEFAULT_STATE));
+} catch (e) {
+  state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+}
+function save() {
+  try { localStorage.setItem('dsh-pack-hub-prototype', JSON.stringify(state)); } catch (e) { /* file:// mode */ }
+}
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const packOf = (id) => CATALOG.find((p) => p.id === id) || state.imported.find((p) => p.id === id);
+const isInstalled = (id) => state.installed.some((i) => i.packId === id);
+const installedRow = (id) => state.installed.find((i) => i.packId === id);
+
+let currentView = 'hub';
+let marketQuery = '';
+let marketFilter = '全部';
+let aiRunning = false;
+let aiResult = null;
+let checks = null;
+let dlgAction = null;
+
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+function download(filename, text, mime = 'application/json') {
+  const blob = new Blob([text], { type: mime + ';charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 800);
+}
+
+function showDialog(title, bodyHtml, onOk, okLabel = '确认') {
+  $('dlgTitle').textContent = title;
+  $('dlgBody').innerHTML = bodyHtml;
+  $('dlgOk').textContent = okLabel;
+  dlgAction = onOk;
+  $('dlgBackdrop').classList.add('show');
+}
+function hideDialog() {
+  $('dlgBackdrop').classList.remove('show');
+  dlgAction = null;
+}
+$('dlgCancel').addEventListener('click', hideDialog);
+$('dlgOk').addEventListener('click', () => {
+  const fn = dlgAction;
+  hideDialog();
+  if (fn) fn();
+});
+$('dlgBackdrop').addEventListener('click', (e) => { if (e.target === $('dlgBackdrop')) hideDialog(); });
+
+function renderShell() {
+  $('nav').innerHTML = NAV.map((n) => `
+    <button class="${n.id === currentView ? 'active' : ''}" data-view="${n.id}" aria-label="${n.label}">
+      ${ICONS[n.icon]}<span>${n.label}</span><span class="n-count">${n.id === 'hub' ? state.installed.length : n.id === 'memory' ? state.memories.length : ''}</span>
+    </button>`).join('');
+  document.querySelectorAll('#nav button').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
+  const restartable = state.pendingRestart > 0;
+  $('sideFoot').innerHTML = `
+    <div class="side-row"><span>profile</span><span class="v">desktop</span></div>
+    <div class="side-row"><span>dsh</span><span class="v">${esc(state.dshVersion)}</span></div>
+    ${restartable ? '<div class="side-row"><span>待生效</span><span class="v" id="pendingText">' + state.pendingRestart + ' 项</span></div>' : ''}`;
+  const top = document.querySelector('.topbar');
+  const n = NAV.find((x) => x.id === currentView);
+  top.innerHTML = `
+    <div>
+      <h1>${n.label}</h1>
+      <div class="ctx">profile desktop · dsh ${esc(state.dshVersion)}</div>
+    </div>
+    <div class="spacer"></div>
+    ${state.pendingRestart ? `<span class="pill warn">${ICONS.restart} 重启后生效 ${state.pendingRestart} 项</span>` : '<span class="pill good">已是最新会话</span>'}
+    ${state.pendingRestart ? '<button class="btn" id="restartBtn">重启生效</button>' : ''}`;
+  const rb = $('restartBtn');
+  if (rb) rb.addEventListener('click', () => {
+    state.pendingRestart = 0;
+    save(); renderAll();
+    toast('已模拟重启，变更已生效');
+  });
+}
+
+function switchView(id) {
+  currentView = id;
+  document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
+  $('view-' + id).classList.remove('hidden');
+  renderShell(); renderCurrent();
+  window.scrollTo(0, 0);
+}
+
+function renderCurrent() {
+  if (currentView === 'hub') renderHub();
+  if (currentView === 'market') renderMarket();
+  if (currentView === 'ai') renderAi();
+  if (currentView === 'memory') renderMemory();
+  if (currentView === 'check') renderCheck();
+}
+
+function renderHub() {
+  const totalBundles = state.installed.reduce((sum, row) => { const p = packOf(row.packId); return sum + (p ? p.bundles.length : 0); }, 0);
+  const activePacks = state.installed.filter((i) => i.active).length;
+  const conflict = getConflicts().length;
+  const updates = [];
+  CATALOG.forEach((p) => {
+    const row = installedRow(p.id);
+    if (row && row.version !== p.version) updates.push(p);
+  });
+  const rows = state.installed.map((i) => packOf(i.packId)).filter(Boolean);
+  $('view-hub').innerHTML = `
+    <div class="grid-4">
+      <div class="stat"><div class="label">${ICONS.box} 已装插座包</div><div class="num">${state.installed.length + state.imported.length}</div><div class="hint">激活 ${activePacks}</div></div>
+      <div class="stat"><div class="label">${ICONS.spark} 组合插件</div><div class="num">${totalBundles}</div><div class="hint">来自已装包</div></div>
+      <div class="stat"><div class="label">${ICONS.warn} 待处理冲突</div><div class="num">${conflict}</div><div class="hint">${conflict ? '自检建议处理' : '无冲突'}</div></div>
+      <div class="stat"><div class="label">${ICONS.refresh} 可更新包</div><div class="num">${updates.length}</div><div class="hint">dsh ${state.latestVersion}</div></div>
+    </div>
+    <div class="section-head">
+      <div><h2>已装入</h2><div class="sub">${rows.length} 个插座包</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" id="refreshHub">${ICONS.refresh} 刷新</button>
+        <button class="btn primary" id="importBtn">${ICONS.upload} 导入包</button>
+      </div>
+    </div>
+    <div class="pack-list">
+      ${rows.length ? rows.map((p) => packCard(p, true)).join('') : '<div class="empty">还没有装入插座包</div>'}
+    </div>`;
+  $('importBtn').addEventListener('click', () => $('importFile').click());
+  $('refreshHub').addEventListener('click', () => { toast('包清单已刷新'); renderHub(); });
+}
+
+function packCard(p, showManage = false) {
+  const row = installedRow(p.id);
+  const active = row ? row.active : false;
+  const installed = Boolean(row);
+  const conflict = getConflicts().some((c) => c.packId === p.id);
+  const statusBadge = installed
+    ? (conflict ? '<span class="badge err">冲突</span>' : '<span class="badge ok">健康</span>')
+    : '<span class="badge neutral">未装</span>';
+  const letter = (p.name || '包').trim().slice(0, 1);
+  const accent = p.accent || '#0e7c6b';
+  return `
+    <div class="pack">
+      <div class="pack-top">
+        <div class="pack-icon" style="background:${accent}">${esc(letter)}</div>
+        <div class="pack-title">
+          <h3>${esc(p.name)}</h3>
+          <div class="meta">${esc(p.author || '社区')} · ⭐ ${p.stars || 0} · v${esc(p.version || '0.0.0')}</div>
+        </div>
+        ${statusBadge}
+      </div>
+      <div class="tags">${(p.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+      <div class="plugins">
+        ${(p.bundles || []).slice(0, 5).map((b) => `
+          <div class="plugin-row">
+            <span>${esc(b.name)}</span>
+            <span class="role">${esc(b.role)} · v${esc(b.version)}</span>
+          </div>`).join('')}
+      </div>
+      <div class="pack-foot">
+        <span style="font-size:11px;color:var(--muted)">${(p.bundles || []).length} 插件</span>
+        <div class="spacer"></div>
+        ${showManage && installed
+          ? `<button class="btn sm danger" data-uninstall="${p.id}">${ICONS.trash} 卸载</button>
+             <button class="switch" role="switch" aria-checked="${active}" aria-label="切换 ${esc(p.name)}" data-toggle="${p.id}"></button>`
+          : installed
+            ? `<span class="badge ok">${ICONS.check} 已装</span>
+               <button class="switch" role="switch" aria-checked="${active}" aria-label="切换 ${esc(p.name)}" data-toggle="${p.id}"></button>`
+            : `<button class="btn sm primary" data-install="${p.id}">${ICONS.plus} 一键安装</button>`}
+      </div>
+    </div>`;
+}
+
+function renderMarket() {
+  const cats = ['全部', ...new Set(CATALOG.flatMap((p) => p.tags))];
+  const q = marketQuery.trim().toLowerCase();
+  const list = CATALOG.filter((p) => (marketFilter === '全部' || p.tags.includes(marketFilter)) && (!q || p.name.toLowerCase().includes(q) || p.tags.some((t) => t.toLowerCase().includes(q)) || p.desc.toLowerCase().includes(q)));
+  $('view-market').innerHTML = `
+    <div class="toolbar">
+      <div class="search">${ICONS.search}<input id="marketSearch" placeholder="搜索包名或标签" value="${esc(marketQuery)}"></div>
+      <button class="btn" id="refreshMarket">${ICONS.refresh} 刷新目录</button>
+      <button class="btn primary" id="importBtn2">${ICONS.upload} 导入包</button>
+    </div>
+    <div class="chip-row" id="marketChips">
+      ${cats.map((c) => `<button class="chip ${c === marketFilter ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
+    </div>
+    <div class="pack-grid">
+      ${list.length ? list.map((p) => packCard(p, false)).join('') : '<div class="empty">没有匹配的插座包</div>'}
+    </div>
+    <div class="footnote">示例目录数据，用于原型演示</div>`;
+  $('marketSearch').addEventListener('input', (e) => { marketQuery = e.target.value; renderMarket(); });
+  document.querySelectorAll('#marketChips .chip').forEach((c) => c.addEventListener('click', () => { marketFilter = c.dataset.cat; renderMarket(); }));
+  $('refreshMarket').addEventListener('click', () => { toast('目录已同步（示例）'); renderMarket(); });
+  $('importBtn2').addEventListener('click', () => $('importFile').click());
+}
+
+function renderAi() {
+  const sample = ['我要搭一套科研出论文的工作流', '帮我组一个视频剪辑加字幕的包', '考研背单词、刷真题、导闪卡'];
+  const resultHtml = aiResult ? `
+    <div class="result show">
+      <h3>已生成：${esc(aiResult.name)}</h3>
+      <div class="tags">${aiResult.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+      <div class="section-head" style="margin-top:10px">
+        <div><h2>pack manifest</h2></div>
+        <button class="btn sm" id="copyManifest">复制 JSON</button>
+      </div>
+      <pre class="json-pre" id="manifestPre">${esc(JSON.stringify(aiResult.manifest, null, 2))}</pre>
+      <div class="section-head" style="margin-top:12px">
+        <div><h2>README</h2></div>
+        <button class="btn sm" id="copyReadme">复制 README</button>
+      </div>
+      <textarea class="req-box" readonly id="readmeBox" style="min-height:140px">${esc(aiResult.readme)}</textarea>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn primary" id="exportPack">${ICONS.download} 导出到桌面</button>
+        <button class="btn" id="importAiPack">${ICONS.plus} 一键导入</button>
+      </div>
+    </div>` : '<div class="result"></div>';
+  $('view-ai').innerHTML = `
+    <div class="ai-pane">
+      <div class="ai-main">
+        <div class="section-head">
+          <div><h2>需求输入</h2><div class="sub">AI 组装器</div></div>
+        </div>
+        <textarea class="req-box" id="reqInput" placeholder="描述你的工作场景和需要的插件能力"></textarea>
+        <div class="chip-row">
+          ${sample.map((s) => `<button class="chip" data-sample="${esc(s)}">${esc(s)}</button>`).join('')}
+        </div>
+        <button class="btn primary" id="composeBtn" ${aiRunning ? 'disabled' : ''}>${ICONS.spark} ${aiRunning ? '组装中' : '开始组装'}</button>
+      </div>
+      <div class="ai-side">
+        <div class="section-head"><div><h2>执行日志</h2></div></div>
+        <div class="log-box" id="logBox"></div>
+      </div>
+    </div>
+    ${resultHtml}`;
+  document.querySelectorAll('[data-sample]').forEach((b) => b.addEventListener('click', () => { $('reqInput').value = b.dataset.sample; }));
+  $('composeBtn').addEventListener('click', () => compose());
+  bindResultActions();
+}
+
+function bindResultActions() {
+  const copyManifest = $('copyManifest');
+  if (copyManifest) copyManifest.addEventListener('click', () => {
+    navigator.clipboard ? navigator.clipboard.writeText(JSON.stringify(aiResult.manifest, null, 2)).then(() => toast('manifest 已复制')) : toast('复制失败');
+  });
+  const copyReadme = $('copyReadme');
+  if (copyReadme) copyReadme.addEventListener('click', () => {
+    navigator.clipboard ? navigator.clipboard.writeText(aiResult.readme).then(() => toast('README 已复制')) : toast('复制失败');
+  });
+  const ex = $('exportPack');
+  if (ex) ex.addEventListener('click', () => {
+    download(aiResult.manifest.packId + '.dshpack.json', JSON.stringify(aiResult.manifest, null, 2), 'application/json');
+    setTimeout(() => download(aiResult.manifest.packId + '-README.md', aiResult.readme, 'text/markdown'), 500);
+    toast('pack + README 已导出');
+  });
+  const imp = $('importAiPack');
+  if (imp) imp.addEventListener('click', () => importPacks([aiResult.manifest]));
+}
+
+function logLine(box, text, cls = '') {
+  box.insertAdjacentHTML('beforeend', `<div class="${cls}">${esc(text)}</div>`);
+  box.scrollTop = box.scrollHeight;
+}
+
+function keywordHits(text) {
+  const t = text.toLowerCase();
+  const hits = [];
+  const map = [
+    ['文献', 'research'], ['论文', 'research'], ['科研', 'research'], ['引用', 'research'], ['综述', 'research'],
+    ['视频', 'video'], ['剪辑', 'video'], ['字幕', 'video'], ['分镜', 'video'], ['封面', 'video'],
+    ['自媒体', 'social'], ['选题', 'social'], ['文案', 'social'], ['热点', 'social'],
+    ['考研', 'study'], ['背诵', 'study'], ['闪卡', 'study'], ['真题', 'study'], ['语法', 'study'],
+    ['开发', 'dev'], ['代码', 'dev'], ['测试', 'dev'], ['部署', 'dev'], ['全栈', 'dev'],
+    ['笔记', 'notes'], ['知识库', 'notes'], ['书摘', 'notes'], ['收藏', 'notes']
+  ];
+  for (const [kw, id] of map) if (t.includes(kw.toLowerCase())) hits.push(id);
+  return [...new Set(hits)];
+}
+
+function compose() {
+  const input = $('reqInput').value.trim();
+  if (!input || aiRunning) return;
+  aiRunning = true;
+  aiResult = null;
+  renderAi();
+  const box = $('logBox');
+  const rootPacks = CATALOG.filter((p) => keywordHits(input).includes(p.id.replace('pack-', '')));
+  const steps = [
+    ['拆解需求', `场景关键词：${keywordHits(input).join(', ') || '通用工具'}`],
+    ['检索目录', `匹配 ${rootPacks.length} 个候选包，按 star 排序`],
+    ['筛选版本', '过滤精确稳定版本、license 与维护状态'],
+    ['冲突消解', '处理重复 role，生成冲突矩阵'],
+    ['生成文件', '输出 pack manifest + README']
+  ];
+  let i = 0;
+  const tick = () => {
+    if (!aiRunning) return;
+    if (i < steps.length) {
+      logLine(box, `[${i + 1}/5] ${steps[i][0]}`, 'warn');
+      logLine(box, '  ' + steps[i][1], 'ok');
+      i++;
+      setTimeout(tick, 420);
+    } else {
+      const picked = rootPacks.length ? rootPacks : [CATALOG[0]];
+      const bundles = [];
+      picked.forEach((p) => p.bundles.forEach((b) => { if (!bundles.some((x) => x.name === b.name)) bundles.push(b); }));
+      state.aiCount += 1;
+      const packId = 'pack.ai.' + Date.now().toString(36);
+      const manifest = {
+        packId,
+        name: 'AI 定制' + picked.map((p) => p.name.replace('插座包', '')).join('·') + '插座包',
+        version: '0.1.0',
+        scene: picked[0].id.replace('pack-', '') || 'custom',
+        tags: [...new Set(picked.flatMap((p) => p.tags))],
+        requires: { dsh: state.dshVersion, node: '>=22.19.0', profile: 'desktop' },
+        bundles,
+        conflicts: [],
+        memory: picked[0].memory || [],
+        configDir: 'packs/' + packId,
+        market: { author: 'AI Pack Assembler', license: 'MIT', stars: 0, generatedBy: 'dsh-pack-hub prototype' }
+      };
+      const readme = [
+        '# ' + manifest.name,
+        '',
+        '由 DSH AI 组装器根据需求生成：' + input,
+        '',
+        '## Bundles',
+        '',
+        ...bundles.map((b) => '- `' + b.name + '@' + b.version + '` · ' + b.role),
+        '',
+        '## Memory',
+        '',
+        ...(manifest.memory || []).map((m) => '- ' + m),
+        '',
+        '## 安装',
+        '',
+        '1. 在 DSH 插件市场或插件中枢导入本包。',
+        '2. 确认版本与冲突信息后安装。',
+        '3. 重启 DSH 生效。'
+      ].join('\n');
+      aiResult = { name: manifest.name, tags: manifest.tags, manifest, readme };
+      logLine(box, '完成：pack + README 已就绪', 'ok');
+      aiRunning = false;
+      renderAi();
+      const exp = $('exportPack');
+      if (exp) exp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  };
+  tick();
+}
+
+function renderMemory() {
+  const totalEntries = state.memories.reduce((s, m) => s + m.entries, 0) + state.memoryLog.length;
+  $('view-memory').innerHTML = `
+    <div class="grid-4">
+      <div class="stat"><div class="label">${ICONS.brain} 记忆包</div><div class="num">${state.memories.length}</div></div>
+      <div class="stat"><div class="label">${ICONS.box} 记忆条目</div><div class="num">${totalEntries}</div></div>
+      <div class="stat"><div class="label">${ICONS.spark} 本轮新增</div><div class="num">${state.memoryLog.length}</div></div>
+      <div class="stat"><div class="label">${ICONS.shield} 路由状态</div><div class="num" style="font-size:18px;line-height:1.4">全局命中</div><div class="hint">关键词路由</div></div>
+    </div>
+    <div class="section-head">
+      <div><h2>全局记忆包</h2><div class="sub">切换插座包不影响记忆</div></div>
+      <button class="btn primary" id="commitBtn">${ICONS.plus} 打包本轮记忆</button>
+    </div>
+    <div class="mem-list">
+      ${state.memories.map((m) => `
+        <div class="mem">
+          <div class="mem-top">
+            <div class="pack-icon" style="background:#0e7c6b">${esc(m.name.slice(0, 1))}</div>
+            <div class="pack-title">
+              <h3>${esc(m.name)}</h3>
+              <div class="meta">${m.id} · ${m.entries} 条</div>
+            </div>
+            <button class="switch" role="switch" aria-checked="true" aria-label="切换 ${esc(m.name)}" data-mem="${esc(m.id)}"></button>
+          </div>
+          <div class="tags">${m.keywords.map((k) => `<span class="kw">${esc(k)}</span>`).join('')}</div>
+          <div style="font-size:12px;color:var(--muted)">建议路由：任务命中任一关键词时装载</div>
+        </div>`).join('')}
+    </div>
+    ${state.memoryLog.length ? `
+      <div class="section-head"><div><h2>最近打包</h2></div></div>
+      <div class="pack-list">
+        ${state.memoryLog.slice(-5).reverse().map((e) => `
+          <div class="check-row">
+            <span class="badge ok">${ICONS.check} 已提交</span>
+            <div><div class="name">${esc(e.title)}</div><div class="desc">${esc(e.time)} · ${esc(e.tags.join(' / '))}</div></div>
+            <div class="val">${esc(e.pack)}</div>
+          </div>`).join('')}
+      </div>` : ''}`;
+  $('commitBtn').addEventListener('click', () => {
+    const entry = {
+      title: '本轮任务记忆',
+      time: new Date().toLocaleString('zh-CN', { hour12: false }),
+      tags: ['research', 'prototype'],
+      pack: 'global.research'
+    };
+    state.memoryLog.push(entry);
+    const m = state.memories.find((x) => x.id === 'global.research');
+    if (m) m.entries += 1;
+    save(); renderMemory();
+    toast('已完成记忆打包，全局可用');
+  });
+}
+
+function getChecks() {
+  const conflicts = getConflicts();
+  return [
+    { name: 'DSH 版本', desc: '当前版与最新版', val: state.dshVersion, status: state.dshVersion !== state.latestVersion ? 'update' : 'ok', text: state.dshVersion !== state.latestVersion ? '可更新至 ' + state.latestVersion : '已最新' },
+    { name: 'Node.js', desc: '内置运行时', val: state.nodeVersion, status: 'ok', text: '兼容' },
+    { name: 'pnpm', desc: '包管理器', val: state.pnpmVersion, status: 'ok', text: '就绪' },
+    { name: 'Profile 清单', desc: 'dsh.profile.bundles 可解析', val: 'desktop', status: 'ok', text: StateOk() ? '完好' : '需检查' },
+    { name: '插件健康', desc: '已装包自检', val: conflicts.length + ' 冲突', status: conflicts.length ? 'warn' : 'ok', text: conflicts.length ? '见冲突矩阵' : '健康' },
+    { name: '记忆中枢', desc: '全局记忆包状态', val: state.memories.length + ' 包', status: 'ok', text: '在线' }
+  ];
+}
+function StateOk() { return true; }
+
+function renderCheck() {
+  const checks = getChecks();
+  $('view-check').innerHTML = `
+    <div class="section-head">
+      <div><h2>系统自检</h2><div class="sub">运行时 · profile · 插件 · 更新</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" id="recheck">${ICONS.refresh} 重新自检</button>
+        <button class="btn primary" id="updateDsh" ${state.dshVersion === state.latestVersion ? 'disabled' : ''}>${ICONS.download} 更新 DSH</button>
+      </div>
+    </div>
+    <div class="check-list">
+      ${checks.map((c) => `
+        <div class="check-row">
+          <span class="badge ${c.status === 'ok' ? 'ok' : c.status === 'update' ? 'warn' : 'err'}">${c.status === 'ok' ? ICONS.check : ICONS.warn}</span>
+          <div><div class="name">${c.name}</div><div class="desc">${c.desc}</div></div>
+          <div class="val">${esc(c.val)}</div>
+          <div style="font-size:12px;color:var(--muted);min-width:110px;text-align:right">${esc(c.text)}</div>
+        </div>`).join('')}
+    </div>
+    ${getConflicts().length ? `
+      <div class="section-head"><div><h2>冲突矩阵</h2></div></div>
+      <div class="check-list">
+        ${getConflicts().map((c) => `
+          <div class="check-row">
+            <span class="badge err">冲突</span>
+            <div><div class="name">${esc(c.packId)}</div><div class="desc">${esc(c.reason)}</div></div>
+            <div style="font-size:12px">${esc(c.suggest)}</div>
+          </div>`).join('')}
+      </div>` : ''}
+    <div class="section-head"><div><h2>外部包</h2></div></div>
+    <div class="pack-list">
+      <div class="check-row">
+        <span class="badge neutral">${ICONS.upload}</span>
+        <div><div class="name">导入 .dshpack.json</div><div class="desc">本地文件 · 校验 packId / bundles / requires</div></div>
+        <button class="btn primary" id="importBtn3" style="margin-left:auto">${ICONS.upload} 选择文件</button>
+      </div>
+    </div>`;
+  $('recheck').addEventListener('click', () => { toast('自检完成，状态已更新'); renderCheck(); });
+  const up = $('updateDsh');
+  if (up) up.addEventListener('click', () => {
+    showDialog('更新 DSH', `<div class="body">将从 ${esc(state.dshVersion)} 更新到 ${esc(state.latestVersion)}。更新完成后需要重启一次。</div>`, () => {
+      state.dshVersion = state.latestVersion;
+      state.pendingRestart += 1;
+      save(); renderAll();
+      toast('DSH 更新包已就绪，重启后生效');
+    }, '下载并更新');
+  });
+  $('importBtn3').addEventListener('click', () => $('importFile').click());
+}
+
+function simulateConflicts(rows) {
+  const out = [];
+  const activeBundles = new Map();
+  rows.filter((i) => i.active).forEach((row) => {
+    const p = packOf(row.packId);
+    if (!p) return;
+    p.bundles.forEach((b) => {
+      if (activeBundles.has(b.name)) {
+        const prev = activeBundles.get(b.name);
+        if (prev.version !== b.version) out.push({ packId: p.id, reason: `${b.name} 版本冲突 ${prev.version} vs ${b.version}`, suggest: '停用其中一个包或更新到同一版本' });
+      } else {
+        activeBundles.set(b.name, b);
+      }
+    });
+  });
+  const contentCollision = new Set();
+  rows.filter((i) => i.active).forEach((row) => {
+    const p = packOf(row.packId);
+    if (!p) return;
+    p.bundles.forEach((b) => {
+      if (!contentCollision.has(b.role)) contentCollision.add(b.role);
+      else if (!out.some((c) => c.packId === p.id && c.reason.includes('重复角色'))) out.push({ packId: p.id, reason: `重复角色：${b.role}`, suggest: '保留角色更完整的包' });
+    });
+  });
+  return [...new Map(out.map((o) => [o.packId + o.reason, o])).values()];
+}
+function getConflicts() {
+  return simulateConflicts(state.installed);
+}
+
+function renderAll() {
+  renderShell();
+  renderCurrent();
+}
+
+function bindGlobal() {
+  document.addEventListener('click', (e) => {
+    const inst = e.target.closest('[data-install]');
+    if (inst) { installPack(inst.dataset.install); return; }
+    const tog = e.target.closest('[data-toggle]');
+    if (tog) { togglePack(tog.dataset.toggle, tog); return; }
+    const un = e.target.closest('[data-uninstall]');
+    if (un) { uninstallPack(un.dataset.uninstall); return; }
+    const mem = e.target.closest('[data-mem]');
+    if (mem) { toast('记忆包保持全局激活'); return; }
+  });
+  $('importFile').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(String(reader.result));
+        importPacks([data]);
+      } catch (err) {
+        toast('文件不是合法 JSON');
+      }
+    };
+    reader.readAsText(file);
+  });
+}
+
+function installPack(id) {
+  const p = packOf(id);
+  if (!p || isInstalled(id)) { if (isInstalled(id)) toast('该包已安装'); return; }
+  const conflicts = getConflicts().filter((c) => c.packId === id);
+  showDialog('安装 ' + p.name,
+    `<div class="body">
+      <div>packId：<code>${esc(p.id)}</code></div>
+      <div>版本：<code>${esc(p.version)}</code></div>
+      <div>插件：${(p.bundles || []).map((b) => `<code>${esc(b.name)}</code>`).join('、')}</div>
+      ${conflicts.length ? `<div style="color:var(--red)">已检测到 ${conflicts.length} 项冲突，安装后需处理。</div>` : ''}
+      <div>安装会修改当前 profile，完成后需要重启。</div>
+    </div>`,
+    () => {
+      state.installed.push({ packId: id, active: true, installedAt: today(), status: 'healthy' });
+      state.pendingRestart += 1;
+      save(); renderAll(); switchView('hub');
+      toast(p.name + ' 已安装，重启后生效');
+    }, '确认安装');
+}
+
+function togglePack(id, el) {
+  const row = installedRow(id);
+  if (!row) return;
+  const next = !row.active;
+  const p = packOf(id);
+  if (next && p) {
+    const tmp = [...state.installed.filter((x) => x.packId !== id), { ...row, active: true }];
+    const conflicts = simulateConflicts(tmp).filter((c) => c.packId === id);
+    if (conflicts.length) {
+      showDialog('存在冲突', `<div class="body">${conflicts.map((c) => '<div>' + esc(c.reason) + '</div>').join('')}<div>建议先停用冲突包或选择替换版本。</div></div>`, () => {});
+      return;
+    }
+  }
+  row.active = next;
+  state.pendingRestart += 1;
+  save(); renderAll();
+  toast(next ? p.name + ' 已激活' : p.name + ' 已停用');
+}
+
+function uninstallPack(id) {
+  const p = packOf(id);
+  if (!p) return;
+  showDialog('卸载 ' + p.name,
+    `<div class="body">将移除该包关联的插件与 receipt。此操作需要重启后完全生效。</div>`,
+    () => {
+      state.installed = state.installed.filter((i) => i.packId !== id);
+      state.pendingRestart += 1;
+      save(); renderAll();
+      toast(p.name + ' 已卸载');
+    }, '卸载');
+}
+
+function importPacks(list) {
+  const ok = [];
+  const bad = [];
+  list.forEach((data) => {
+    if (!data || typeof data !== 'object' || !data.packId || !data.bundles || !Array.isArray(data.bundles) || !data.name) {
+      bad.push(data && data.name ? data.name : '未知包');
+      return;
+    }
+    const id = data.packId;
+    if (isInstalled(id) || state.imported.some((p) => p.id === id)) { bad.push(data.name + '（已存在）'); return; }
+    const norm = {
+      id,
+      name: data.name,
+      author: data.market && data.market.author ? data.market.author : '本地导入',
+      stars: data.market && data.market.stars ? data.market.stars : 0,
+      version: data.version || '0.0.0',
+      tags: data.tags || [],
+      desc: data.description || '',
+      bundles: data.bundles.map((b) => ({ name: b.package || b.name, role: b.role || '工具', version: b.version || '0.0.0' })),
+      memory: data.memory || [],
+      accent: '#3d5a6c',
+      imported: true
+    };
+    state.imported.push(norm);
+    ok.push(norm);
+  });
+  if (ok.length) {
+    state.installed.push(...ok.map((p) => ({ packId: p.id, active: true, installedAt: today(), status: 'healthy' })));
+    state.pendingRestart += ok.length;
+    save(); renderAll(); switchView('hub');
+    toast(ok.map((p) => p.name).join('、') + ' 已导入');
+  }
+  if (bad.length) toast('跳过：' + bad.join('、'));
+}
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  bindGlobal();
+  renderAll();
+});
+</script>
+</body>
+</html>

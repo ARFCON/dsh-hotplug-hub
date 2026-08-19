@@ -1,0 +1,658 @@
+window.__ModuleLoader__.load({
+	id: "dsh-hotplug-hub",
+	factory: (require) => {
+		var module = { exports: {} };
+		var exports = module.exports;
+		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+		let react = require("react");
+		const h = react.createElement;
+		const { useEffect, useRef, useState } = react;
+		const css = ".hp_section{width:100%;max-width:860px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:14px;display:flex}.hp_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:10px;padding:12px 14px;flex-direction:column;gap:8px;display:flex;min-width:0}.hp_heading{display:flex;align-items:baseline;gap:7px;margin:0}.hp_heading h3{margin:0;font-size:13px;font-weight:600;line-height:20px}.hp_heading span{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:12px}.hp_info{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.hp_bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hp_btn{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:34px;padding:0 14px;font-size:13px}.hp_btn:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_btn:disabled{opacity:.5;cursor:default}.hp_primary{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:0 0}.hp_notice{margin:0;font-size:13px;line-height:20px}.hp_notice[data-kind=error]{color:var(--dsw-alias-state-error-primary)}.hp_notice[data-kind=success]{color:var(--dsw-alias-state-success-primary)}.hp_textarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace}.hp_list{margin:0;padding:0;list-style:none;flex-direction:column;gap:8px;display:flex}.hp_row{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}.hp_row[data-active=true]{border-color:var(--dsw-alias-state-business-primary)}.hp_rowTop{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}.hp_name{font-weight:600;font-size:13px}.hp_meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_tag{font-size:11px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);padding:2px 8px;border-radius:10px;color:var(--dsw-alias-label-tertiary)}.hp_badge{font-size:11px;font-weight:600;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);padding:2px 8px;border-radius:10px}.hp_actions{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.hp_kv{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}.hp_code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:var(--dsw-alias-bg-layer-2);padding:2px 6px;border-radius:4px}.hp_empty{color:var(--dsw-alias-label-tertiary);font-size:13px;padding:8px 0}.hp_dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}.hp_dot[data-kind=reused]{background:var(--dsw-alias-state-success-primary)}.hp_dot[data-kind=download]{background:var(--dsw-alias-state-business-primary)}.hp_dot[data-kind=error]{background:var(--dsw-alias-state-error-primary)}.hp_preview{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}.hp_preview li{font-size:12px;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;gap:4px;flex-wrap:wrap}.hp_tabs{display:flex;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2);margin-bottom:14px;flex-wrap:wrap}.hp_tab{border:0;border-bottom:2px solid transparent;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;padding:8px 14px;cursor:pointer}.hp_tab:hover{color:var(--dsw-alias-label-primary)}.hp_tab[data-on=true]{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-state-business-primary)}.hp_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.hp_stat{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px}.hp_stat .hp_label{font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_stat .hp_num{font-size:22px;font-weight:700;margin-top:4px}.hp_log{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.7;padding:10px 12px;min-height:160px;max-height:300px;overflow-y:auto;white-space:pre-wrap}.hp_log .ok{color:var(--dsw-alias-state-success-primary)}.hp_log .warn{color:var(--dsw-alias-state-business-primary)}.hp_check{display:flex;align-items:center;gap:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px;font-size:13px}.hp_check .hp_val{margin-left:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_chip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer}.hp_chip[data-on=true]{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_input{flex:1;min-width:160px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px}.hp_input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}";
+		const tagId = "dsh-hotplug-hub/hotplug.module.css";
+		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
+			const tag = document.createElement("style");
+			tag.dataset.plugin = "dsh-hotplug-hub";
+			tag.dataset.pluginCss = tagId;
+			tag.textContent = css;
+			document.head.appendChild(tag);
+		}
+		const zh = {
+			tab: "热插拔中枢",
+			title: "热插拔中枢",
+			intro: "空插座：中枢不含任何原生插件，只导入外部热插拔包。插件按路径调用，有就直接复用，缺哪下哪；切换包无损替换，全局记忆不受影响。",
+			activeNone: "当前没有激活的包。",
+			activeNow: "当前激活",
+			restartHint: "挂载 / 卸载在 DSH 服务重启后生效。",
+			loadFailed: "读取状态失败：",
+			importTitle: "导入热插拔包",
+			importPlaceholder: "粘贴 hotpack v1 JSON（参考 docs/hotpack-format.zh.md 与 examples/）",
+			importBtn: "导入",
+			importFile: "选择 .hotpack.json",
+			importing: "导入中…",
+			importDone: "已导入：",
+			importFailed: "导入失败：",
+			packsTitle: "已导入的包",
+			packsEmpty: "还没有导入任何热插拔包。把上面的 hotpack JSON 粘贴进来，或选择一个 .hotpack.json 文件。",
+			pluginsCount: "个插件",
+			activeBadge: "激活中",
+			previewBtn: "预览",
+			hidePreview: "收起",
+			activateBtn: "激活",
+			activating: "挂载中…",
+			deactivateBtn: "卸载",
+			deactivating: "卸载中…",
+			removeBtn: "移除",
+			activateDone: "已挂载，重启 DSH 后生效：",
+			activateFailed: "激活失败：",
+			alreadyActive: "该包已经是激活状态。",
+			deactivateDone: "已卸载当前包，重启 DSH 后生效。",
+			deactivateFailed: "卸载失败：",
+			deactivateConfirm: "卸载当前激活包？（只移除 profile 挂载，store 缓存与全局记忆保留）",
+			removeDone: "已移除包：",
+			removeFailed: "移除失败：",
+			removeConfirm: "移除这个包的记录？（不删除已下载的插件缓存）",
+			storeTitle: "共享插件仓（hotplug-store）",
+			storeEmpty: "hotplug-store 为空。github 源的插件下载后会缓存在这里，供所有包复用。",
+			reused: "复用",
+			download: "需下载",
+			error: "异常",
+			wouldReplace: "将无损替换当前激活包：",
+			busy: "有操作正在进行，请稍候…",
+			navHub: "插件中枢",
+			navMarket: "插件包市场",
+			navAi: "AI 组装",
+			navMemory: "记忆中枢",
+			navCheck: "自检更新",
+			marketSearch: "搜索包名或标签",
+			marketRefresh: "刷新",
+			marketEmpty: "没有匹配的插座包",
+			marketInstall: "导入",
+			marketInstalled: "已导入",
+			marketNote: "示例目录数据，点击导入将包定义写入中枢",
+			aiTitle: "AI 组装器",
+			aiPlaceholder: "描述你的工作场景和需要的插件能力",
+			aiCompose: "开始组装",
+			aiComposing: "组装中…",
+			aiLog: "执行日志",
+			aiResult: "生成结果",
+			aiManifest: "pack manifest",
+			aiReadme: "README",
+			aiCopyManifest: "复制 JSON",
+			aiCopyReadme: "复制 README",
+			aiExport: "导出到剪贴板",
+			aiImport: "一键导入",
+			aiDone: "已生成：",
+			aiSamples: ["我要搭一套科研出论文的工作流", "帮我组一个视频剪辑加字幕的包", "考研背单词、刷真题、导闪卡"],
+			memTitle: "记忆中枢",
+			memIntro: "全局记忆包，与 profile 解耦。切换包不影响记忆。",
+			memPacks: "全局记忆包",
+			memEmpty: "暂无记忆包。记忆目录：",
+			memCommit: "打包本轮记忆",
+			memCommitted: "已完成记忆打包，全局可用",
+			memEntries: "条",
+			checkTitle: "系统自检",
+			checkIntro: "运行时 · profile · 插件 · 冲突",
+			checkRecheck: "重新自检",
+			checkConflicts: "冲突矩阵",
+			checkNoConflicts: "无冲突",
+			checkManifest: "Profile 清单",
+			checkPatch: "Patch 状态",
+			checkNode: "Node.js",
+			checkPnpm: "pnpm",
+			checkMemory: "记忆中枢",
+			checkVersion: "中枢版本",
+			checkOk: "正常",
+			checkWarn: "警告",
+			checkErr: "异常",
+			checkPacks: "已导入包",
+			checkStore: "Store 缓存",
+			checkActivePack: "激活包"
+		};
+		const en = {};
+		const NS = "settings.dshHotplug";
+		const looseCodec = () => ({
+			mode: "strict",
+			typeSymbol: "dsh-hotplug-hub/types#Json",
+			schema: { parse: (value) => value }
+		});
+		const descriptor = (method, parameters) => ({
+			id: `dsh-hotplug-hub#dshHotplug/${method}`,
+			service: "dshHotplug",
+			namespace: "dshHotplug",
+			method,
+			invocation: { kind: "direct" },
+			parameters: parameters.map((name) => ({ name, wire: name, source: "json", codec: looseCodec() })),
+			result: looseCodec()
+		});
+		const REMOTE = {
+			package: "dsh-hotplug-hub",
+			descriptors: [
+				descriptor("status", []),
+				descriptor("importPack", ["text"]),
+				descriptor("preview", ["packId"]),
+				descriptor("activate", ["packId"]),
+				descriptor("deactivate", []),
+				descriptor("removePack", ["packId"]),
+				descriptor("check", [])
+			]
+		};
+		function unwrap(result) {
+			if (result && result.ok !== false) return result.value;
+			const detail = result?.error?.message ?? String(result?.error ?? "remote failed");
+			throw new Error(detail);
+		}
+		const CATALOG = [
+			{ id: "pack-research", name: "科研插座包", tags: ["科研", "论文", "文献"], desc: "文献检索、综述、论文写作、引用与审稿建议", plugins: 4, accent: "#0e7c6b" },
+			{ id: "pack-video", name: "视频制作插座包", tags: ["视频", "剪辑", "字幕"], desc: "脚本、分镜、剪辑清单、字幕与封面生成", plugins: 4, accent: "#b45309" },
+			{ id: "pack-social", name: "自媒体插座包", tags: ["自媒体", "选题", "文案"], desc: "热点选题、拆解、文案与发布清单", plugins: 3, accent: "#8b5e3c" },
+			{ id: "pack-kaoyan", name: "考研冲刺插座包", tags: ["考研", "学习", "闪卡"], desc: "背诵计划、真题梳理、中日双语文法和闪卡导出", plugins: 3, accent: "#1d5f9e" },
+			{ id: "pack-fullstack", name: "全栈开发插座包", tags: ["开发", "全栈", "DevOps"], desc: "脚手架、代码评审、测试和安全检查", plugins: 4, accent: "#5b5488" },
+			{ id: "pack-notes", name: "知识管理插座包", tags: ["笔记", "知识库", "整理"], desc: "网页收藏、笔记整理、书摘提取与双链", plugins: 3, accent: "#237a57" }
+		];
+		const AI_KEYWORD_MAP = [
+			["文献", "research"], ["论文", "research"], ["科研", "research"], ["引用", "research"], ["综述", "research"],
+			["视频", "video"], ["剪辑", "video"], ["字幕", "video"], ["分镜", "video"], ["封面", "video"],
+			["自媒体", "social"], ["选题", "social"], ["文案", "social"], ["热点", "social"],
+			["考研", "study"], ["背诵", "study"], ["闪卡", "study"], ["真题", "study"], ["语法", "study"],
+			["开发", "dev"], ["代码", "dev"], ["测试", "dev"], ["部署", "dev"], ["全栈", "dev"],
+			["笔记", "notes"], ["知识库", "notes"], ["书摘", "notes"], ["收藏", "notes"]
+		];
+		function keywordHits(text) {
+			const lower = text.toLowerCase();
+			const hits = [];
+			for (const [kw, id] of AI_KEYWORD_MAP) {
+				if (lower.includes(kw.toLowerCase())) hits.push(id);
+			}
+			return [...new Set(hits)];
+		}
+		function HotplugTab(props) {
+			const api = props.inject ?? {};
+			const t = (key) => (props.locale && props.locale(key)) || zh[key] || en[key] || key;
+			const [tab, setTab] = useState("hub");
+			const [data, setData] = useState(null);
+			const [notice, setNotice] = useState(null);
+			const [busy, setBusy] = useState(false);
+			const [importText, setImportText] = useState("");
+			const [previewId, setPreviewId] = useState(null);
+			const [previewData, setPreviewData] = useState(null);
+			const [checkData, setCheckData] = useState(null);
+			const [marketQuery, setMarketQuery] = useState("");
+			const [marketFilter, setMarketFilter] = useState("全部");
+			const [aiInput, setAiInput] = useState("");
+			const [aiRunning, setAiRunning] = useState(false);
+			const [aiLog, setAiLog] = useState([]);
+			const [aiResult, setAiResult] = useState(null);
+			const fileRef = useRef(null);
+			const aiTimerRef = useRef(null);
+			const say = (kind, text) => setNotice({ kind, text });
+			const load = async () => {
+				try {
+					const status = unwrap(await api.status());
+					setData(status);
+				} catch (error) {
+					say("error", t("loadFailed") + String(error.message ?? error));
+				}
+			};
+			useEffect(() => { load(); }, []);
+			useEffect(() => () => { if (aiTimerRef.current) clearTimeout(aiTimerRef.current); }, []);
+			const run = async (label, task) => {
+				if (busy) { say("error", t("busy")); return; }
+				setBusy(true);
+				try {
+					const result = unwrap(await task());
+					if (result && result.ok === false) {
+						say("error", t(label + "Failed") + String(result.error ?? ""));
+						return result;
+					}
+					await load();
+					return result;
+				} catch (error) {
+					say("error", t(label + "Failed") + String(error.message ?? error));
+					return null;
+				} finally {
+					setBusy(false);
+				}
+			};
+			const doImport = () => run("import", () => api.importPack(importText)).then((result) => {
+				if (result && result.ok) {
+					say("success", t("importDone") + result.pack.name + "（" + result.pack.plugins + t("pluginsCount") + "）");
+					setImportText("");
+				}
+			});
+			const onFile = (event) => {
+				const file = event.target.files && event.target.files[0];
+				if (!file) return;
+				const reader = new FileReader();
+				reader.onload = () => {
+					setImportText(String(reader.result ?? ""));
+					run("import", () => api.importPack(String(reader.result ?? ""))).then((result) => {
+						if (result && result.ok) {
+							say("success", t("importDone") + result.pack.name + "（" + result.pack.plugins + t("pluginsCount") + "）");
+							setImportText("");
+						}
+					});
+				};
+				reader.readAsText(file);
+				event.target.value = "";
+			};
+			const togglePreview = async (packId) => {
+				if (previewId === packId) { setPreviewId(null); setPreviewData(null); return; }
+				try {
+					const result = unwrap(await api.preview(packId));
+					if (result && result.ok === false) { say("error", result.error); return; }
+					setPreviewId(packId);
+					setPreviewData(result);
+				} catch (error) {
+					say("error", String(error.message ?? error));
+				}
+			};
+			const doActivate = (packId) => run("activate", () => api.activate(packId)).then((result) => {
+				if (!result) return;
+				if (result.already) { say("success", t("alreadyActive")); return; }
+				if (result.ok) say("success", t("activateDone") + packId);
+			});
+			const doDeactivate = () => {
+				if (!window.confirm(t("deactivateConfirm"))) return;
+				run("deactivate", () => api.deactivate()).then((result) => {
+					if (result && result.ok) say("success", t("deactivateDone"));
+				});
+			};
+			const doRemove = (packId) => {
+				if (!window.confirm(t("removeConfirm"))) return;
+				run("remove", () => api.removePack(packId)).then((result) => {
+					if (result && result.ok) say("success", t("removeDone") + packId);
+				});
+			};
+			const doCheck = async () => {
+				try {
+					const result = unwrap(await api.check());
+					setCheckData(result);
+				} catch (error) {
+					say("error", String(error.message ?? error));
+				}
+			};
+			const doMarketInstall = (pack) => {
+				const manifest = {
+					hotpack: "1.0",
+					id: pack.id,
+					name: pack.name,
+					version: "1.0.0",
+					description: pack.desc,
+					tags: pack.tags,
+					plugins: []
+				};
+				run("import", () => api.importPack(JSON.stringify(manifest))).then((result) => {
+					if (result && result.ok) {
+						say("success", t("importDone") + pack.name);
+						setTab("hub");
+					}
+				});
+			};
+			const doCompose = () => {
+				if (!aiInput.trim() || aiRunning) return;
+				setAiRunning(true);
+				setAiResult(null);
+				setAiLog([]);
+				const hits = keywordHits(aiInput);
+				const rootPacks = CATALOG.filter((p) => hits.includes(p.id.replace("pack-", "")));
+				const steps = [
+					["拆解需求", `场景关键词：${hits.join(", ") || "通用工具"}`],
+					["检索目录", `匹配 ${rootPacks.length} 个候选包`],
+					["筛选版本", "过滤精确稳定版本"],
+					["冲突消解", "处理重复插件"],
+					["生成文件", "输出 pack manifest + README"]
+				];
+				let stepIdx = 0;
+				const tick = () => {
+					if (stepIdx < steps.length) {
+						setAiLog((prev) => [...prev, { cls: "warn", text: `[${stepIdx + 1}/5] ${steps[stepIdx][0]}` }, { cls: "ok", text: "  " + steps[stepIdx][1] }]);
+						stepIdx++;
+						aiTimerRef.current = setTimeout(tick, 400);
+					} else {
+						const picked = rootPacks.length ? rootPacks : [CATALOG[0]];
+						const packId = "pack.ai." + Date.now().toString(36);
+						const manifest = {
+							hotpack: "1.0",
+							id: packId,
+							name: "AI 定制" + picked.map((p) => p.name.replace("插座包", "")).join("·") + "插座包",
+							version: "0.1.0",
+							description: "由 AI 组装器根据需求生成：" + aiInput,
+							tags: [...new Set(picked.flatMap((p) => p.tags))],
+							plugins: []
+						};
+						const readme = [
+							"# " + manifest.name,
+							"",
+							"由 DSH AI 组装器根据需求生成：" + aiInput,
+							"",
+							"## 候选包",
+							...picked.map((p) => "- " + p.name + "（" + p.plugins + " 插件）"),
+							"",
+							"## 安装",
+							"1. 在热插拔中枢导入本包。",
+							"2. 确认版本与冲突信息后激活。",
+							"3. 重启 DSH 生效。"
+						].join("\n");
+						setAiResult({ name: manifest.name, tags: manifest.tags, manifest, readme });
+						setAiLog((prev) => [...prev, { cls: "ok", text: "完成：pack + README 已就绪" }]);
+						setAiRunning(false);
+					}
+				};
+				tick();
+			};
+			const doAiImport = () => {
+				if (!aiResult) return;
+				run("import", () => api.importPack(JSON.stringify(aiResult.manifest))).then((result) => {
+					if (result && result.ok) {
+						say("success", t("importDone") + aiResult.name);
+						setTab("hub");
+					}
+				});
+			};
+			const activePack = data && data.packs ? data.packs.find((pack) => pack.active) : null;
+			const tabs = [
+				{ id: "hub", label: t("navHub") },
+				{ id: "market", label: t("navMarket") },
+				{ id: "ai", label: t("navAi") },
+				{ id: "memory", label: t("navMemory") },
+				{ id: "check", label: t("navCheck") }
+			];
+			const renderHub = () => h("div", null,
+				h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" },
+						h("h3", null, t("title")),
+						data ? h("span", null, "v" + data.version + " · profile " + data.profile.name) : null
+					),
+					h("p", { className: "hp_info" }, t("intro")),
+					h("div", { className: "hp_kv" },
+						h("b", null, t("activeNow") + ":"),
+						activePack
+							? h("span", { className: "hp_code" }, activePack.name + " " + (activePack.version ?? ""))
+							: h("span", null, t("activeNone"))
+					),
+					h("p", { className: "hp_info" }, t("restartHint"))
+				),
+				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
+				h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" }, h("h3", null, t("importTitle"))),
+					h("textarea", {
+						className: "hp_textarea", placeholder: t("importPlaceholder"), value: importText,
+						onChange: (event) => setImportText(event.target.value), spellCheck: false
+					}),
+					h("div", { className: "hp_bar" },
+						h("button", { className: "hp_btn hp_primary", disabled: busy || importText.trim() === "", onClick: doImport }, busy ? t("importing") : t("importBtn")),
+						h("button", { className: "hp_btn", disabled: busy, onClick: () => fileRef.current && fileRef.current.click() }, t("importFile")),
+						h("input", { ref: fileRef, type: "file", accept: ".json,.hotpack.json,application/json", style: { display: "none" }, onChange: onFile })
+					)
+				),
+				h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" },
+						h("h3", null, t("packsTitle")),
+						data && data.packs ? h("span", null, String(data.packs.length)) : null
+					),
+					!data || data.packs.length === 0
+						? h("p", { className: "hp_empty" }, t("packsEmpty"))
+						: h("ul", { className: "hp_list" }, data.packs.map((pack) =>
+							h("li", { key: pack.id, className: "hp_row", "data-active": pack.active },
+								h("div", { className: "hp_rowTop" },
+									h("span", { className: "hp_name" }, pack.name),
+									h("div", { className: "hp_meta" },
+										h("span", { className: "hp_tag" }, pack.version ?? ""),
+										h("span", { className: "hp_tag" }, pack.plugins.length + t("pluginsCount")),
+										(pack.tags ?? []).map((tag) => h("span", { key: tag, className: "hp_tag" }, tag)),
+										pack.active ? h("span", { className: "hp_badge" }, t("activeBadge")) : null
+									),
+									h("div", { className: "hp_actions" },
+										h("button", { className: "hp_btn", disabled: busy, onClick: () => togglePreview(pack.id) }, previewId === pack.id ? t("hidePreview") : t("previewBtn")),
+										pack.active
+											? h("button", { className: "hp_btn", disabled: busy, onClick: doDeactivate }, busy ? t("deactivating") : t("deactivateBtn"))
+											: h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: () => doActivate(pack.id) }, busy ? t("activating") : t("activateBtn")),
+										pack.active ? null : h("button", { className: "hp_btn hp_danger", disabled: busy, onClick: () => doRemove(pack.id) }, t("removeBtn"))
+									)
+								),
+								pack.description ? h("div", { className: "hp_meta" }, pack.description) : null,
+								previewId === pack.id && previewData
+									? h("ul", { className: "hp_preview" },
+										previewData.wouldReplace ? h("li", null, h("span", { className: "hp_dot", "data-kind": "download" }), t("wouldReplace") + previewData.wouldReplace) : null,
+										previewData.refs.map((ref) =>
+											h("li", { key: ref.id },
+												h("span", { className: "hp_dot", "data-kind": ref.action === "reused" ? "reused" : ref.action === "download" ? "download" : "error" }),
+												h("b", null, ref.name),
+												h("span", null, ref.version ? "@" + ref.version : ""),
+												h("span", null, "· " + ref.detail)
+											)
+										)
+									) : null
+							)
+						))
+				),
+				h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" }, h("h3", null, t("storeTitle"))),
+					h("div", { className: "hp_kv" }, h("span", { className: "hp_code" }, data ? data.store.dir : "…")),
+					!data || data.store.entries.length === 0
+						? h("p", { className: "hp_info" }, t("storeEmpty"))
+						: h("div", { className: "hp_meta" }, data.store.entries.map((entry) => h("span", { key: entry, className: "hp_tag" }, entry)))
+				)
+			);
+			const marketCats = ["全部", ...new Set(CATALOG.flatMap((p) => p.tags))];
+			const marketQ = marketQuery.trim().toLowerCase();
+			const marketList = CATALOG.filter((p) =>
+				(marketFilter === "全部" || p.tags.includes(marketFilter)) &&
+				(!marketQ || p.name.toLowerCase().includes(marketQ) || p.tags.some((tag) => tag.toLowerCase().includes(marketQ)) || p.desc.toLowerCase().includes(marketQ))
+			);
+			const importedIds = data && data.packs ? new Set(data.packs.map((p) => p.id)) : new Set();
+			const renderMarket = () => h("div", null,
+				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
+				h("div", { className: "hp_card" },
+					h("div", { className: "hp_bar" },
+						h("input", { className: "hp_input", placeholder: t("marketSearch"), value: marketQuery, onChange: (e) => setMarketQuery(e.target.value) }),
+						h("button", { className: "hp_btn", onClick: load }, t("marketRefresh")),
+						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: () => fileRef.current && fileRef.current.click() }, t("importFile")),
+						h("input", { ref: fileRef, type: "file", accept: ".json,.hotpack.json,application/json", style: { display: "none" }, onChange: onFile })
+					),
+					h("div", { className: "hp_bar" },
+						marketCats.map((cat) => h("button", { key: cat, className: "hp_chip", "data-on": cat === marketFilter, onClick: () => setMarketFilter(cat) }, cat))
+					)
+				),
+				h("div", { className: "hp_grid" },
+					marketList.length ? marketList.map((pack) =>
+						h("div", { key: pack.id, className: "hp_card" },
+							h("div", { className: "hp_rowTop" },
+								h("div", { className: "hp_name", style: { color: pack.accent } }, pack.name),
+								importedIds.has(pack.id) ? h("span", { className: "hp_tag" }, t("marketInstalled")) : null
+							),
+							h("div", { className: "hp_meta" }, pack.tags.map((tag) => h("span", { key: tag, className: "hp_tag" }, tag))),
+							h("p", { className: "hp_info" }, pack.desc),
+							h("div", { className: "hp_meta" }, pack.plugins + t("pluginsCount")),
+							importedIds.has(pack.id)
+								? null
+								: h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: () => doMarketInstall(pack) }, t("marketInstall"))
+						)
+					) : h("p", { className: "hp_empty" }, t("marketEmpty"))
+				),
+				h("p", { className: "hp_info" }, t("marketNote"))
+			);
+			const renderAi = () => h("div", null,
+				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
+				h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" }, h("h3", null, t("aiTitle"))),
+					h("textarea", { className: "hp_textarea", placeholder: t("aiPlaceholder"), value: aiInput, onChange: (e) => setAiInput(e.target.value), spellCheck: false }),
+					h("div", { className: "hp_bar" },
+						t("aiSamples").map((sample) => h("button", { key: sample, className: "hp_chip", onClick: () => setAiInput(sample) }, sample))
+					),
+					h("button", { className: "hp_btn hp_primary", disabled: aiRunning || !aiInput.trim(), onClick: doCompose }, aiRunning ? t("aiComposing") : t("aiCompose"))
+				),
+				aiLog.length > 0 ? h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" }, h("h3", null, t("aiLog"))),
+					h("div", { className: "hp_log" }, aiLog.map((line, index) => h("div", { key: index, className: line.cls }, line.text)))
+				) : null,
+				aiResult ? h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" }, h("h3", null, t("aiResult"))),
+					h("p", { className: "hp_info" }, t("aiDone") + aiResult.name),
+					h("div", { className: "hp_meta" }, aiResult.tags.map((tag) => h("span", { key: tag, className: "hp_tag" }, tag))),
+					h("div", { className: "hp_bar" },
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(aiResult.manifest, null, 2)); } catch {} } }, t("aiCopyManifest")),
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(aiResult.readme); } catch {} } }, t("aiCopyReadme")),
+						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: doAiImport }, t("aiImport"))
+					),
+					h("pre", { className: "hp_code", style: { whiteSpace: "pre-wrap", maxHeight: 200, overflow: "auto" } }, JSON.stringify(aiResult.manifest, null, 2))
+				) : null
+			);
+			const renderMemory = () => h("div", null,
+				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
+				h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" }, h("h3", null, t("memTitle"))),
+					h("p", { className: "hp_info" }, t("memIntro")),
+					data ? h("div", { className: "hp_kv" },
+						h("span", null, t("checkMemory") + ":"),
+						h("span", { className: "hp_code" }, data.home + "/memory")
+					) : null
+				),
+				h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" }, h("h3", null, t("memPacks"))),
+					data && data.store && data.store.entries.length > 0
+						? h("div", { className: "hp_list" }, data.store.entries.map((entry) =>
+							h("div", { key: entry, className: "hp_row" },
+								h("div", { className: "hp_rowTop" },
+									h("span", { className: "hp_name" }, entry),
+									h("span", { className: "hp_tag" }, t("reused"))
+								)
+							)
+						))
+						: h("p", { className: "hp_empty" }, t("memEmpty") + (data ? data.home + "/memory" : "…"))
+				)
+			);
+			const renderCheck = () => h("div", null,
+				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
+				h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" }, h("h3", null, t("checkTitle"))),
+					h("p", { className: "hp_info" }, t("checkIntro")),
+					h("div", { className: "hp_bar" },
+						h("button", { className: "hp_btn hp_primary", onClick: doCheck, disabled: busy }, t("checkRecheck"))
+					)
+				),
+				checkData ? h("div", { className: "hp_card" },
+					h("div", { className: "hp_list" },
+						h("div", { className: "hp_check" },
+							h("span", { className: "hp_dot", "data-kind": checkData.manifestOk ? "reused" : "error" }),
+							h("span", null, t("checkManifest")),
+							h("span", { className: "hp_val" }, checkData.manifestOk ? t("checkOk") : t("checkErr"))
+						),
+						h("div", { className: "hp_check" },
+							h("span", { className: "hp_dot", "data-kind": checkData.patchOk ? "reused" : "error" }),
+							h("span", null, t("checkPatch")),
+							h("span", { className: "hp_val" }, checkData.patchOk ? t("checkOk") : t("checkErr"))
+						),
+						h("div", { className: "hp_check" },
+							h("span", { className: "hp_dot", "data-kind": "reused" }),
+							h("span", null, t("checkNode")),
+							h("span", { className: "hp_val" }, checkData.nodeVersion ?? "?")
+						),
+						h("div", { className: "hp_check" },
+							h("span", { className: "hp_dot", "data-kind": checkData.pnpmVersion ? "reused" : "error" }),
+							h("span", null, t("checkPnpm")),
+							h("span", { className: "hp_val" }, checkData.pnpmVersion ?? t("checkErr"))
+						),
+						h("div", { className: "hp_check" },
+							h("span", { className: "hp_dot", "data-kind": "reused" }),
+							h("span", null, t("checkVersion")),
+							h("span", { className: "hp_val" }, "v" + checkData.version)
+						),
+						h("div", { className: "hp_check" },
+							h("span", { className: "hp_dot", "data-kind": "reused" }),
+							h("span", null, t("checkPacks")),
+							h("span", { className: "hp_val" }, String(checkData.packCount))
+						),
+						h("div", { className: "hp_check" },
+							h("span", { className: "hp_dot", "data-kind": "reused" }),
+							h("span", null, t("checkStore")),
+							h("span", { className: "hp_val" }, String(checkData.storeCount))
+						),
+						h("div", { className: "hp_check" },
+							h("span", { className: "hp_dot", "data-kind": checkData.conflicts.length ? "error" : "reused" }),
+							h("span", null, t("checkActivePack")),
+							h("span", { className: "hp_val" }, checkData.activePack ?? t("activeNone"))
+						)
+					)
+				) : null,
+				checkData && checkData.conflicts.length > 0 ? h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" }, h("h3", null, t("checkConflicts"))),
+					h("div", { className: "hp_list" },
+						checkData.conflicts.map((conflict, index) =>
+							h("div", { key: index, className: "hp_row" },
+								h("div", { className: "hp_rowTop" },
+									h("span", { className: "hp_name" }, conflict.packId),
+									h("span", { className: "hp_tag", style: { color: "var(--dsw-alias-state-error-primary)" } }, t("checkErr"))
+								),
+								h("div", { className: "hp_meta" }, conflict.reason),
+								h("div", { className: "hp_meta" }, conflict.suggest)
+							)
+						)
+					)
+				) : (checkData ? h("div", { className: "hp_card" }, h("p", { className: "hp_info" }, t("checkNoConflicts"))) : null)
+			);
+			return h("div", { className: "hp_section" },
+				h("div", { className: "hp_tabs" },
+					tabs.map((tabItem) => h("button", {
+						key: tabItem.id, className: "hp_tab", "data-on": tab === tabItem.id,
+						onClick: () => {
+							setTab(tabItem.id);
+							if (tabItem.id === "check" && !checkData) doCheck();
+						}
+					}, tabItem.label))
+				),
+				tab === "hub" ? renderHub() : null,
+				tab === "market" ? renderMarket() : null,
+				tab === "ai" ? renderAi() : null,
+				tab === "memory" ? renderMemory() : null,
+				tab === "check" ? renderCheck() : null
+			);
+		}
+		const inject = ["slots", "locale", "remote"];
+		function apply(ctx) {
+			ctx.effect(() => ctx.locale.register(NS, { zh, en }), "dsh-hotplug-hub: dictionaries");
+			const t = ctx.locale.bind(NS);
+			let mountFailure = null;
+			const mountPromise = ctx.remote.$mount(REMOTE).then((dispose) => {
+				ctx.effect(() => dispose, "dsh-hotplug-hub: remote face");
+				return true;
+			}, (error) => {
+				mountFailure = String((error && error.message) || error);
+				console.error("dsh-hotplug-hub: remote face mount failed", error);
+				return false;
+			});
+			const remote = async () => {
+				await mountPromise;
+				if (mountFailure !== null) throw new Error("dshHotplug 远程接口未就绪: " + mountFailure);
+				const service = ctx.get("remote.dshHotplug");
+				if (service === void 0 || service === null || typeof service !== "object") {
+					await new Promise((resolve) => setTimeout(resolve, 50));
+					const retry = ctx.get("remote.dshHotplug");
+					if (retry === void 0 || retry === null || typeof retry !== "object") throw new Error("dshHotplug 远程接口未注册");
+					return retry;
+				}
+				return service;
+			};
+			const injected = () => ({
+				status: () => remote().then((face) => face.status()),
+				importPack: (text) => remote().then((face) => face.importPack(text)),
+				preview: (packId) => remote().then((face) => face.preview(packId)),
+				activate: (packId) => remote().then((face) => face.activate(packId)),
+				deactivate: () => remote().then((face) => face.deactivate()),
+				removePack: (packId) => remote().then((face) => face.removePack(packId)),
+				check: () => remote().then((face) => face.check())
+			});
+			ctx.slots.inject("settings.section", () => ctx.slots.register({
+				name: "settings.section",
+				id: "dsh-hotplug-hub",
+				order: 35,
+				label: () => t("tab"),
+				locale: NS,
+				inject: injected
+			}, HotplugTab));
+		}
+		exports.apply = apply;
+		exports.inject = inject;
+		return module.exports;
+	}
+});

@@ -1,0 +1,30 @@
+{
+  "name": "dsh-hotplug-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH 热插拔中枢：极简空插座排，不含任何原生插件；只导入外部热插拔包（hotpack），插件按路径调用、已有即复用、缺失才下载，激活即无损替换当前包",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": { "default": "./lib/index.js" },
+    "./client": { "default": "./lib/client.js" },
+    "./typert": { "default": "./lib/typert.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib", "docs", "examples"],
+  "license": "MIT",
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-typert-protocol": "*"
+  }
+}

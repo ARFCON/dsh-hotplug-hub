@@ -1,0 +1,34 @@
+{
+  "hotpack": "1.0",
+  "id": "pack.research",
+  "name": "科研热插拔包",
+  "version": "1.0.0",
+  "description": "文献检索、引用管理与论文写作；与视频包共享 dsh-web-search-exa，演示跨包复用",
+  "tags": ["科研", "论文", "文献"],
+  "plugins": [
+    {
+      "id": "literature",
+      "name": "@dsh-community/dsh-tool-literature",
+      "version": "1.2.3",
+      "source": { "type": "npm" }
+    },
+    {
+      "id": "cite",
+      "name": "@dsh-community/dsh-cite",
+      "version": "0.9.1",
+      "source": { "type": "npm" }
+    },
+    {
+      "id": "websearch",
+      "name": "dsh-web-search-exa",
+      "version": "0.4.2",
+      "source": { "type": "npm" },
+      "config": { "apiKeyEnv": "EXA_API_KEY" }
+    },
+    {
+      "id": "my-notes",
+      "name": "dsh-my-notes",
+      "source": { "type": "path", "path": "$DSH_HOME/plugin-src/dsh-my-notes" }
+    }
+  ]
+}

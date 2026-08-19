@@ -1,0 +1,59 @@
+{
+  "packId": "cn.dshpack.research",
+  "name": "科研插座包",
+  "version": "1.0.0",
+  "scene": "research",
+  "tags": ["科研", "论文", "文献"],
+  "description": "文献检索、综述、论文写作、引用与审稿建议",
+  "requires": {
+    "dsh": "0.1.0-rc.7",
+    "node": ">=22.19.0",
+    "profile": "desktop"
+  },
+  "bundles": [
+    {
+      "package": "@dsh-community/dsh-tool-literature",
+      "version": "1.2.3",
+      "role": "文献检索",
+      "source": "npm"
+    },
+    {
+      "package": "@dsh-community/dsh-cite",
+      "version": "0.9.1",
+      "role": "引用管理",
+      "source": "npm"
+    },
+    {
+      "package": "@dsh-community/dsh-paper-writer",
+      "version": "2.0.0",
+      "role": "论文写作",
+      "source": "npm"
+    },
+    {
+      "package": "@dsh-community/dsh-review-board",
+      "version": "1.1.0",
+      "role": "审稿建议",
+      "source": "npm"
+    }
+  ],
+  "conflicts": [
+    {
+      "package": "@old/dsh-literature",
+      "reason": "repeat-tool",
+      "replaceWith": "@dsh-community/dsh-tool-literature"
+    }
+  ],
+  "memory": [
+    {
+      "memoryPackId": "global.research",
+      "keywords": ["论文", "文献", "引用", "方法论"]
+    }
+  ],
+  "configDir": "packs/cn.dshpack.research",
+  "market": {
+    "author": "Arito",
+    "license": "MIT",
+    "stars": 2840,
+    "source": "https://github.com/example/research-pack"
+  }
+}
