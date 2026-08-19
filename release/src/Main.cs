@@ -36,6 +36,7 @@ namespace DSHHotplugHub
         private readonly WebView2 webView = new WebView2();
         private const string APP_VERSION = "0.1.6";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
+        private static bool _updateNotified = false;
 
         public MainForm()
         {
@@ -154,6 +155,12 @@ namespace DSHHotplugHub
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildApiIntegrationScript());
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listMcp');");
+                            string latestCheck = GetLatestReleaseVersion();
+                            if (!_updateNotified && !string.IsNullOrEmpty(latestCheck) && latestCheck != APP_VERSION)
+                            {
+                                _updateNotified = true;
+                                await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('发现新版本 v" + latestCheck + "，请到 自检更新 下载');");
+                            }
                         }
                     }
                     catch
@@ -1115,13 +1122,35 @@ namespace DSHHotplugHub
                 foreach (string file in Directory.GetFiles(dir, "*.md"))
                 {
                     string id = Path.GetFileNameWithoutExtension(file);
-                    string firstLine = "";
-                    try { firstLine = File.ReadAllLines(file)[0].TrimStart('#', ' ', '\t'); } catch { }
+                    string name = id;
+                    string desc = "本地 Skill";
+                    try
+                    {
+                        string text = File.ReadAllText(file);
+                        if (text.StartsWith("---"))
+                        {
+                            int end = text.IndexOf("\n---", 3);
+                            if (end > 0)
+                            {
+                                string fm = text.Substring(3, end - 3);
+                                foreach (string line in fm.Split('\n'))
+                                {
+                                    if (line.StartsWith("name:")) name = line.Substring("name:".Length).Trim();
+                                    if (line.StartsWith("description:")) desc = line.Substring("description:".Length).Trim();
+                                }
+                            }
+                        }
+                        else
+                        {
+                            name = text.TrimStart('#', ' ', '\t', '\r', '\n').Split('\n')[0].Trim();
+                        }
+                    }
+                    catch { }
                     Dictionary<string, object> item = new Dictionary<string, object>();
                     item["id"] = id;
-                    item["name"] = string.IsNullOrEmpty(firstLine) ? id : firstLine;
+                    item["name"] = string.IsNullOrEmpty(name) ? id : name;
                     item["enabled"] = true;
-                    item["desc"] = "本地 Skill";
+                    item["desc"] = desc;
                     list.Add(item);
                 }
                 return new JavaScriptSerializer().Serialize(list);
@@ -1136,10 +1165,18 @@ namespace DSHHotplugHub
                 JavaScriptSerializer ser = new JavaScriptSerializer();
                 Dictionary<string, object> data = ser.Deserialize<Dictionary<string, object>>(payload);
                 string name = data != null && data.ContainsKey("name") ? Convert.ToString(data["name"]) : "skill";
+                string desc = data != null && data.ContainsKey("desc") ? Convert.ToString(data["desc"]) : "";
                 string id = "skill-" + DateTime.Now.Ticks.ToString("x");
                 string dir = SkillsDir();
                 Directory.CreateDirectory(dir);
-                File.WriteAllText(Path.Combine(dir, id + ".md"), "# " + name + "\n\n" + (data != null && data.ContainsKey("desc") ? Convert.ToString(data["desc"]) : "") + "\n");
+                string frontmatter =
+                    "---\n" +
+                    "name: " + name + "\n" +
+                    "description: " + desc + "\n" +
+                    "disable-model-invocation: false\n" +
+                    "---\n\n" +
+                    desc + "\n";
+                File.WriteAllText(Path.Combine(dir, id + ".md"), frontmatter);
             }
             catch { }
         }
@@ -1191,6 +1228,7 @@ namespace DSHHotplugHub
                 if (idx >= 0) list[idx] = mcp; else list.Add(mcp);
                 Directory.CreateDirectory(Path.GetDirectoryName(file));
                 File.WriteAllText(file, ser.Serialize(list));
+                WriteMcpToPatch(mcp);
             }
             catch { }
         }
@@ -1205,10 +1243,64 @@ namespace DSHHotplugHub
                 List<Dictionary<string, object>> list = ser.Deserialize<List<Dictionary<string, object>>>(File.ReadAllText(file)) ?? new List<Dictionary<string, object>>();
                 list.RemoveAll((x) => x.ContainsKey("id") && Convert.ToString(x["id"]) == id);
                 File.WriteAllText(file, ser.Serialize(list));
+                RemoveMcpFromPatch(id);
             }
             catch { }
         }
 
+        private static string McpPatchPath()
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "profiles", "web", "cordis.patch.yml");
+        }
+
+        private static string SanitizeServerName(string id)
+        {
+            string s = System.Text.RegularExpressions.Regex.Replace(id ?? "", "[^A-Za-z0-9_-]", "-");
+            if (s.Length > 32) s = s.Substring(0, 32);
+            return s.Length == 0 ? "mcp" : s;
+        }
+
+        private static void WriteMcpToPatch(Dictionary<string, object> mcp)
+        {
+            try
+            {
+                string patch = McpPatchPath();
+                if (!File.Exists(patch)) return;
+                string id = Convert.ToString(mcp.ContainsKey("id") ? mcp["id"] : "mcp");
+                string serverName = SanitizeServerName(id);
+                string command = mcp.ContainsKey("command") ? Convert.ToString(mcp["command"]) : "";
+                string argsRaw = mcp.ContainsKey("args") ? Convert.ToString(mcp["args"]) : "";
+                string[] args = argsRaw.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                string text = File.ReadAllText(patch);
+                // 移除旧块
+                text = System.Text.RegularExpressions.Regex.Replace(text, @"- insert:\r?\n\s+- id: mcp-" + System.Text.RegularExpressions.Regex.Escape(id) + @"[\s\S]*?(?=\r?\n- insert:|\r?\n\s*#|\z)", "");
+                string block =
+                    "- insert:\n" +
+                    "    - id: mcp-" + id + "\n" +
+                    "      name: '@deepseek-ai/dsh-mcp-client'\n" +
+                    "      config:\n" +
+                    "        transport: stdio\n" +
+                    "        serverName: " + serverName + "\n" +
+                    "        command: " + command + "\n" +
+                    "        args: [" + string.Join(", ", args) + "]\n";
+                text = text.TrimEnd() + "\n" + block;
+                File.WriteAllText(patch, text);
+            }
+            catch { }
+        }
+
+        private static void RemoveMcpFromPatch(string id)
+        {
+            try
+            {
+                string patch = McpPatchPath();
+                if (!File.Exists(patch)) return;
+                string text = File.ReadAllText(patch);
+                text = System.Text.RegularExpressions.Regex.Replace(text, @"- insert:\r?\n\s+- id: mcp-" + System.Text.RegularExpressions.Regex.Escape(id) + @"[\s\S]*?(?=\r?\n- insert:|\r?\n\s*#|\z)", "");
+                File.WriteAllText(patch, text);
+            }
+            catch { }
+        }
         private static void StartMcpProcess(string id)
         {
             try
