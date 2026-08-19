@@ -147,3 +147,7 @@ git push origin feature/文档1-<改动内容>
 - macOS 下 indOfficialHarness() 查找 .app，找不到回退 dsh CLI。
 - macOS 脚本：scripts/macos/setup-macos.sh、start-macos.command、uild-macos-app.sh。
 - 修改跨平台代码必须同步更新 开发文档/规范/跨平台支持规范.md。
+
+## 11. 踩坑记录
+
+修改前建议阅读 开发文档/团队/开发踩坑记录.md，避免重复踩坑。
