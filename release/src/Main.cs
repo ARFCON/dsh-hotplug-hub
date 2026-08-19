@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -34,9 +34,33 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.1.7";
+        private const string APP_VERSION = "0.1.8";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
+        private const string PANEL_REPO = "Fishquito7/dsh-skill-mcp-panel";
+        // GitHub Token 不再硬编码进源码（仓库会触发 secret scanning）。
+        // 有速率限制时可设置环境变量 DSH_HUB_GITHUB_TOKEN，或写入 ~/.dsh/github-token.txt。
+        private static string GetGithubToken()
+        {
+            try
+            {
+                string env = Environment.GetEnvironmentVariable("DSH_HUB_GITHUB_TOKEN");
+                if (!string.IsNullOrEmpty(env)) return env.Trim();
+                string file = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".dsh", "github-token.txt");
+                if (File.Exists(file))
+                {
+                    string t = File.ReadAllText(file).Trim();
+                    if (t.Length > 0) return t;
+                }
+            }
+            catch
+            {
+            }
+            return null;
+        }
         private static bool _updateNotified = false;
+        private static bool _panelUpdateNotified = false;
 
         public MainForm()
         {
@@ -106,6 +130,23 @@ namespace DSHHotplugHub
                         {
                             OpenProjectDownloadPage();
                         }
+                        else if (message == "installPanel" || message == "updatePanel")
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在安装/更新官方 Skill/MCP 面板插件，请稍候…');");
+                            string panelResult = await Task.Run(() => InstallOrUpdatePanel());
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(panelResult) + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                        }
+                        else if (message == "openPanelPage")
+                        {
+                            try
+                            {
+                                Process.Start("https://github.com/" + PANEL_REPO + "/releases/latest");
+                            }
+                            catch
+                            {
+                            }
+                        }
                         else if (message == "listMemory")
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory(" + GetMemoryJson() + ");");
@@ -117,11 +158,13 @@ namespace DSHHotplugHub
                         {
                             SaveSkillFile(message.Substring("addSkill:".Length));
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                         }
                         else if (message != null && message.StartsWith("deleteSkill:"))
                         {
                             DeleteSkillFile(message.Substring("deleteSkill:".Length));
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                         }
                         else if (message == "listMcp")
                         {
@@ -131,15 +174,18 @@ namespace DSHHotplugHub
                         {
                             SaveMcpFile(message.Substring("addMcp:".Length));
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                         }
                         else if (message != null && message.StartsWith("deleteMcp:"))
                         {
                             DeleteMcpFile(message.Substring("deleteMcp:".Length));
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                         }
                         else if (message != null && message.StartsWith("startMcp:"))
                         {
                             StartMcpProcess(message.Substring("startMcp:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                         }                        else if (message != null && message.StartsWith("ai:"))
                         {
                             await HandleAiRequestAsync(message.Substring(3));
@@ -164,6 +210,21 @@ namespace DSHHotplugHub
                             {
                                 _updateNotified = true;
                                 await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('发现新版本 v" + latestCheck + "，请到 自检更新 下载');");
+                            }
+                            string panelLatestCheck = null;
+                            try
+                            {
+                                Dictionary<string, string> panelRelease = GetPanelReleaseInfo();
+                                if (panelRelease != null && panelRelease.ContainsKey("latest")) panelLatestCheck = panelRelease["latest"];
+                            }
+                            catch
+                            {
+                            }
+                            string panelInstalledCheck = GetInstalledPanelVersion();
+                            if (!_panelUpdateNotified && !string.IsNullOrEmpty(panelLatestCheck) && panelLatestCheck != panelInstalledCheck)
+                            {
+                                _panelUpdateNotified = true;
+                                await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('官方 Skill/MCP 面板插件可更新到 v" + panelLatestCheck + "，请到 自检更新 安装');");
                             }
                         }
                     }
@@ -244,6 +305,16 @@ namespace DSHHotplugHub
             try { wv = CoreWebView2Environment.GetAvailableBrowserVersionString(); } catch { }
             string profiles = DetectProfiles();
             string latest = GetLatestReleaseVersion();
+            string panelInstalled = GetInstalledPanelVersion();
+            string panelLatest = null;
+            try
+            {
+                Dictionary<string, string> panelInfo = GetPanelReleaseInfo();
+                if (panelInfo != null && panelInfo.ContainsKey("latest")) panelLatest = panelInfo["latest"];
+            }
+            catch
+            {
+            }
 
             string js =
                 "window.__nativeSelfCheck={" +
@@ -254,14 +325,18 @@ namespace DSHHotplugHub
                 "webview2:" + JsString(wv) + "," +
                 "profiles:" + JsString(profiles) + "," +
                 "appVersion:" + JsString(APP_VERSION) + "," +
-                "latestVersion:" + JsString(latest) +
+                "latestVersion:" + JsString(latest) + "," +
+                "panelInstalled:" + JsString(panelInstalled) + "," +
+                "panelLatest:" + JsString(panelLatest) +
                 "};" +
                 "if(window.__nativeSelfCheck.dshVersion){state.dshVersion=window.__nativeSelfCheck.dshVersion;state.latestVersion=window.__nativeSelfCheck.dshVersion;if(typeof renderShell==='function')renderShell();}" +
+                "if(window.__nativeSelfCheck.panelInstalled||window.__nativeSelfCheck.panelLatest){state.panelInstalled=window.__nativeSelfCheck.panelInstalled||state.panelInstalled||null;state.panelLatest=window.__nativeSelfCheck.panelLatest||state.panelLatest||null;}" +
                 "(function(){var o=getChecks;getChecks=function(){var r=o();" +
                 "for(var i=0;i<r.length;i++){" +
                 "if(r[i].name==='Node.js'){r[i].val=window.__nativeSelfCheck.node||'未检测到';r[i].text=window.__nativeSelfCheck.node?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.node?'ok':'err';}" +
                 "if(r[i].name==='pnpm'){r[i].val=window.__nativeSelfCheck.pnpm||'未检测到';r[i].text=window.__nativeSelfCheck.pnpm?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.pnpm?'ok':'err';}" +
                 "if(r[i].name==='DSH 版本'){r[i].val=window.__nativeSelfCheck.dshVersion||r[i].val;r[i].text=window.__nativeSelfCheck.dshDesktop?'官方 Harness 已安装':'未找到官方 Harness';r[i].status=window.__nativeSelfCheck.dshDesktop?'ok':'warn';}" +
+                "if(r[i].name==='官方 Skill/MCP 面板'){var pi=window.__nativeSelfCheck.panelInstalled;var pl=window.__nativeSelfCheck.panelLatest;r[i].val=pi||'未安装';if(!pi){r[i].status='warn';r[i].text='可安装 v'+(pl||'?');}else if(pl&&pi!==pl){r[i].status='update';r[i].text='可更新至 v'+pl;}else{r[i].status='ok';r[i].text='已最新';}}" +
                 "}" +
                 "if(window.__nativeSelfCheck.webview2){r.push({name:'WebView2',desc:'桌面渲染内核',val:window.__nativeSelfCheck.webview2,status:'ok',text:'可用'});}" +
                 "if(window.__nativeSelfCheck.profiles){r.push({name:'本地 DSH Profile',desc:'~/.dsh/profiles 探测',val:window.__nativeSelfCheck.profiles,status:'ok',text:'已探测'});}" +
@@ -272,6 +347,7 @@ namespace DSHHotplugHub
                 "if(typeof renderCheck==='function'){renderCheck();}" +
                 "var drs=document.querySelectorAll('.check-row');for(var i=0;i<drs.length;i++){var dn=drs[i].querySelector('.name');if(dn&&dn.textContent==='DSH 版本'){var db=document.createElement('button');db.className='btn sm primary';db.style.marginLeft='8px';db.textContent='⬇ 下载官方客户端';db.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('downloadHarness');}};drs[i].appendChild(db);}}" +
                 "var urs=document.querySelectorAll('.check-row');for(var i=0;i<urs.length;i++){var un=urs[i].querySelector('.name');if(un&&un.textContent==='本程序版本'){var b1=document.createElement('button');b1.className='btn sm primary';b1.style.marginLeft='8px';b1.textContent='检查更新';b1.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('checkUpdate');}};var b2=document.createElement('button');b2.className='btn sm';b2.style.marginLeft='8px';b2.textContent='下载新版本';b2.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('downloadProject');}};urs[i].appendChild(b1);urs[i].appendChild(b2);}}" +
+                "var prs=document.querySelectorAll('.check-row');for(var i=0;i<prs.length;i++){var pn=prs[i].querySelector('.name');if(pn&&pn.textContent==='官方 Skill/MCP 面板'){var pv=window.__nativeSelfCheck.panelInstalled;var plv=window.__nativeSelfCheck.panelLatest;var pb=document.createElement('button');pb.className='btn sm primary';pb.style.marginLeft='8px';if(!pv){pb.textContent='安装插件';pb.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('installPanel');}};}else if(plv&&pv!==plv){pb.textContent='更新到 v'+plv;pb.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('updatePanel');}};}else{pb.textContent='重新安装';pb.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('installPanel');}};}prs[i].appendChild(pb);var ob=document.createElement('button');ob.className='btn sm';ob.style.marginLeft='8px';ob.textContent='打开页面';ob.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('openPanelPage');}};prs[i].appendChild(ob);}}" +
                 "var rc=document.getElementById('recheck');if(rc){rc.addEventListener('click',function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('recheck');}});}" +
                 "})();";
             return js;
@@ -447,6 +523,8 @@ namespace DSHHotplugHub
                 request.Method = "GET";
                 request.UserAgent = "DSH-Hotplug-Hub";
                 request.Accept = "application/vnd.github+json";
+                string githubToken = GetGithubToken();
+                if (!string.IsNullOrEmpty(githubToken)) request.Headers.Add("Authorization", "Bearer " + githubToken);
                 request.Timeout = 15000;
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
@@ -467,6 +545,190 @@ namespace DSHHotplugHub
             return null;
         }
 
+
+        // ---------- 官方 Skill/MCP 面板插件（dsh-skill-mcp-panel）安装与自动更新 ----------
+
+        private static Dictionary<string, string> GetPanelReleaseInfo()
+        {
+            try
+            {
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/" + PANEL_REPO + "/releases/latest");
+                request.Method = "GET";
+                request.UserAgent = "DSH-Hotplug-Hub";
+                request.Accept = "application/vnd.github+json";
+                string githubToken = GetGithubToken();
+                if (!string.IsNullOrEmpty(githubToken)) request.Headers.Add("Authorization", "Bearer " + githubToken);
+                request.Timeout = 15000;
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                {
+                    string json = reader.ReadToEnd();
+                    JavaScriptSerializer ser = new JavaScriptSerializer();
+                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(json);
+                    if (root == null) return null;
+                    Dictionary<string, string> info = new Dictionary<string, string>();
+                    if (root.ContainsKey("tag_name"))
+                    {
+                        string tag = Convert.ToString(root["tag_name"]).TrimStart('v');
+                        info["latest"] = tag;
+                    }
+                    if (root.ContainsKey("assets"))
+                    {
+                        object[] assets = root["assets"] as object[];
+                        if (assets != null)
+                        {
+                            foreach (object assetObj in assets)
+                            {
+                                Dictionary<string, object> asset = assetObj as Dictionary<string, object>;
+                                if (asset == null) continue;
+                                string name = Convert.ToString(asset.ContainsKey("name") ? asset["name"] : "");
+                                if (name.EndsWith(".tgz") && asset.ContainsKey("browser_download_url"))
+                                {
+                                    info["url"] = Convert.ToString(asset["browser_download_url"]);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    return info.Count > 0 ? info : null;
+                }
+            }
+            catch
+            {
+            }
+            return null;
+        }
+
+        private static string GetInstalledPanelVersion()
+        {
+            try
+            {
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                List<string> candidates = new List<string>();
+                string profilesDir = Path.Combine(home, ".dsh", "profiles");
+                if (Directory.Exists(profilesDir))
+                {
+                    foreach (string profileDir in Directory.GetDirectories(profilesDir))
+                    {
+                        candidates.Add(Path.Combine(profileDir, "node_modules", "dsh-skill-mcp-panel", "package.json"));
+                    }
+                }
+                candidates.Add(Path.Combine(home, ".dsh", "plugin-src", "dsh-skill-mcp-panel", "package.json"));
+                foreach (string pkgFile in candidates)
+                {
+                    if (!File.Exists(pkgFile)) continue;
+                    JavaScriptSerializer ser = new JavaScriptSerializer();
+                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
+                    if (root != null && root.ContainsKey("version"))
+                    {
+                        string v = Convert.ToString(root["version"]);
+                        if (!string.IsNullOrEmpty(v)) return v;
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return null;
+        }
+
+        // 返回 dsh 命令启动方式：{可执行文件, 参数前缀}；找不到返回 null。
+        private static string[] FindDshCommand()
+        {
+            // 1. PATH 中直接有 dsh（npm/pnpm 全局安装）
+            string probe = RunCli("cmd.exe", "/c dsh --version");
+            if (!string.IsNullOrEmpty(probe) && probe.Contains("."))
+            {
+                return new string[] { "cmd.exe", "/c dsh" };
+            }
+
+            // 2. 官方 DSH Desktop 内置 dsh CLI
+            string harness = FindOfficialHarness();
+            if (harness != null)
+            {
+                string appDir = Path.GetDirectoryName(harness);
+                if (appDir != null)
+                {
+                    string binJs = Path.Combine(appDir, "resources", "app", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+                    if (File.Exists(binJs))
+                    {
+                        return new string[] { "node", "\"" + binJs + "\"" };
+                    }
+                }
+            }
+
+            // 3. Linux/macOS 常见位置（本 EXE 在 Windows 上运行，此项保留给未来移植）
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string altBin = Path.Combine(home, ".dsh", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+            if (File.Exists(altBin))
+            {
+                return new string[] { "node", "\"" + altBin + "\"" };
+            }
+
+            return null;
+        }
+
+        private static string RunDshPanelInstall(string tarballUrl)
+        {
+            string[] cmd = FindDshCommand();
+            if (cmd == null) return null;
+            string args = cmd[1] + " plugin --profile web add " + tarballUrl;
+            return RunCliLong(cmd[0], args);
+        }
+
+        private static string RunCliLong(string fileName, string arguments)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(fileName, arguments);
+                psi.UseShellExecute = false;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = false;
+                psi.CreateNoWindow = true;
+                using (Process p = Process.Start(psi))
+                {
+                    string output = p.StandardOutput.ReadToEnd();
+                    p.WaitForExit(180000);
+                    return output.Trim();
+                }
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        private static string InstallOrUpdatePanel()
+        {
+            try
+            {
+                Dictionary<string, string> info = GetPanelReleaseInfo();
+                if (info == null || !info.ContainsKey("url"))
+                {
+                    return "未获取到 dsh-skill-mcp-panel 发布信息，请检查网络";
+                }
+                string latest = info.ContainsKey("latest") ? info["latest"] : "?";
+                string installed = GetInstalledPanelVersion();
+                if (!string.IsNullOrEmpty(installed) && installed == latest)
+                {
+                    return "官方面板插件已是最新 v" + installed;
+                }
+                string output = RunDshPanelInstall(info["url"]);
+                if (output == null)
+                {
+                    return "未找到 dsh 命令，请先安装官方 DSH Desktop 或把 dsh 加入 PATH";
+                }
+                if (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:"))
+                {
+                    return "安装失败：" + output.Substring(0, Math.Min(output.Length, 160));
+                }
+                return "官方面板插件 v" + latest + " 已提交安装，重启 DSH 后生效";
+            }
+            catch (Exception ex)
+            {
+                return "安装异常：" + ex.Message;
+            }
+        }
         // 读取官方 DSH Desktop 内置的核心 dsh 版本（resources/app/package.json 的 @deepseek-ai/dsh）
         private static string GetDshCoreVersion()
         {

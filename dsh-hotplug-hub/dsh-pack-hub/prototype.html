@@ -316,7 +316,7 @@ button { font: inherit; color: inherit; }
       </div>
       <div>
         <div class="brand-name">Dseam世界</div>
-        <div class="brand-sub">Dseam v0.1.7</div>
+        <div class="brand-sub">Dseam v0.1.8</div>
       </div>
     </div>
     <nav class="nav" id="nav"></nav>
@@ -402,6 +402,8 @@ const DEFAULT_STATE = {
     { id: 'global.study', name: '学习记忆包', keywords: ['考研', '闪卡', '语法'], entries: 9 }
   ],
   memoryLog: [],
+    panelInstalled: null,
+    panelLatest: null,
     skills: [],
     mcps: []
 };
@@ -848,7 +850,8 @@ function getChecks() {
     { name: 'pnpm', desc: '包管理器', val: state.pnpmVersion, status: 'ok', text: '就绪' },
     { name: 'Profile 清单', desc: 'dsh.profile.bundles 可解析', val: 'desktop', status: 'ok', text: StateOk() ? '完好' : '需检查' },
     { name: '插件健康', desc: '已装包自检', val: conflicts.length + ' 冲突', status: conflicts.length ? 'warn' : 'ok', text: conflicts.length ? '见冲突矩阵' : '健康' },
-    { name: '记忆中枢', desc: '全局记忆包状态', val: state.memories.length + ' 包', status: 'ok', text: '在线' }
+    { name: '记忆中枢', desc: '全局记忆包状态', val: state.memories.length + ' 包', status: 'ok', text: '在线' },
+    { name: '官方 Skill/MCP 面板', desc: 'dsh-skill-mcp-panel 插件', val: state.panelInstalled || '未安装', status: state.panelInstalled ? (state.panelLatest && state.panelInstalled !== state.panelLatest ? 'update' : 'ok') : 'warn', text: state.panelInstalled ? (state.panelInstalled === state.panelLatest ? '已最新' : '可更新至 v' + (state.panelLatest || '?')) : '可安装 v' + (state.panelLatest || '?') }
   ];
 }
 function StateOk() { return true; }
@@ -1008,6 +1011,18 @@ function renderCheck() {
           <div style="font-size:12px;color:var(--muted);min-width:110px;text-align:right">${esc(c.text)}</div>
         </div>`).join('')}
     </div>
+    <div class="section-head"><div><h2>官方 Skill/MCP 面板</h2><div class="sub">Fishquito7/dsh-skill-mcp-panel · 安装到 DSH 设置页</div></div></div>
+    <div class="check-list">
+      <div class="check-row">
+        <span class="badge ${state.panelInstalled ? 'ok' : 'warn'}">${state.panelInstalled ? ICONS.check : ICONS.download}</span>
+        <div><div class="name">dsh-skill-mcp-panel</div><div class="desc">本地：${esc(state.panelInstalled || '未安装')} · 最新：${esc(state.panelLatest || '检测中')}</div></div>
+        <div class="val">${esc(state.panelInstalled && state.panelInstalled === state.panelLatest ? '已最新' : '可安装')}</div>
+        <div style="display:flex;gap:8px;margin-left:auto">
+          <button class="btn sm primary" id="panelInstallBtn">${state.panelInstalled ? '重装/更新' : '安装插件'}</button>
+          <button class="btn sm" id="panelPageBtn">打开页面</button>
+        </div>
+      </div>
+    </div>
     ${getConflicts().length ? `
       <div class="section-head"><div><h2>冲突矩阵</h2></div></div>
       <div class="check-list">
@@ -1027,6 +1042,16 @@ function renderCheck() {
       </div>
     </div>`;
   $('recheck').addEventListener('click', () => { toast('自检完成，状态已更新'); renderCheck(); });
+  const panelInstall = $('panelInstallBtn');
+  if (panelInstall) panelInstall.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage(state.panelInstalled ? 'updatePanel' : 'installPanel'); return; }
+    toast('浏览器预览模式：请在 Dseam世界 桌面端中安装');
+  });
+  const panelPage = $('panelPageBtn');
+  if (panelPage) panelPage.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('openPanelPage'); return; }
+    window.open('https://github.com/Fishquito7/dsh-skill-mcp-panel/releases/latest', '_blank');
+  });
   const up = $('updateDsh');
   if (up) up.addEventListener('click', () => {
     showDialog('更新 DSH', `<div class="body">将从 ${esc(state.dshVersion)} 更新到 ${esc(state.latestVersion)}。更新完成后需要重启一次。</div>`, () => {
