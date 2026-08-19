@@ -34,7 +34,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.1.4";
+        private const string APP_VERSION = "0.1.5";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
 
         public MainForm()
@@ -1056,7 +1056,12 @@ namespace DSHHotplugHub
             try
             {
                 string dir = SkillsDir();
-                if (!Directory.Exists(dir)) return "[]";
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                if (Directory.GetFiles(dir, "*.md").Length == 0)
+                {
+                    File.WriteAllText(Path.Combine(dir, "skill-deep-research.md"), "# DeepSeek 深度研究\n\n多轮推理与资料整理\n");
+                    File.WriteAllText(Path.Combine(dir, "skill-code-review.md"), "# 代码审查\n\n代码质量与安全审查\n");
+                }
                 List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
                 foreach (string file in Directory.GetFiles(dir, "*.md"))
                 {
@@ -1105,7 +1110,17 @@ namespace DSHHotplugHub
             try
             {
                 string file = McpFilePath();
-                if (!File.Exists(file)) return "[]";
+                if (!File.Exists(file))
+                {
+                    List<Dictionary<string, object>> defaults = new List<Dictionary<string, object>>();
+                    Dictionary<string, object> fs = new Dictionary<string, object>();
+                    fs["id"] = "mcp-filesystem"; fs["name"] = "Filesystem MCP"; fs["command"] = "npx"; fs["args"] = "-y @modelcontextprotocol/server-filesystem";
+                    Dictionary<string, object> fetch = new Dictionary<string, object>();
+                    fetch["id"] = "mcp-fetch"; fetch["name"] = "Fetch MCP"; fetch["command"] = "npx"; fetch["args"] = "-y @modelcontextprotocol/server-fetch";
+                    defaults.Add(fs); defaults.Add(fetch);
+                    Directory.CreateDirectory(Path.GetDirectoryName(file));
+                    File.WriteAllText(file, new JavaScriptSerializer().Serialize(defaults));
+                }
                 return File.ReadAllText(file);
             }
             catch { return "[]"; }
