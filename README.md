@@ -10,6 +10,7 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 - 记忆中枢真实化：读取/写入 `~/.dsh/memory-hub`，UI 按规范展示真实记忆。
 - 功能审查：移除插件包市场示例、默认 Skill/MCP；审查清单写入开发踩坑记录。
 - EXE 启动自动安装/注册 memory-hub 到本地 DeepSeek Harness。
+- 新增跨平台自动安装脚本 scripts/install-plugins.mjs，适配 Windows/macOS/Linux。
 ### v0.1.6（最新）
 - AI 协作：新增「必须逐条汇报遵守流程」规则，每次任务开始/结束都强制自检。
 - 任务审查：2026-08-19 已执行并通过。
