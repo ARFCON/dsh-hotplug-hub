@@ -1,6 +1,6 @@
 ﻿{
   "name": "dsh-hotplug-hub",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "DSH 热插拔中枢：极简空插座排，不含任何原生插件；只导入外部热插拔包（hotpack），插件按路径调用、已有即复用、缺失才下载，激活即无损替换当前包",
   "type": "module",

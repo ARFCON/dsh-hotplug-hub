@@ -29,3 +29,25 @@ if ($local -eq $remote) {
 # 3. 显示当前状态
 Write-Output "== 当前状态 =="
 & $git -C $repo status --short --branch 2>&1 | Out-String
+# 检查 GitHub 最新版本
+Write-Output "== 版本检查 =="
+try {
+  $pkgPath = Join-Path $repo 'dsh-hotplug-hub\package.json'
+  if (Test-Path $pkgPath) {
+    $pkg = Get-Content $pkgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $current = $pkg.version
+    $json = curl.exe -s --ssl-no-revoke --max-time 15 'https://api.github.com/repos/ARFCON/dsh-hotplug-hub/releases/latest' 2>$null | ConvertFrom-Json
+    if ($json -and $json.tag_name) {
+      $latest = $json.tag_name.TrimStart('v')
+      if ($latest -ne $current) {
+        Write-Output "⚠️ 有新版本 v$latest（当前 v$current），请更新客户端后再修改。"
+      } else {
+        Write-Output "✅ 已是最新版本 v$current"
+      }
+    } else {
+      Write-Output "（GitHub 暂无 Release，跳过版本检查）"
+    }
+  }
+} catch {
+  Write-Output "（版本检查失败，跳过）"
+}
