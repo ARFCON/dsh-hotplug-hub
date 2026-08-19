@@ -21,6 +21,8 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 ```text
 dsh-hotplug-hub-test/           # 本仓库根目录
 ├── installer/                  # Windows 安装程序（Setup.exe + 源码）
+├── uninstaller/                # 卸载程序（Uninstall_Hotplug_Hub.exe + 源码）
+├── scripts/                    # 团队协作脚本（同步/检查/记忆）
 ├── release/                    # 桌面 EXE + WebView2 DLL + 使用说明
 ├── launcher/                   # 独立启动器（CLI）
 ├── assembly/                   # 组合描述与 resolvedAssembly
