@@ -14,6 +14,9 @@ Code Cache/
 sandbox/.sandbox/
 launcher-workspace/
 
+# 安装程序内置运行时负载（node/pnpm 压缩包，体积大，由 download-runtime.ps1 生成，随分发包发布但不进 git）
+installer/runtime/
+
 # 系统/编辑器
 .DS_Store
 Thumbs.db
