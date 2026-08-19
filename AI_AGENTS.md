@@ -46,6 +46,18 @@ pwsh -File scripts/remember-doc.ps1 -DocPath 开发文档/团队/共同开发文
   node launcher/index.js heal example
   ```
 
+## 4.5 上传前必做检查
+
+每次上传前运行：
+```powershell
+pwsh -File scripts/check-before-upload.ps1
+```
+
+规则：
+- 脚本会自动同步远程仓库。
+- 自动运行启动器 assemble / check / heal 测试。
+- 自动检查 PowerShell 脚本语法和 git diff。
+- 如果检查失败，必须继续修复，直到所有检查通过才能上传。
 ## 5. 提交流程
 ```bash
 git checkout develop
