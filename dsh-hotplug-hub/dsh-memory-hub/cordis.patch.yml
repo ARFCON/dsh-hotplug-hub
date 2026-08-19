@@ -1,0 +1,4 @@
+- insert:
+    - id: memory-hub
+      name: 'dsh-memory-hub'
+      config: { "hubDir": null, "writePolicy": "ask", "snapshotOrder": -50 }

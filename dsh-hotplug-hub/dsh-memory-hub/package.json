@@ -1,0 +1,31 @@
+{
+  "name": "dsh-memory-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH 记忆中枢：全局记忆包（memory-pack），与 profile 解耦；memory.search / memory.commit / memory.suggest 工具 + 关键词路由 + 确认制提案队列 + BM25 检索 + 审计。切包不丢，AI 可检索。",
+  "type": "module",
+  "main": "lib/index.mjs",
+  "exports": {
+    ".": { "default": "./lib/index.mjs" },
+    "./protocol": { "default": "./lib/protocol.mjs" },
+    "./store": { "default": "./lib/store.mjs" },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "schema",
+    "test",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
