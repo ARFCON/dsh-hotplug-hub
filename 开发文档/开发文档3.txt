@@ -1,0 +1,112 @@
+﻿DSH-Hotplug-Hub 开发文档 3
+================================
+编写人：3号开发
+项目：ARFCON/dsh-hotplug-hub
+日期：2026-08-19
+状态：已开发并本地验证，待评审/合入
+
+一、任务背景
+--------------------------------
+DSH-Hotplug-Hub（DSH 热插拔中枢）已有桌面安装程序 installer/Setup.exe。
+经排查确认：
+- 安装器为自写 C# WinForms，默认安装到 C:\DSH-Hotplug-Hub。
+- 安装内容：release/、launcher/、assembly/、sandbox/、开发文档/，并把 release 下的
+  EXE/DLL 复制到安装目录根。
+- 创建快捷方式：桌面“DSH 热插拔中枢.lnk”、开始菜单 Programs\DSH-Hotplug-Hub\。
+- 安装器【不写注册表卸载项】——这是本次要解决的核心短板。
+
+因此本任务目标：为 DSH-Hotplug-Hub 制作一套完整、可靠、有交互式保留选项的卸载程序，
+弥补“安装后无法从系统正常卸载”的缺口。
+
+二、实现目标
+--------------------------------
+1. 提供 GUI 卸载确认弹窗，参考 DSH Desktop 卸载器交互：可选卸载模式 + 可选保留项 + 二次确认。
+2. 支持静默卸载 /S 与命令行保留/模式参数，适配企业批量部署与后续安装器集成。
+3. 完整清理范围：
+   - 运行中的 DSH-Hotplug-Hub.exe 进程（优雅关闭 + 超时强制）。
+   - 桌面/开始菜单快捷方式（当前用户 + 公共用户）。
+   - 安装目录。
+   - 用户数据：%LOCALAPPDATA%\DSH-Hotplug-Hub、%TEMP%\dsh-hotplug-hub-webview2。
+   - DSH 共享数据：%USERPROFILE%\.dsh\hotplug-store、%USERPROFILE%\.dsh\hotplug-hub。
+   - 注册表残留：HKCU\Software\DSH-Hotplug-Hub、HKCU 卸载键。
+4. 不触碰 DSH 官方 Harness 数据（~/.dsh/profiles、settings.yaml、.credentials.yaml）。
+5. 卸载过程写 Log.log，便于排障。
+6. 支持一键重建（build-uninstaller.ps1），保证 CI/他人可复现产物。
+
+三、技术路线
+--------------------------------
+采用“复用 DSH Desktop 卸载器成熟模式，针对 Hotplug Hub 精简重构”的路线：
+
+1. 经验复用（来自 DSH_Desktop_Uninstaller 项目）：
+   - P2 优雅关进程：CloseMainWindow 优先 → 等待 3 秒 → 二次强制 → sleep 500ms。
+   - P7 安全目录删除：重解析点保护（只删链接本身）、清只读属性、文件优先逐个删、
+     子目录递归、最终目录删除不吞异常（配合外层 8 次重试 ×800ms）。
+   - fake-success 修复：删除失败必须向上抛，不能误报“Deleted directory”。
+   - 二次确认弹窗：卸载前 MessageBox OKCancel + Warning 展示保留摘要。
+   - GUI 表单：Microsoft YaHei UI，主题色 Color.FromArgb(14,124,107) 与安装器一致。
+   - 日志：InitializeLog + Log 追加 Log.log（UTF-8）。
+
+2. 针对 Hotplug Hub 的差异化设计：
+   - 安装器不写注册表 → 安装目录检测改为多路探测（当前 exe 目录、常见安装路径、
+     运行中进程目录）。
+   - 保留项精简为三类：应用配置与数据、DSH 共享缓存、临时缓存。
+   - 共享数据单独成项，避免卸载误伤 DSH 生态其他组件。
+   - 构建脚本自动补 UTF-8 BOM，确保 csc.exe 正确编译中文字符串。
+
+3. 编译链路：
+   - csc.exe（.NET Framework v4.0.30319 / 4.8）→ /target:winexe → GUI 子系统。
+   - 引用 System.Windows.Forms.dll、System.Drawing.dll。
+   - embed-icon-in-exe.ps1 用 Win32 UpdateResource 把 release\src\app.ico 嵌入 EXE。
+
+四、更改/新增文件
+--------------------------------
+以下全部在 F:\DeepSeek\dsh-hotplug-hub-app 下（相对仓库根）：
+
+新增：
+- uninstaller/Uninstall_Hotplug_Hub.cs        —— 卸载程序完整 C# 源码（约 580 行）
+- uninstaller/Uninstall_Hotplug_Hub.exe       —— 最终二进制（19,968 字节，GUI，已嵌图标）
+- uninstaller/Uninstall_Hotplug_Hub_说明.txt   —— 软件使用说明（交互/CLI/重建方法）
+- uninstaller/build-uninstaller.ps1           —— 一键构建脚本（BOM+编译+图标）
+- uninstaller/embed-icon-in-exe.ps1           —— 图标嵌入脚本（复用 DSH Desktop 方案）
+- uninstaller/backups/                        —— 备份（cs/exe/说明，20260819-144427）
+- 开发文档/开发文档3.txt                       —— 本文档
+
+未改动：
+- installer/Setup.cs、installer/Setup.exe（保持原样；安装器集成卸载器留待后续任务）
+- release/、launcher/、assembly/、sandbox/、README.md 等现有功能文件
+
+五、期望实现效果
+--------------------------------
+1. 交互卸载：
+   - 双击 Uninstall_Hotplug_Hub.exe → 弹窗：
+     · 卸载模式：程序识别卸载 / 默认卸载
+     · 可选保留项：应用配置与数据 / DSH 共享缓存 / 临时缓存（默认不保留）
+     · 点击“卸载”后 → 二次确认（展示将保留哪些内容）→ 开始卸载。
+   - 卸载完成后弹窗提示，详细过程记录于当前目录 Log.log。
+2. 静默卸载：
+   - Uninstall_Hotplug_Hub.exe /S            —— 全删不弹窗。
+   - /S /KeepAppData                         —— 保留 %LOCALAPPDATA%\DSH-Hotplug-Hub。
+   - /S /KeepSharedData                      —— 保留 .dsh\hotplug-store + .dsh\hotplug-hub。
+   - /S /KeepTempData                        —— 保留 %TEMP%\dsh-hotplug-hub-webview2。
+   - /S /KeepAll                             —— 保留以上全部。
+   - /S /DetectRunning / /S /Default         —— 切换安装目录检测模式。
+3. 安全性：不会删除官方 Harness 的 profiles/settings/credentials；删除失败不误报成功。
+4. 可复现：构建脚本输出固定产物，便于后续接入 CI 或安装器。
+
+六、本地验证结果
+--------------------------------
+- 冒烟测试：Uninstall_Hotplug_Hub.exe /S /KeepAll
+  · 退出码 0。
+  · 日志六步全部正确：进程清理 → 快捷方式 → 安装目录检测 → 用户数据保留 → 临时数据保留
+    → 注册表清理 → 卸载完成。
+  · 验证保留项生效（保留应用数据/共享数据/临时数据）。
+- 编码验证：通过 IL 字符串转储确认 EXE 内含全部中文界面字符串
+  （“DSH-Hotplug-Hub 卸载确认”“可选保留项”“保留应用配置与数据”等）。
+- 子系统验证：PE Subsystem=2（GUI）。
+
+七、后续可扩展
+--------------------------------
+1. 安装器集成：Setup.exe 在安装时复制 Uninstall_Hotplug_Hub.exe 到安装目录，
+   并写入 HKCU/HKLM 卸载注册项 + QuietUninstallString，使控制面板可卸载。
+2. 自动化测试：补充对临时目录清理的安全匹配（参考 DSH Desktop 的 dsh- 前缀过滤）。
+3. 按需将本目录纳入 ARFCON/dsh-hotplug-hub 仓库 develop 分支并提交 PR。

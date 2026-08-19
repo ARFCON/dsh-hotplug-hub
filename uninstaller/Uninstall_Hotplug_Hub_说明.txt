@@ -1,0 +1,80 @@
+DSH-Hotplug-Hub 卸载程序说明
+==============================
+
+文件位置
+--------
+- 源文件：Uninstall_Hotplug_Hub.cs
+- 程序本体：Uninstall_Hotplug_Hub.exe
+- 构建脚本：build-uninstaller.ps1
+- 图标嵌入脚本：embed-icon-in-exe.ps1
+- 图标源：..\release\src\app.ico
+
+功能概述
+--------
+本卸载程序用于卸载 DSH-Hotplug-Hub（DSH 热插拔中枢）桌面应用。
+与官方 installer/Setup.exe 对应：Setup.exe 默认安装到 C:\DSH-Hotplug-Hub，
+创建桌面/开始菜单快捷方式，但不写注册表卸载项。因此卸载程序采用
+程序识别/常见路径/当前目录多路检测。
+
+卸载内容
+--------
+1. 停止运行中的 DSH-Hotplug-Hub.exe（优雅关闭，超时后强制结束）。
+2. 删除快捷方式：
+   - 桌面：DSH 热插拔中枢.lnk
+   - 开始菜单：DSH-Hotplug-Hub 文件夹
+   - 同时清理公共桌面/公共开始菜单的同名快捷方式。
+3. 删除安装目录（默认 C:\DSH-Hotplug-Hub，含 release/launcher/assembly/sandbox/开发文档）。
+4. 用户数据：
+   - %LOCALAPPDATA%\DSH-Hotplug-Hub\（api-config.json、harness-path.txt、WebView2\）
+   - %TEMP%\dsh-hotplug-hub-webview2（临时缓存）
+   - %USERPROFILE%\.dsh\hotplug-store\（GitHub 源插件缓存，与 DSH 共享）
+   - %USERPROFILE%\.dsh\hotplug-hub\（中枢状态，与 DSH 插件版共享）
+5. 注册表清理：
+   - HKCU\Software\DSH-Hotplug-Hub
+   - HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\DSH-Hotplug-Hub
+   （安装器本身不写注册表，清理仅针对可能存在的应用键。）
+
+特别说明
+--------
+- .dsh\hotplug-store 和 .dsh\hotplug-hub 属于 DSH 共享数据，
+  卸载 Hotplug Hub 时默认可选保留，避免影响 DSH 生态其他组件。
+- ~/.dsh/profiles、settings.yaml、.credentials.yaml 是 DSH 官方 Harness 的数据，
+  本卸载程序不会删除。
+
+交互模式
+--------
+双击 Uninstall_Hotplug_Hub.exe 后弹出窗口：
+- 卸载模式：程序识别卸载（检测运行中的 DSH-Hotplug-Hub）/ 默认卸载（按安装路径检测）
+- 可选保留项：
+  * 保留应用配置与数据（%LOCALAPPDATA%\DSH-Hotplug-Hub）
+  * 保留 DSH 共享缓存（.dsh\hotplug-store + .dsh\hotplug-hub）
+  * 保留临时缓存（%TEMP%\dsh-hotplug-hub-webview2）
+- 点击「卸载」后弹出二次确认，确认后开始卸载。
+- 卸载过程写入当前目录 Log.log，完成后弹窗提示。
+
+静默模式与命令行参数
+--------------------
+Uninstall_Hotplug_Hub.exe /S
+  静默卸载，不弹窗。
+
+Uninstall_Hotplug_Hub.exe /S /KeepAppData
+  静默卸载，保留 %LOCALAPPDATA%\DSH-Hotplug-Hub。
+
+Uninstall_Hotplug_Hub.exe /S /KeepSharedData
+  静默卸载，保留 .dsh\hotplug-store + .dsh\hotplug-hub。
+
+Uninstall_Hotplug_Hub.exe /S /KeepTempData
+  静默卸载，保留 %TEMP%\dsh-hotplug-hub-webview2。
+
+Uninstall_Hotplug_Hub.exe /S /KeepAll
+  静默卸载，保留以上全部用户数据。
+
+Uninstall_Hotplug_Hub.exe /S /DetectRunning
+  优先使用运行中的 DSH-Hotplug-Hub 所在目录作为安装目录。
+
+Uninstall_Hotplug_Hub.exe /S /Default
+  使用默认安装路径检测（不采用程序识别）。
+
+重建方法
+--------
+powershell -NoProfile -ExecutionPolicy Bypass -File build-uninstaller.ps1
