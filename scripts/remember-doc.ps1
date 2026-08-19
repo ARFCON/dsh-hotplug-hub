@@ -28,3 +28,13 @@ $entry = [ordered]@{
 Add-Content -Path $memoryFile -Value $entry -Encoding UTF8
 Write-Output "已写入全局记忆: $memoryFile"
 Write-Output "条目: $entry"
+# 同步提交到 memory-hub 插件（走协议，进提案队列）
+$repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$commitScript = Join-Path $repo 'scripts\memoryhub-commit.mjs'
+$docName = Split-Path -Leaf $DocPath
+try {
+  $out = node $commitScript 'global.project' $docName $summary 2>&1 | Out-String
+  Write-Output $out.Trim()
+} catch {
+  Write-Output '（memory-hub 提交失败，已保留 memories.jsonl 兼容写入）'
+}

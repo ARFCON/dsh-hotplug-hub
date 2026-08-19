@@ -13,6 +13,9 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 - 任务审查：改为 AI 自动执行，不再询问用户；2026-08-19 自动审查通过。
 - 确认官方 DSH Desktop 内置 `dsh-skill-filesystem` 与 `dsh-mcp-client`；Skill 已写成官方 frontmatter 格式，MCP 已注册到 web profile。
 - 移除默认 MCP 自动填充/注册，只保留用户手动添加的真实 MCP；自动审查通过。
+- 记忆中枢真实对接：`remember-doc.ps1` 现在同时写入 `~/.dsh/memory/memories.jsonl` 和 memory-hub 提案队列（`~/.dsh/memory-hub/`），走插件协议。
+- EXE 启动时自动安装/注册 `dsh-memory-hub` 到本地 DeepSeek Harness（复制到 `~/.dsh/plugin-src/` 并启用 web profile 注册）。
+- 精简 Skill/MCP 市场，只保留真实可用的官方条目。
 - 真实接入官方 Harness：
   - Skill 按官方 `skill-filesystem` 格式写入 `~/.dsh/skills/*.md`（YAML frontmatter）
   - MCP 保存时自动注册 `@deepseek-ai/dsh-mcp-client` 到 web profile 的 `cordis.patch.yml`

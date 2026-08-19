@@ -59,6 +59,7 @@ namespace DSHHotplugHub
         {
             try
             {
+                InstallPluginsToHarness();
                 string html = ReadEmbeddedHtml();
                 html = InjectSidebarLaunchButton(html);
 
@@ -1107,6 +1108,47 @@ namespace DSHHotplugHub
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "mcp.json");
         }
 
+        // 启动时自动把仓库插件安装/注册到本地 DeepSeek Harness
+        private static void InstallPluginsToHarness()
+        {
+            try
+            {
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                string src = Path.GetFullPath(Path.Combine(baseDir, "..", "dsh-hotplug-hub", "dsh-memory-hub"));
+                if (!Directory.Exists(src)) return;
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string target = Path.Combine(home, ".dsh", "plugin-src", "dsh-memory-hub");
+                if (Directory.Exists(target)) { try { Directory.Delete(target, true); } catch { } }
+                CopyDirectory(src, target);
+
+                string patch = Path.Combine(home, ".dsh", "profiles", "web", "cordis.patch.yml");
+                if (File.Exists(patch))
+                {
+                    string text = File.ReadAllText(patch);
+                    text = text.Replace("# [已禁用]     - id: memory-hub", "    - id: memory-hub");
+                    text = text.Replace("# [已禁用]       name: 'dsh-memory-hub'", "      name: 'dsh-memory-hub'");
+                    if (!text.Contains("name: 'dsh-memory-hub'"))
+                    {
+                        text = text.TrimEnd() + "\n- insert:\n    - id: memory-hub\n      name: 'dsh-memory-hub'\n      config: { \"hubDir\": null, \"writePolicy\": \"ask\", \"snapshotOrder\": -50 }\n";
+                    }
+                    File.WriteAllText(patch, text);
+                }
+            }
+            catch { }
+        }
+
+        private static void CopyDirectory(string source, string target)
+        {
+            Directory.CreateDirectory(target);
+            foreach (string file in Directory.GetFiles(source))
+            {
+                File.Copy(file, Path.Combine(target, Path.GetFileName(file)), true);
+            }
+            foreach (string dir in Directory.GetDirectories(source))
+            {
+                CopyDirectory(dir, Path.Combine(target, Path.GetFileName(dir)));
+            }
+        }
         private static string GetSkillsJson()
         {
             try
