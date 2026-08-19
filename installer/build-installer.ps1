@@ -1,4 +1,4 @@
-﻿# 编译 DSH-Hotplug-Hub 安装程序 Setup.exe
+# 编译 DSH-Hotplug-Hub 安装程序 Setup.exe
 # 用法: pwsh -File installer/build-installer.ps1
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -14,6 +14,8 @@ $args = @(
   "/win32icon:$icon",
   '/reference:System.Windows.Forms.dll',
   '/reference:System.Drawing.dll',
+  '/reference:System.IO.Compression.dll',
+  '/reference:System.IO.Compression.FileSystem.dll',
   $main
 )
 & $csc $args

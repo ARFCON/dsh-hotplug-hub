@@ -1,7 +1,11 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.IO.Compression;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace DSHHotplugHubInstaller
 {
@@ -141,9 +145,22 @@ namespace DSHHotplugHubInstaller
                 string exePath = Path.Combine(target, "DSH-Hotplug-Hub.exe");
                 CreateShortcuts(exePath);
 
+                // 内置全局运行时自动部署（node + pnpm）：软件自带负载，装完即全局可用；失败不阻塞安装
+                string runtimeMsg = "";
+                try
+                {
+                    progress.Value = 88;
+                    Application.DoEvents();
+                    runtimeMsg = DeployRuntime(target);
+                }
+                catch (Exception dex)
+                {
+                    runtimeMsg = "⚠ 全局运行时部署失败：" + dex.Message;
+                }
+
                 progress.Value = 100;
                 DialogResult r = MessageBox.Show(
-                    "安装完成！\n\n安装目录：\n" + target + "\n\n是否立即启动？",
+                    "安装完成！\n\n安装目录：\n" + target + "\n\n" + runtimeMsg + "\n\n是否立即启动？",
                     "DSH-Hotplug-Hub 安装程序",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Information);
@@ -159,6 +176,138 @@ namespace DSHHotplugHubInstaller
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 btnInstall.Enabled = true;
                 progress.Value = 0;
+            }
+        }
+
+        // ---- 内置全局运行时自动部署（node + pnpm）----
+        // 软件自带 node + pnpm 负载（installer/runtime/*.zip），安装时自动部署到全局：
+        // 解压到 <安装目录>\runtime\<node|pnpm>，注册 User PATH（免管理员）并设置 PNPM_HOME。
+        private static string DeployRuntime(string target)
+        {
+            string nodeVer = RunCli("node", "--version");
+            string pnpmVer = RunCli("pnpm", "--version");
+            if (!string.IsNullOrEmpty(nodeVer) && !string.IsNullOrEmpty(pnpmVer))
+            {
+                return "✔ 检测到已存在全局 node " + nodeVer.Trim() + " / pnpm " + pnpmVer.Trim() + "，跳过部署";
+            }
+
+            string payloadDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime");
+            var notes = new List<string>();
+
+            // Node.js（自带 npm/npx）
+            if (string.IsNullOrEmpty(nodeVer))
+            {
+                string nodeZip = Path.Combine(payloadDir, "node.zip");
+                if (!File.Exists(nodeZip)) throw new Exception("缺少内置负载 " + nodeZip + "，请先用 installer\\download-runtime.ps1 准备");
+                string nodeDir = Path.Combine(target, "runtime", "node");
+                ExtractRuntimeZip(nodeZip, nodeDir, "node.exe");
+                AddToUserPath(nodeDir);
+                notes.Add("Node " + (RunCli(Path.Combine(nodeDir, "node.exe"), "--version") ?? "?").Trim());
+            }
+
+            // pnpm（standalone 原生 pnpm.exe，应用自检 Process.Start 可直接解析）
+            if (string.IsNullOrEmpty(pnpmVer))
+            {
+                string pnpmZip = Path.Combine(payloadDir, "pnpm.zip");
+                if (!File.Exists(pnpmZip)) throw new Exception("缺少内置负载 " + pnpmZip + "，请先用 installer\\download-runtime.ps1 准备");
+                string pnpmDir = Path.Combine(target, "runtime", "pnpm");
+                ExtractRuntimeZip(pnpmZip, pnpmDir, "pnpm.exe");
+                AddToUserPath(pnpmDir);
+                SetUserEnv("PNPM_HOME", pnpmDir);
+                notes.Add("pnpm " + (RunCli(Path.Combine(pnpmDir, "pnpm.exe"), "--version") ?? "?").Trim());
+            }
+
+            return "✔ 已自动部署全局运行时：" + string.Join(" / ", notes) +
+                   "\n已加入用户 PATH（新开的终端即全局可用）。";
+        }
+
+        private static void ExtractRuntimeZip(string zipPath, string destDir, string marker)
+        {
+            string staging = destDir + "_staging" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            try
+            {
+                Directory.CreateDirectory(staging);
+                ZipFile.ExtractToDirectory(zipPath, staging);
+                // zip 顶层若带版本目录（如 node-v22.x-win-x64/），把内容上移
+                var inner = new DirectoryInfo(staging).GetDirectories();
+                if (inner.Length == 1 && File.Exists(Path.Combine(inner[0].FullName, marker)))
+                {
+                    foreach (var f in inner[0].GetFiles()) f.MoveTo(Path.Combine(staging, f.Name));
+                    foreach (var d in inner[0].GetDirectories()) d.MoveTo(Path.Combine(staging, d.Name));
+                    Directory.Delete(inner[0].FullName);
+                }
+                if (!File.Exists(Path.Combine(staging, marker)))
+                {
+                    throw new Exception("负载解压后未找到 " + marker + "（" + Path.GetFileName(zipPath) + "）");
+                }
+                if (Directory.Exists(destDir)) DeleteDirectoryQuiet(destDir);
+                Directory.Move(staging, destDir);
+            }
+            finally
+            {
+                if (Directory.Exists(staging)) DeleteDirectoryQuiet(staging);
+            }
+        }
+
+        private static void DeleteDirectoryQuiet(string dir)
+        {
+            try { System.IO.Directory.Delete(dir, true); } catch { }
+        }
+
+        // 与 Main.cs RunCli 同一语义：UseShellExecute=false → 只解析原生 .exe；找不到返回 null
+        private static string RunCli(string fileName, string arguments)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(fileName, arguments);
+                psi.UseShellExecute = false;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.CreateNoWindow = true;
+                using (Process p = Process.Start(psi))
+                {
+                    string output = p.StandardOutput.ReadToEnd().Trim();
+                    p.WaitForExit(5000);
+                    return output;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // 把目录加入用户 PATH（HKCU\Environment，REG_EXPAND_SZ，保留 %VAR% 原值）
+        private static void AddToUserPath(string dir)
+        {
+            if (string.IsNullOrEmpty(dir)) return;
+            const string envKey = @"Environment";
+            string userPath = "";
+            using (RegistryKey k = Registry.CurrentUser.OpenSubKey(envKey, false))
+            {
+                if (k != null)
+                {
+                    object v = k.GetValue("Path", "", RegistryValueOptions.DoNotExpandEnvironmentNames);
+                    if (v != null) userPath = v.ToString();
+                }
+            }
+            var parts = new List<string>();
+            foreach (string p in userPath.Split(';'))
+            {
+                if (!string.IsNullOrEmpty(p) && !parts.Contains(p)) parts.Add(p);
+            }
+            if (!parts.Contains(dir)) parts.Insert(0, dir);
+            using (RegistryKey k = Registry.CurrentUser.CreateSubKey(envKey))
+            {
+                k.SetValue("Path", string.Join(";", parts), RegistryValueKind.ExpandString);
+            }
+        }
+
+        private static void SetUserEnv(string name, string value)
+        {
+            using (RegistryKey k = Registry.CurrentUser.CreateSubKey(@"Environment"))
+            {
+                k.SetValue(name, value, RegistryValueKind.ExpandString);
             }
         }
 
