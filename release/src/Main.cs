@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -697,85 +697,73 @@ namespace DSHHotplugHub
             }
         }
 
-        private static void ShowApiConfigDialog()
+                private static void ShowApiConfigDialog()
         {
             ApiConfig cfg = LoadApiConfig();
-            string keyMasked = string.IsNullOrEmpty(cfg.apiKey)
-                ? "未配置"
-                : cfg.apiKey.Length > 8
-                    ? cfg.apiKey.Substring(0, 4) + "****" + cfg.apiKey.Substring(cfg.apiKey.Length - 4)
-                    : "****";
-
             using (Form dlg = new Form())
             {
-                dlg.Text = "DSH API 配置（官方）";
+                dlg.Text = "DSH 多厂商 API 配置";
                 dlg.Width = 560;
-                dlg.Height = 320;
+                dlg.Height = 420;
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
                 dlg.MinimizeBox = false;
                 dlg.Font = new Font("Microsoft YaHei UI", 9F);
 
-                Label info = new Label();
-                info.Text =
-                    "本程序直接使用官方 DSH 的 API 配置：\r\n\r\n" +
-                    "Provider : " + cfg.provider + "\r\n" +
-                    "Model    : " + cfg.defaultModel + "\r\n" +
-                    "Base URL : " + cfg.baseUrl + "\r\n" +
-                    "API Key  : " + keyMasked + "\r\n\r\n" +
-                    "请在官方 DSH Desktop 的模型设置中修改 API 配置，\r\n" +
-                    "修改后点击“重新读取”即可生效。";
-                info.SetBounds(20, 16, 500, 160);
-                info.ForeColor = Color.FromArgb(23, 32, 29);
+                Label l1 = new Label(); l1.Text = "厂商"; l1.SetBounds(20, 20, 120, 24);
+                ComboBox provider = new ComboBox(); provider.DropDownStyle = ComboBoxStyle.DropDownList;
+                provider.Items.AddRange(new object[] { "DeepSeek 官方", "OpenAI 兼容", "通义千问", "智谱", "自定义" });
+                provider.SelectedItem = cfg.provider; provider.SetBounds(150, 18, 360, 26);
 
-                Button refresh = new Button();
-                refresh.Text = "重新读取";
-                refresh.SetBounds(20, 200, 110, 32);
-                refresh.Click += delegate
+                Label l2 = new Label(); l2.Text = "Base URL"; l2.SetBounds(20, 56, 120, 24);
+                TextBox baseUrl = new TextBox(); baseUrl.Text = cfg.baseUrl; baseUrl.SetBounds(150, 54, 360, 26);
+
+                Label l3 = new Label(); l3.Text = "API Key"; l3.SetBounds(20, 92, 120, 24);
+                TextBox apiKey = new TextBox(); apiKey.Text = cfg.apiKey; apiKey.UseSystemPasswordChar = true; apiKey.SetBounds(150, 90, 360, 26);
+
+                Label l4 = new Label(); l4.Text = "模型列表"; l4.SetBounds(20, 128, 120, 24);
+                TextBox models = new TextBox(); models.Text = cfg.models; models.SetBounds(150, 126, 360, 26);
+
+                Label l5 = new Label(); l5.Text = "默认模型"; l5.SetBounds(20, 164, 120, 24);
+                TextBox defaultModel = new TextBox(); defaultModel.Text = cfg.defaultModel; defaultModel.SetBounds(150, 162, 360, 26);
+
+                Label hint = new Label();
+                hint.Text = "保存后写入 ~/.dsh/.credentials.yaml 与 ~/.dsh/settings.yaml（与官方 DSH 共用同一份数据）。";
+                hint.SetBounds(20, 210, 500, 40);
+                hint.ForeColor = Color.FromArgb(102, 115, 110);
+
+                Button save = new Button();
+                save.Text = "保存并应用到官方 DSH";
+                save.BackColor = Color.FromArgb(14, 124, 107);
+                save.ForeColor = Color.White;
+                save.FlatStyle = FlatStyle.Flat;
+                save.SetBounds(150, 270, 200, 32);
+
+                save.Click += delegate
                 {
-                    cfg = LoadApiConfig();
-                    keyMasked = string.IsNullOrEmpty(cfg.apiKey)
-                        ? "未配置"
-                        : cfg.apiKey.Length > 8
-                            ? cfg.apiKey.Substring(0, 4) + "****" + cfg.apiKey.Substring(cfg.apiKey.Length - 4)
-                            : "****";
-                    info.Text =
-                        "本程序直接使用官方 DSH 的 API 配置：\r\n\r\n" +
-                        "Provider : " + cfg.provider + "\r\n" +
-                        "Model    : " + cfg.defaultModel + "\r\n" +
-                        "Base URL : " + cfg.baseUrl + "\r\n" +
-                        "API Key  : " + keyMasked + "\r\n\r\n" +
-                        "请在官方 DSH Desktop 的模型设置中修改 API 配置，\r\n" +
-                        "修改后点击“重新读取”即可生效。";
-                };
-
-                Button openDir = new Button();
-                openDir.Text = "打开配置目录";
-                openDir.SetBounds(140, 200, 120, 32);
-                openDir.Click += delegate
-                {
-                    try
+                    cfg.provider = provider.SelectedItem == null ? "DeepSeek 官方" : provider.SelectedItem.ToString();
+                    cfg.baseUrl = baseUrl.Text.Trim();
+                    cfg.apiKey = apiKey.Text.Trim();
+                    cfg.models = models.Text.Trim();
+                    cfg.defaultModel = defaultModel.Text.Trim();
+                    if (cfg.defaultModel.Length == 0 && cfg.models.Length > 0)
                     {
-                        string dshDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh");
-                        if (Directory.Exists(dshDir)) Process.Start("explorer.exe", dshDir);
+                        cfg.defaultModel = cfg.models.Split(',')[0].Trim();
                     }
-                    catch
-                    {
-                    }
+                    SaveApiConfig(cfg);
+                    SyncApiConfigToOfficialDesktop(cfg);
+                    MessageBox.Show("已保存并同步到官方 DSH 配置。", "DSH 多厂商 API 配置",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    dlg.DialogResult = DialogResult.OK;
                 };
-
-                Button launch = new Button();
-                launch.Text = "启动官方 DSH 配置";
-                launch.SetBounds(270, 200, 140, 32);
-                launch.Click += delegate { LaunchOfficialHarness(); };
 
                 Button close = new Button();
                 close.Text = "关闭";
-                close.SetBounds(420, 200, 80, 32);
+                close.SetBounds(360, 270, 80, 32);
                 close.Click += delegate { dlg.Close(); };
 
-                dlg.Controls.AddRange(new Control[] { info, refresh, openDir, launch, close });
+                dlg.Controls.AddRange(new Control[] { l1, provider, l2, baseUrl, l3, apiKey, l4, models, l5, defaultModel, hint, save, close });
                 dlg.ShowDialog();
             }
         }
