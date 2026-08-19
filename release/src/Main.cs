@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -192,8 +192,8 @@ namespace DSHHotplugHub
             string node = RunCli("node", "--version");
             string pnpm = GetPnpmVersion();
             string dshDesktop = FindOfficialHarness();
-            string dshVersion = null;
-            if (dshDesktop != null)
+            string dshVersion = GetDshCoreVersion();
+            if (string.IsNullOrEmpty(dshVersion) && dshDesktop != null)
             {
                 try { dshVersion = FileVersionInfo.GetVersionInfo(dshDesktop).FileVersion; } catch { }
             }
@@ -213,6 +213,7 @@ namespace DSHHotplugHub
                 "appVersion:" + JsString(APP_VERSION) + "," +
                 "latestVersion:" + JsString(latest) +
                 "};" +
+                "if(window.__nativeSelfCheck.dshVersion){state.dshVersion=window.__nativeSelfCheck.dshVersion;state.latestVersion=window.__nativeSelfCheck.dshVersion;if(typeof renderShell==='function')renderShell();}" +
                 "(function(){var o=getChecks;getChecks=function(){var r=o();" +
                 "for(var i=0;i<r.length;i++){" +
                 "if(r[i].name==='Node.js'){r[i].val=window.__nativeSelfCheck.node||'未检测到';r[i].text=window.__nativeSelfCheck.node?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.node?'ok':'err';}" +
@@ -415,6 +416,37 @@ namespace DSHHotplugHub
                         string tag = Convert.ToString(root["tag_name"]);
                         return tag.TrimStart('v');
                     }
+                }
+            }
+            catch
+            {
+            }
+            return null;
+        }
+
+        // 读取官方 DSH Desktop 内置的核心 dsh 版本（resources/app/package.json 的 @deepseek-ai/dsh）
+        private static string GetDshCoreVersion()
+        {
+            try
+            {
+                string appDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Programs", "DSH Desktop", "resources", "app");
+                string pkg = Path.Combine(appDir, "package.json");
+                if (!File.Exists(pkg)) return null;
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkg));
+                if (root != null && root.ContainsKey("dependencies"))
+                {
+                    Dictionary<string, object> deps = root["dependencies"] as Dictionary<string, object>;
+                    if (deps != null && deps.ContainsKey("@deepseek-ai/dsh"))
+                    {
+                        return Convert.ToString(deps["@deepseek-ai/dsh"]);
+                    }
+                }
+                if (root != null && root.ContainsKey("version"))
+                {
+                    return Convert.ToString(root["version"]);
                 }
             }
             catch
