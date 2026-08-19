@@ -172,3 +172,10 @@ git push origin feature/文档1-<改动内容>
   - 同步流程：`pwsh -File scripts/remember-doc.ps1 -DocPath scripts/sync-repo.ps1`
 - 记忆条目格式：`{type:'doc-view', doc, at, reader, summary}`。
 - 如果发现重要决策/踩坑/版本信息，也必须主动写入全局记忆。
+
+
+## 14. 每次修改必须更新 README 更新公告
+
+- 每次完成修改/修复/新功能后，必须把本次改动整合成「更新公告」写到 `README.md` 的 `## 更新公告` 区。
+- 格式：在最新版本小节下追加 `### <版本> 修复/新增（最新）` 列表。
+- 不更新公告不允许提交推送。

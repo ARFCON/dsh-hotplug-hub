@@ -835,27 +835,32 @@ namespace DSHHotplugHub
 
         private static string[] LoadProviderIds()
         {
-            string[] defaults = new string[] { "DeepSeek 官方", "OpenAI 兼容", "通义千问", "智谱", "自定义" };
             try
             {
-                string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "settings.yaml");
-                if (!File.Exists(settings)) return defaults;
-                string yaml = File.ReadAllText(settings);
-                int idx = yaml.IndexOf("llm-pi-ai:");
-                if (idx < 0) return defaults;
-                int prov = yaml.IndexOf("providers:", idx);
-                if (prov < 0) return defaults;
-                string block = yaml.Substring(prov);
                 List<string> ids = new List<string>();
-                foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(block, @"^\s{4}([a-zA-Z0-9_-]+):", System.Text.RegularExpressions.RegexOptions.Multiline))
+                ids.Add("DeepSeek 官方");
+                string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "settings.yaml");
+                if (File.Exists(settings))
                 {
-                    if (ids.Count >= 20) break;
-                    ids.Add(m.Groups[1].Value);
+                    string yaml = File.ReadAllText(settings);
+                    int idx = yaml.IndexOf("llm-pi-ai:");
+                    if (idx >= 0)
+                    {
+                        int prov = yaml.IndexOf("providers:", idx);
+                        if (prov >= 0)
+                        {
+                            string block = yaml.Substring(prov);
+                            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(block, @"^\s{4}([a-zA-Z0-9_-]+):", System.Text.RegularExpressions.RegexOptions.Multiline))
+                            {
+                                if (ids.Count >= 20) break;
+                                if (!ids.Contains(m.Groups[1].Value)) ids.Add(m.Groups[1].Value);
+                            }
+                        }
+                    }
                 }
-                if (ids.Count == 0) return defaults;
                 return ids.ToArray();
             }
-            catch { return defaults; }
+            catch { return new string[] { "DeepSeek 官方" }; }
         }
 
         private static ApiConfig LoadProviderConfig(string id)
