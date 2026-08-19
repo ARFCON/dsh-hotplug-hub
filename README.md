@@ -5,7 +5,11 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 
 它在 DSH 进程之外读取插件组合 → 拼装临时 profile → 冲突预检 → 拉起官方 DSH → 捕获日志 → 自愈闭环。
 
-## 更新公告 · v0.1.6
+## 更新公告 · v0.1.7
+### v0.1.7（最新）
+- 记忆中枢真实化：读取/写入 `~/.dsh/memory-hub`，UI 按规范展示真实记忆。
+- 功能审查：移除插件包市场示例、默认 Skill/MCP；审查清单写入开发踩坑记录。
+- EXE 启动自动安装/注册 memory-hub 到本地 DeepSeek Harness。
 ### v0.1.6（最新）
 - AI 协作：新增「必须逐条汇报遵守流程」规则，每次任务开始/结束都强制自检。
 - 任务审查：2026-08-19 已执行并通过。
@@ -15,7 +19,7 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 - 移除默认 MCP 自动填充/注册，只保留用户手动添加的真实 MCP；自动审查通过。
 - 记忆中枢真实对接：`remember-doc.ps1` 现在同时写入 `~/.dsh/memory/memories.jsonl` 和 memory-hub 提案队列（`~/.dsh/memory-hub/`），走插件协议。
 - EXE 启动时自动安装/注册 `dsh-memory-hub` 到本地 DeepSeek Harness（复制到 `~/.dsh/plugin-src/` 并启用 web profile 注册）。
-- 精简 Skill/MCP 市场，只保留真实可用的官方条目。
+- 精简 Skill/MCP 市场，只保留真实可用的官方条目；自动审查通过。
 - 真实接入官方 Harness：
   - Skill 按官方 `skill-filesystem` 格式写入 `~/.dsh/skills/*.md`（YAML frontmatter）
   - MCP 保存时自动注册 `@deepseek-ai/dsh-mcp-client` 到 web profile 的 `cordis.patch.yml`

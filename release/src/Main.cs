@@ -34,7 +34,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.1.6";
+        private const string APP_VERSION = "0.1.7";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private static bool _updateNotified = false;
 
@@ -106,7 +106,10 @@ namespace DSHHotplugHub
                         {
                             OpenProjectDownloadPage();
                         }
-                        else if (message == "listSkills")
+                        else if (message == "listMemory")
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory(" + GetMemoryJson() + ");");
+                        }                        else if (message == "listSkills")
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
                         }
@@ -1149,19 +1152,32 @@ namespace DSHHotplugHub
                 CopyDirectory(dir, Path.Combine(target, Path.GetFileName(dir)));
             }
         }
+        private static string GetMemoryJson()
+        {
+            try
+            {
+                string repo = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".."));
+                ProcessStartInfo psi = new ProcessStartInfo("node", "scripts/memoryhub-list.mjs");
+                psi.WorkingDirectory = repo;
+                psi.UseShellExecute = false;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.CreateNoWindow = true;
+                using (Process p = Process.Start(psi))
+                {
+                    string output = p.StandardOutput.ReadToEnd().Trim();
+                    p.WaitForExit(10000);
+                    return string.IsNullOrEmpty(output) ? "[]" : output;
+                }
+            }
+            catch { return "[]"; }
+        }
         private static string GetSkillsJson()
         {
             try
             {
                 string dir = SkillsDir();
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                if (Directory.GetFiles(dir, "*.md").Length == 0)
-                {
-                    File.WriteAllText(Path.Combine(dir, "skill-deep-research.md"),
-                        "---\nname: deep-research\ndescription: 多轮推理与深度研究\nwhenToUse: 用户需要深度研究时\ndisable-model-invocation: false\n---\n\n# DeepSeek 深度研究\n\n1. 拆解问题\n2. 检索与交叉验证\n3. 多轮推理\n4. 输出报告\n");
-                    File.WriteAllText(Path.Combine(dir, "skill-code-review.md"),
-                        "---\nname: code-review\ndescription: 代码质量与安全审查\nwhenToUse: 用户需要代码审查时\ndisable-model-invocation: false\n---\n\n# 代码审查\n\n1. 阅读改动\n2. 安全与质量检查\n3. 输出分级意见\n");
-                }
                 List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
                 foreach (string file in Directory.GetFiles(dir, "*.md"))
                 {

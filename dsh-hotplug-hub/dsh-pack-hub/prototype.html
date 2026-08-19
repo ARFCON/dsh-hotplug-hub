@@ -316,7 +316,7 @@ button { font: inherit; color: inherit; }
       </div>
       <div>
         <div class="brand-name">Dseam世界</div>
-        <div class="brand-sub">Dseam v0.1.6</div>
+        <div class="brand-sub">Dseam v0.1.7</div>
       </div>
     </div>
     <nav class="nav" id="nav"></nav>
@@ -376,76 +376,9 @@ const ICONS = {
   trash: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'
 };
 
-const CATALOG = [
-  {
-    id: 'pack-research', name: '科研插座包', author: 'Arito', stars: 2840, version: '1.0.0',
-    tags: ['科研', '论文', '文献'], desc: '文献检索、综述、论文写作、引用与审稿建议',
-    bundles: [
-      { name: '@dsh-community/dsh-tool-literature', role: '文献检索', version: '1.2.3' },
-      { name: '@dsh-community/dsh-cite', role: '引用管理', version: '0.9.1' },
-      { name: '@dsh-community/dsh-paper-writer', role: '论文写作', version: '2.0.0' },
-      { name: '@dsh-community/dsh-review-board', role: '审稿建议', version: '1.1.0' }
-    ],
-    memory: ['global.research'], accent: '#0e7c6b'
-  },
-  {
-    id: 'pack-video', name: '视频制作插座包', author: '清泫', stars: 1920, version: '0.8.2',
-    tags: ['视频', '剪辑', '字幕'], desc: '脚本、分镜、剪辑清单、字幕与封面生成',
-    bundles: [
-      { name: '@dsh-community/dsh-video-script', role: '脚本', version: '1.4.0' },
-      { name: '@dsh-community/dsh-shots', role: '分镜', version: '0.6.2' },
-      { name: '@dsh-community/dsh-subtitle', role: '字幕', version: '1.0.5' },
-      { name: '@dsh-community/dsh-cover', role: '封面', version: '0.3.1' }
-    ],
-    memory: ['global.video'], accent: '#b45309'
-  },
-  {
-    id: 'pack-social', name: '自媒体插座包', author: '笑笑熊', stars: 1530, version: '1.1.0',
-    tags: ['自媒体', '选题', '文案'], desc: '热点选题、拆解、文案与发布清单',
-    bundles: [
-      { name: '@dsh-community/dsh-topic-radar', role: '选题', version: '1.0.2' },
-      { name: '@dsh-community/dsh-copy-kit', role: '文案', version: '2.2.1' },
-      { name: '@dsh-community/dsh-crosspost', role: '发布', version: '0.5.0' }
-    ],
-    memory: ['global.social'], accent: '#8b5e3c'
-  },
-  {
-    id: 'pack-kaoyan', name: '考研冲刺插座包', author: 'Moss 小组', stars: 980, version: '0.6.1',
-    tags: ['考研', '学习', '闪卡'], desc: '背诵计划、真题梳理、中日双语文法和闪卡导出',
-    bundles: [
-      { name: '@dsh-community/dsh-recall', role: '背诵', version: '1.3.0' },
-      { name: '@dsh-community/dsh-paper-miner', role: '真题', version: '0.8.3' },
-      { name: '@dsh-community/dsh-flashcard', role: '闪卡', version: '1.2.0' }
-    ],
-    memory: ['global.study'], accent: '#1d5f9e'
-  },
-  {
-    id: 'pack-fullstack', name: '全栈开发插座包', author: '黄昏', stars: 2160, version: '1.4.0',
-    tags: ['开发', '全栈', 'DevOps'], desc: '脚手架、代码评审、测试和安全检查',
-    bundles: [
-      { name: '@dsh-community/dsh-scaffold', role: '脚手架', version: '3.0.0' },
-      { name: '@dsh-community/dsh-review', role: '评审', version: '1.8.1' },
-      { name: '@dsh-community/dsh-test-runner', role: '测试', version: '0.9.5' },
-      { name: '@dsh-community/dsh-sec-scan', role: '安全', version: '1.0.4' }
-    ],
-    memory: ['global.dev'], accent: '#5b5488'
-  },
-  {
-    id: 'pack-notes', name: '知识管理插座包', author: '清泫', stars: 1240, version: '1.0.3',
-    tags: ['笔记', '知识库', '整理'], desc: '网页收藏、笔记整理、书摘提取与双链',
-    bundles: [
-      { name: '@dsh-community/dsh-web-clipper', role: '收藏', version: '1.1.1' },
-      { name: '@dsh-community/dsh-notes', role: '笔记', version: '2.0.2' },
-      { name: '@dsh-community/dsh-book-extract', role: '书摘', version: '0.7.0' }
-    ],
-    memory: ['global.knowledge'], accent: '#237a57'
-  }
-];
+const CATALOG = [];
 
-const SKILL_CATALOG = [
-  { id: 'skill-deep-research', name: 'DeepSeek 深度研究', desc: '多轮推理与资料整理', tags: ['研究','推理'] },
-  { id: 'skill-code-review', name: '代码审查', desc: '代码质量与安全审查', tags: ['代码','安全'] }
-];
+const SKILL_CATALOG = [];
 
 const MCP_CATALOG = [
   { id: 'mcp-filesystem', name: 'Filesystem MCP', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-filesystem', desc: '读写本地文件', tags: ['官方','文件'] },
@@ -460,10 +393,7 @@ const DEFAULT_STATE = {
   nodeVersion: '22.19.0',
   pnpmVersion: '11.7.0',
   pendingRestart: 0,
-  installed: [
-    { packId: 'pack-research', active: true, installedAt: '2026-08-18', status: 'healthy' },
-    { packId: 'pack-notes', active: true, installedAt: '2026-08-18', status: 'healthy' }
-  ],
+  installed: [],
   imported: [],
   aiCount: 0,
   memories: [
@@ -472,14 +402,8 @@ const DEFAULT_STATE = {
     { id: 'global.study', name: '学习记忆包', keywords: ['考研', '闪卡', '语法'], entries: 9 }
   ],
   memoryLog: [],
-    skills: [
-      { id: 'deepseek-research', name: 'DeepSeek 深度研究', enabled: true, desc: '深度推理与研究技能' },
-      { id: 'code-review', name: '代码审查', enabled: true, desc: '代码质量与安全审查' }
-    ],
-    mcps: [
-      { id: 'filesystem', name: '文件系统 MCP', enabled: false, command: 'npx', args: '-y @modelcontextprotocol/server-filesystem' },
-      { id: 'fetch', name: '网络抓取 MCP', enabled: false, command: 'npx', args: '-y @modelcontextprotocol/server-fetch' }
-    ]
+    skills: [],
+    mcps: []
 };
 
 let state;
@@ -841,6 +765,29 @@ function compose() {
 }
 
 function renderMemory() {
+    if (window.chrome && window.chrome.webview) {
+      const rows = window.__memoryData || [];
+      $('view-memory').innerHTML = `
+        <div class="section-head">
+          <div><h2>记忆中枢</h2><div class="sub">真实读取 ~/.dsh/memory-hub</div></div>
+        </div>
+        <div class="mem-list">
+          ${rows.length ? rows.map((m) => `
+            <div class="mem">
+              <div class="mem-top">
+                <div class="pack-icon" style="background:var(--teal)">${esc((m.title || 'M').slice(0, 1))}</div>
+                <div class="pack-title">
+                  <h3>${esc(m.title || m.id)}</h3>
+                  <div class="meta">${esc(m.packId || '')} · ${esc(m.type || '')}</div>
+                </div>
+                <span class="badge ok">已记忆</span>
+              </div>
+              <div class="tags">${(m.keywords || []).map((k) => `<span class="kw">${esc(k)}</span>`).join('')}</div>
+              <div style="font-size:12px;color:var(--muted)">${esc((m.body || '').slice(0, 200))}</div>
+            </div>`).join('') : '<div class="empty">还没有真实记忆，读取文档后会自动写入 memory-hub</div>'}
+        </div>`;
+      return;
+    }
   const totalEntries = state.memories.reduce((s, m) => s + m.entries, 0) + state.memoryLog.length;
   $('view-memory').innerHTML = `
     <div class="grid-4">
