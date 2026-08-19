@@ -12,6 +12,9 @@ const SANDBOX_ROOT = path.join(ROOT, 'sandbox', '.sandbox');
 const PROFILES_ROOT = path.join(os.homedir(), '.dsh', 'profiles');
 const STORE_ROOT = path.join(os.homedir(), '.dsh', 'hotplug-store');
 
+const IS_WIN = process.platform === 'win32';
+const IS_MAC = process.platform === 'darwin';
+
 const PACK_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 const PLUGIN_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const EXACT_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -159,6 +162,19 @@ function syncToProfile(id) {
 }
 
 function findOfficialHarness() {
+  if (IS_MAC) {
+    const macCandidates = [
+      '/Applications/DSH Desktop.app/Contents/MacOS/DSH Desktop',
+      '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness',
+      '/Applications/DeepSeek Harness.app/Contents/MacOS/dsh',
+      path.join(os.homedir(), 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop'),
+      path.join(os.homedir(), 'Applications', 'DeepSeek Harness.app', 'Contents', 'MacOS', 'DeepSeek Harness')
+    ];
+    for (const c of macCandidates) { if (fs.existsSync(c)) return c; }
+    // 退回到 dsh CLI
+    return 'dsh';
+  }
+
   const candidates = [
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'DSH Desktop', 'DSH Desktop.exe'),
     path.join(process.env.ProgramFiles || '', 'DSH Desktop', 'DSH Desktop.exe'),
@@ -177,7 +193,8 @@ function launchAndCapture(id, opts = {}) {
   const logFile = path.join(SANDBOX_ROOT, id, 'logs', 'run.jsonl');
   ensureDir(path.dirname(logFile));
   const env = { ...process.env, DSH_PROFILE: id };
-  const child = spawn(harness, [], { cwd: synced.profile, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const args = IS_MAC && harness === 'dsh' ? ['--profile', id] : [];
+  const child = spawn(harness, args, { cwd: synced.profile, env, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', (d) => appendLine(logFile, JSON.stringify({ t: new Date().toISOString(), stream: 'stdout', line: String(d).trim() })));
   child.stderr.on('data', (d) => appendLine(logFile, JSON.stringify({ t: new Date().toISOString(), stream: 'stderr', line: String(d).trim() })));
   child.on('error', (e) => appendLine(logFile, JSON.stringify({ t: new Date().toISOString(), stream: 'error', line: String(e.message) })));

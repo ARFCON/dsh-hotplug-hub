@@ -29,6 +29,27 @@ jobs:
       - name: Heal preview
         run: node launcher/index.js heal example
 
+  macos-test:
+    name: macOS Launcher Test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11
+
+      - name: Assemble example
+        run: node launcher/index.js assemble example
+
+      - name: Check conflicts
+        run: node launcher/index.js check example
+
+      - name: Heal preview
+        run: node launcher/index.js heal example
   build-windows:
     name: Build Windows EXE + Setup
     runs-on: windows-latest

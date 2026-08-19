@@ -4,6 +4,12 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 
 它在 DSH 进程之外读取插件组合 → 拼装临时 profile → 冲突预检 → 拉起官方 DSH → 捕获日志 → 自愈闭环。
 
+## 更新公告 · v0.1.2
+
+- 新增 macOS 跨平台支持：`launcher` 可在 macOS 运行，提供 `.app` 壳脚本。
+- 修复 Windows 自检 pnpm 未检测到。
+- 新增跨平台规范：`开发文档/规范/跨平台支持规范.md`。
+- 团队协作/AI 协作文档同步更新。
 ## 仓库整理状态
 
 本仓库已经过整理，当前文件即为整理后的最终结构。
@@ -18,6 +24,7 @@ DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 - **冲突预检**：版本冲突、角色冲突、bundle↔cordis 重分类
 - **自愈**：错误分类 + 受限动作集（默认预览，`--yes` 写入建议）
 - **Windows 桌面 GUI**：WebView2 + C# WinForms
+- **macOS / Linux 支持**：Node 启动器 + `.app` / shell 壳
 - **官方 DSH 集成**：自动检测 / 手动选择 DSH Desktop
 - **API 模型配置**：直接读取官方 DSH 的 API 配置（`~/.dsh/settings.yaml` + `.credentials.yaml`）
 - **安装程序**：`installer/Setup.exe`，默认安装到 `C:\DSH-Hotplug-Hub`
