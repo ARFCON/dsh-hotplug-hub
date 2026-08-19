@@ -1,4 +1,5 @@
-﻿# Dseam世界（DSH-Hotplug-Hub）
+﻿> ⚠️ AI 必读：开始任何工作前，请先阅读根目录 `AI_AGENTS.md`，并遵守其中的同步、检查、记忆与更新公告规则。
+# Dseam世界（DSH-Hotplug-Hub）
 
 DSH-Hotplug-Hub 是一个**独立于 DSH 的插件拼装启动器**。
 

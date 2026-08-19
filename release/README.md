@@ -1,4 +1,5 @@
-﻿# release — 桌面端发布文件
+﻿> ⚠️ AI 必读：开始任何工作前，请先阅读根目录 `AI_AGENTS.md`，并遵守其中的同步、检查、记忆与更新公告规则。
+# release — 桌面端发布文件
 
 - `DSH-Hotplug-Hub.exe`：Windows 桌面 GUI（WebView2）
 - `Microsoft.Web.WebView2.*.dll` + `WebView2Loader.dll`：运行依赖

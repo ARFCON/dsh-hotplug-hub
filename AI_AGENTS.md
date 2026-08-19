@@ -1,4 +1,5 @@
-﻿# AI_AGENTS.md — AI 协作规范（给 AI 看）
+﻿> 规则：每个项目 README 开头必须加上「AI 必读：请先阅读 `AI_AGENTS.md`」通知。
+# AI_AGENTS.md — AI 协作规范（给 AI 看）
 
 你是 DSH-Hotplug-Hub 团队的 AI 协作成员。请严格按以下规则工作。
 

@@ -1,4 +1,5 @@
-﻿# installer — 安装程序
+﻿> ⚠️ AI 必读：开始任何工作前，请先阅读根目录 `AI_AGENTS.md`，并遵守其中的同步、检查、记忆与更新公告规则。
+# installer — 安装程序
 
 Windows 安装程序，把整个项目安装到 `C:\DSH-Hotplug-Hub`（可改）。
 

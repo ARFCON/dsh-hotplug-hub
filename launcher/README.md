@@ -1,4 +1,5 @@
-﻿# launcher — 独立启动器
+﻿> ⚠️ AI 必读：开始任何工作前，请先阅读根目录 `AI_AGENTS.md`，并遵守其中的同步、检查、记忆与更新公告规则。
+# launcher — 独立启动器
 
 DSH-Hotplug-Hub 的核心启动器，不依赖 DSH 插件机制。
 

@@ -1,3 +1,4 @@
+﻿> ⚠️ AI 必读：开始任何工作前，请先阅读根目录 `AI_AGENTS.md`，并遵守其中的同步、检查、记忆与更新公告规则。
 # dsh-memory-hub
 
 DSH 记忆中枢：**全局记忆包（memory-pack），与 profile 解耦，AI 可调用**。

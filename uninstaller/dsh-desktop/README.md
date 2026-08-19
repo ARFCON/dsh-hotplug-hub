@@ -1,4 +1,5 @@
-﻿# dsh-Uninstall
+﻿> ⚠️ AI 必读：开始任何工作前，请先阅读根目录 `AI_AGENTS.md`，并遵守其中的同步、检查、记忆与更新公告规则。
+# dsh-Uninstall
 
 DSH / DeepSeek Harness 桌面端独立卸载器。单个 exe 即可运行，支持官方版、第三方集合版/集成版、极简版/简洁版以及其他未知变体的通用卸载。
 
