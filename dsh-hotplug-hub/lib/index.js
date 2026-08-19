@@ -9,7 +9,7 @@
  *  - 无损替换：同一时刻只有一个激活包；切换包只替换 profile 的 patch 块 /
  *    bundles / link 依赖；全局记忆（~/.dsh/memory）、会话与 hotplug-store 不动。
  *
- * Remote 服务 `dshHotplug`（6 个方法；新增方法必须同步三处：
+ * Remote 服务 `dshHotplug`（8 个方法；新增方法必须同步三处：
  * 本文件 methods 列表、lib/typert.js、lib/client.js 的 REMOTE.descriptors）：
  *   status()              中枢状态（profile / 激活包 / 已导入包 / store）
  *   importPack(text)      导入 hotpack JSON（字符串或对象），只落盘不挂载
@@ -17,15 +17,22 @@
  *   activate(packId)      解析缺失插件并挂载（无损替换当前激活包）
  *   deactivate()          卸载当前激活包（保留 store 缓存）
  *   removePack(packId)    移除未激活的包记录
+ *   check()               自检：Node/pnpm 版本、profile 状态、patch 状态、冲突矩阵
+ *   marketList(params)    插件包市场：GitHub 标签搜索（官方 API + 镜像站兜底），
+ *                         对比文件（package.json / hotpack / .dshpack / README）提取
+ *                         介绍与安装方法，生成可导入的 hotpack manifest
  *
  * 红线（与 dsh-hub 同源）：
  *  - profile package.json / cordis.patch.yml 一律 writeTextSafe() 原子写；
  *  - 进 shell 的名字 / ref / repo 必须过白名单正则；参数走 argv；
  *  - 绝不执行包内任何脚本：npm 插件走 pnpm add（profile 正常依赖解析），
  *    github / path 源只做 link 挂载（同 graph-memory 模式）。
+ *  - 市场联网抓取只读公开元数据（GitHub 搜索 JSON / raw README / package.json），
+ *    不携带任何凭据；https 直连兜底仅对市场抓取关闭证书校验（兼容本地根 CA 拦截环境）。
  */
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { spawn } from 'node:child_process'
+import https from 'node:https'
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync,
   readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync,
@@ -49,6 +56,14 @@ const ENSURE_TIMEOUT_MS = 5 * 60 * 1000
 const DOWNLOAD_TIMEOUT_MS = 120 * 1000
 const OUTPUT_CAP = 65536
 const GITHUB_MIRRORS = ['https://ghfast.top/', 'https://gh-proxy.com/', 'https://ghproxy.net/']
+
+// 插件包市场（详见下方「插件包市场」节）：GitHub topic 即「标签」
+const MARKET_CACHE_FILE = () => join(hotplugRoot(), 'market-cache.json')
+const MARKET_PAGE_SIZE = 10
+const MARKET_DETAIL_CONCURRENCY = 4
+const MARKET_TIMEOUT_MS = 15000
+const MARKET_README_CANDIDATES = ['README.zh.md', 'README.md', 'readme.md', 'README_CN.md', 'README_ZH.md', 'Readme.md', 'README.txt']
+const MARKET_PACK_CANDIDATES = ['hotpack.json', '.dshpack.json', 'dshpack.json']
 
 const PACK_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i
 const PLUGIN_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/
@@ -515,6 +530,378 @@ async function mountPack(pack) {
   return { ok: true, steps, restartNeeded: true }
 }
 
+// ---------- 插件包市场（真实数据源） ----------
+
+function sanitizeTopic(topic) {
+  if (typeof topic !== 'string') return null
+  const tokens = topic.split(/[,，\s]+/).map((s) => s.trim()).filter((s) => s !== '')
+  if (tokens.length === 0 || tokens.length > 4) return null
+  for (const token of tokens) {
+    if (!/^[0-9A-Za-z][0-9A-Za-z._-]{0,31}$/.test(token)) return null
+  }
+  return tokens.join(' ')
+}
+
+function sanitizeMarketParams(params) {
+  const p = params && typeof params === 'object' ? params : {}
+  const topic = sanitizeTopic(p.topic ?? 'dsh-plugin')
+  if (topic === null) return { ok: false, error: 'topic 只能是标签字符串（字母数字 . _ -，最长 32 字符，最多 4 个，逗号/空格分隔）' }
+  const q = typeof p.q === 'string' ? p.q.trim().slice(0, 80) : ''
+  const source = p.source === 'github' || p.source === 'mirror' ? p.source : 'auto'
+  const page = Math.min(Math.max(parseInt(String(p.page), 10) || 1, 1), 10)
+  return { ok: true, topic, q, source, page, refresh: p.refresh === true }
+}
+
+/**
+ * GET 文本，三层兜底，只用于市场公开只读抓取：
+ *  1) 运行时全局 fetch（DSH 应用进程通常已配置系统 CA / 代理，可直接用）
+ *  2) node:https 直连 rejectUnauthorized:false（兼容本地根 CA 拦截环境，如企业 MITM；
+ *     仅限公开只读元数据，不携带凭据、不触发写操作）
+ *  3) curl 兜底（schannel 正常的环境）
+ */
+function httpsGetText(url, timeoutMs, headers, hops = 0) {
+  return new Promise((resolve) => {
+    let settled = false
+    const done = (value) => { if (!settled) { settled = true; resolve(value) } }
+    const req = https.get(url, { rejectUnauthorized: false, headers }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && hops < 3) {
+        res.resume()
+        let next = res.headers.location
+        if (next.startsWith('/')) {
+          const base = new URL(url)
+          next = base.origin + next
+        }
+        done(httpsGetText(next, timeoutMs, headers, hops + 1))
+        return
+      }
+      let data = ''
+      res.setEncoding('utf8')
+      res.on('data', (chunk) => { if (data.length < 1000000) data += chunk })
+      res.on('end', () => done(res.statusCode === 200 ? { ok: true, status: 200, text: data } : { ok: false, status: res.statusCode, text: '' }))
+    })
+    req.setTimeout(timeoutMs, () => { try { req.destroy() } catch {} })
+    req.on('error', () => done({ ok: false, status: 0, text: '' }))
+  })
+}
+
+async function httpGet(url, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {}) {
+  const headers = { 'User-Agent': 'dsh-hotplug-hub/' + VERSION, ...extraHeaders }
+  if (typeof fetch === 'function') {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+    if (typeof timer.unref === 'function') timer.unref()
+    try {
+      const res = await fetch(url, { signal: ctrl.signal, redirect: 'follow', headers })
+      if (res.ok) return { ok: true, status: res.status, text: await res.text() }
+      return { ok: false, status: res.status, text: '' }
+    } catch {
+      // 网络 / TLS 失败 → 继续尝试 https 直连与 curl
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  const viaHttps = await httpsGetText(url, timeoutMs, headers)
+  if (viaHttps.ok) return viaHttps
+  const args = ['-fsSL', '--max-time', String(Math.ceil(timeoutMs / 1000)), '--retry', '1']
+  if (IS_WIN) args.splice(1, 0, '--ssl-no-revoke')
+  args.push(url)
+  const result = await runCli(CURL_BIN, args, timeoutMs + 5000, { shell: false, cwd: tmpdir() })
+  if (result.code === 0 && result.stdout !== '') return { ok: true, status: 200, text: result.stdout }
+  return { ok: false, status: 0, text: '' }
+}
+
+/**
+ * 多通道竞速：官方与镜像 URL 同时发起请求，取第一个成功响应（"哪个快用哪个"）。
+ * 仅用于市场检索（searchMarketRepos）等公开只读抓取；不改变 scanFiles 的 404 短路语义。
+ */
+async function raceFetch(urls, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {}) {
+  if (!Array.isArray(urls) || urls.length === 0) return { ok: false, text: '' }
+  return new Promise((resolve) => {
+    let settled = false
+    let failures = 0
+    for (const url of urls) {
+      httpGet(url, timeoutMs, extraHeaders).then((res) => {
+        if (settled) return
+        if (res.ok) { settled = true; resolve({ ...res, url, raced: true }); return }
+        failures += 1
+        if (failures === urls.length) resolve({ ok: false, status: res.status, text: '' })
+      }).catch(() => {
+        if (settled) return
+        failures += 1
+        if (failures === urls.length) resolve({ ok: false, status: 0, text: '' })
+      })
+    }
+  })
+}
+
+/** 按候选 URL 依次抓取；官方返回 404 视为文件不存在，不再试镜像。 */
+async function scanFiles(urls, timeoutMs, extraHeaders) {
+  for (const url of urls) {
+    const res = await httpGet(url, timeoutMs, extraHeaders)
+    if (res.ok) return { ok: true, text: res.text, url }
+    if (res.status === 404) return { ok: false, status: 404, text: '' }
+  }
+  return { ok: false, text: '' }
+}
+
+function apiSearchUrls(topic, q, page, source) {
+  const topicQuery = topic.split(' ').map((t) => 'topic:' + t).join(' ')
+  const query = 'q=' + encodeURIComponent(topicQuery) + (q !== '' ? '+' + encodeURIComponent(q) : '') +
+    '&sort=stars&order=desc&per_page=' + MARKET_PAGE_SIZE + '&page=' + page
+  const base = 'https://api.github.com/search/repositories?' + query
+  if (source === 'github') return [base]
+  if (source === 'mirror') return GITHUB_MIRRORS.map((m) => m + base)
+  return [base, ...GITHUB_MIRRORS.map((m) => m + base)]
+}
+
+function rawFileUrls(repo, ref, path, source) {
+  const base = 'https://raw.githubusercontent.com/' + repo + '/' + ref + '/' + path
+  if (source === 'github') return [base]
+  if (source === 'mirror') return GITHUB_MIRRORS.map((m) => m + base)
+  return [base, ...GITHUB_MIRRORS.map((m) => m + base)]
+}
+
+async function searchMarketRepos(topic, q, page, source) {
+  // 官方与镜像两个通道同时发起，取第一个成功响应（"哪个快用哪个"）
+  const res = await raceFetch(apiSearchUrls(topic, q, page, source), 20000, { Accept: 'application/vnd.github+json' })
+  if (!res.ok) return { ok: false, error: 'HTTP ' + (res.status ?? 0) || '网络请求失败' }
+  try {
+    const json = JSON.parse(res.text)
+    if (!Array.isArray(json.items)) return { ok: false, error: json.message ?? '响应结构异常' }
+    const items = json.items
+      .filter((item) => item.fork !== true)
+      .slice(0, MARKET_PAGE_SIZE)
+      .map((item) => ({
+        repo: item.full_name,
+        ref: item.default_branch ?? 'main',
+        name: item.name,
+        author: (item.owner && item.owner.login) || String(item.full_name || '').split('/')[0],
+        stars: item.stargazers_count ?? 0,
+        forks: item.forks_count ?? 0,
+        license: (item.license && item.license.spdx_id) || '',
+        description: item.description ?? '',
+        topics: Array.isArray(item.topics) ? item.topics.slice(0, 12) : [],
+        updatedAt: item.updated_at ?? '',
+      }))
+    return { ok: true, total: json.total_count ?? items.length, items, url: res.url }
+  } catch (error) {
+    return { ok: false, error: String(error.message ?? error) }
+  }
+}
+
+/** 语言切换 / 导航类短段（如 "[English](README.md) 中文"），不作为介绍。 */
+function looksLikeNav(para) {
+  const t = para.replace(/<[^>]+>/g, ' ').replace(/\[[^\]]*\]\([^)]*\)/g, ' ').replace(/[|·\-—=>]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (t === '' || t.length >= 30) return false
+  return /English|中文|한국어|日本語|简体|繁體|Deutsch|Français|Español/i.test(t)
+}
+
+function extractIntro(readmeText) {
+  const text = String(readmeText ?? '').replace(/^\uFEFF/, '')
+  const body = text.replace(/^#{1,6}\s+.*$/m, '').trim()
+  const paras = body.split(/\n\s*\n/).map((s) => s.trim()).filter((s) => s !== '')
+  const clean = (p) => p
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/!?\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/[#*_`>[\]|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  for (const p of paras) {
+    const t = clean(p)
+    if (t === '' || looksLikeNav(p)) continue
+    return t.length > 280 ? t.slice(0, 280) + '…' : t
+  }
+  for (const p of paras) {
+    const t = clean(p)
+    if (t !== '') return t.length > 280 ? t.slice(0, 280) + '…' : t
+  }
+  return ''
+}
+
+function extractInstall(readmeText) {
+  const text = String(readmeText ?? '')
+  const lines = text.split('\n')
+  const headingRe = /^#{2,4}\s*(安装|安装方法|安装与使用|Installation|Quick Start|快速开始|使用|Usage|Getting Started)/i
+  const start = lines.findIndex((line) => headingRe.test(line))
+  if (start === -1) return ''
+  const out = []
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i]
+    if (/^#{1,6}\s+/.test(line)) break
+    out.push(line)
+  }
+  const block = out.join('\n').replace(/```/g, '').replace(/<[^>]+>/g, ' ').replace(/[ \t]+\n/g, '\n').trim()
+  return block.length > 1200 ? block.slice(0, 1200) + '\n…' : block
+}
+
+/** .dshpack.json（规划格式）→ hotpack v1 转换；bundles 必须是精确 npm 版本。 */
+function dshpackToHotpack(text) {
+  let raw
+  try { raw = JSON.parse(text) } catch { return { ok: false, error: '.dshpack.json 不是合法 JSON' } }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: '.dshpack.json 必须是对象' }
+  const bundles = Array.isArray(raw.bundles) ? raw.bundles : []
+  const plugins = []
+  bundles.forEach((bundle, index) => {
+    if (bundle === null || typeof bundle !== 'object' || Array.isArray(bundle)) return
+    const name = bundle.package ?? bundle.name
+    const version = bundle.version
+    if (typeof name !== 'string' || typeof version !== 'string') return
+    const role = typeof bundle.role === 'string' && bundle.role !== '' ? bundle.role : 'plugin' + (index + 1)
+    const id = role.toLowerCase().replace(/[^a-z0-9_]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'plugin' + (index + 1)
+    plugins.push({ id, name, version, source: { type: bundle.source === 'github' ? 'github' : 'npm' } })
+  })
+  return parseHotpack(JSON.stringify({
+    hotpack: '1.0',
+    id: raw.packId ?? raw.id,
+    name: raw.name,
+    version: raw.version,
+    description: raw.description ?? '',
+    tags: raw.tags ?? [],
+    plugins,
+  }))
+}
+
+function packIdOf(repo) { return ('pack.' + repo).toLowerCase().replace(/[^a-z0-9._-]/g, '-').slice(0, 64) }
+
+/** 单插件 github 源 manifest：有 package.json 但仓库本身不是包集合时兜底生成。 */
+function buildGithubPluginPack(repo, ref, npmName, version, meta) {
+  const tags = [...new Set([...(meta.topics ?? []), ...(meta.keywords ?? [])])].slice(0, 12).map((t) => String(t).slice(0, 24))
+  return parseHotpack(JSON.stringify({
+    hotpack: '1.0',
+    id: packIdOf(repo),
+    name: meta.name ?? repo,
+    version: EXACT_VERSION_RE.test(String(version ?? '')) ? version : '0.0.0',
+    description: (meta.description ?? '').slice(0, 300),
+    tags,
+    plugins: [{ id: 'main', name: npmName, source: { type: 'github', repo, ref } }],
+  }))
+}
+
+async function fetchRepoDetail(repo, ref, meta, source) {
+  const entry = {
+    id: packIdOf(repo),
+    repo,
+    ref,
+    repoUrl: 'https://github.com/' + repo,
+    name: meta.name || String(repo).split('/')[1],
+    author: meta.author,
+    stars: meta.stars,
+    forks: meta.forks,
+    license: meta.license,
+    description: meta.description,
+    topics: meta.topics,
+    updatedAt: meta.updatedAt,
+    npmName: null,
+    version: null,
+    hasPack: false,
+    packKind: null,
+    intro: '',
+    install: '',
+    readmeUrl: null,
+    importable: true,
+    importError: null,
+    manifest: null,
+  }
+  const raw = (name) => rawFileUrls(repo, ref, name, source)
+  // 三路并发：包清单（hotpack/.dshpack）· package.json · README（候选对比）
+  const [packScan, pkgRes, readmeScan] = await Promise.all([
+    (async () => {
+      for (const name of MARKET_PACK_CANDIDATES) {
+        const res = await scanFiles(raw(name), MARKET_TIMEOUT_MS)
+        if (!res.ok) continue
+        const parsed = name === 'hotpack.json' ? parseHotpack(res.text) : dshpackToHotpack(res.text)
+        if (parsed.ok) return { name, pack: parsed.pack }
+      }
+      return null
+    })(),
+    scanFiles(raw('package.json'), MARKET_TIMEOUT_MS),
+    (async () => {
+      for (const name of MARKET_README_CANDIDATES) {
+        const res = await scanFiles(raw(name), MARKET_TIMEOUT_MS)
+        if (res.ok) return { name, text: res.text }
+      }
+      return null
+    })(),
+  ])
+  // 1) 包 manifest：repo 本身就是包集合 → 直接作为导入对象
+  if (packScan) {
+    entry.hasPack = true
+    entry.packKind = packScan.name
+    entry.manifest = packScan.pack
+    entry.version = packScan.pack.version
+    if (!entry.npmName && packScan.pack.plugins[0]) entry.npmName = packScan.pack.plugins[0].name
+  }
+  // 2) package.json：取 npm 包名与版本（对比文件之一）
+  if (pkgRes && pkgRes.ok) {
+    try {
+      const pkg = JSON.parse(pkgRes.text)
+      if (typeof pkg.name === 'string') entry.npmName = entry.npmName ?? pkg.name
+      if (typeof pkg.version === 'string') entry.version = entry.version ?? pkg.version
+    } catch {}
+  }
+  // 3) README：提取介绍（首段）与安装方法（## 安装 / Installation / 快速开始 等小节）
+  if (readmeScan) {
+    entry.readmeUrl = 'https://github.com/' + repo + '/blob/' + ref + '/' + readmeScan.name
+    entry.intro = extractIntro(readmeScan.text)
+    entry.install = extractInstall(readmeScan.text)
+  }
+  // 4) 兜底生成单插件 manifest（github 源由中枢下载 + link，不跑脚本）
+  if (!entry.manifest) {
+    if (entry.npmName) {
+      const built = buildGithubPluginPack(repo, ref, entry.npmName, entry.version, {
+        name: entry.name, description: entry.description, topics: entry.topics,
+      })
+      if (built.ok) entry.manifest = built.pack
+      else { entry.importable = false; entry.importError = built.error }
+    } else {
+      entry.importable = false
+      entry.importError = '未找到 package.json 或 hotpack/.dshpack 清单，无法生成导入包'
+    }
+  }
+  return entry
+}
+
+async function marketListAsync(params) {
+  const valid = sanitizeMarketParams(params)
+  if (!valid.ok) return { ok: false, error: valid.error }
+  const cacheKey = valid.topic + '|' + valid.q + '|' + valid.source + '|' + valid.page
+  if (!valid.refresh) {
+    const cache = readJson(MARKET_CACHE_FILE())
+    if (cache && cache.key === cacheKey && Array.isArray(cache.entries)) {
+      return { ok: true, cached: true, cachedAt: cache.cachedAt, total: cache.total, page: cache.page, source: cache.source, entries: cache.entries }
+    }
+  }
+  const search = await searchMarketRepos(valid.topic, valid.q, valid.page, valid.source)
+  if (!search.ok) return { ok: false, error: search.error }
+  const entries = []
+  let index = 0
+  const worker = async () => {
+    while (index < search.items.length) {
+      const item = search.items[index++]
+      try {
+        entries.push(await fetchRepoDetail(item.repo, item.ref, item, valid.source))
+      } catch (error) {
+        entries.push({
+          id: packIdOf(item.repo), repo: item.repo, ref: item.ref,
+          repoUrl: 'https://github.com/' + item.repo,
+          name: item.name, author: item.author, stars: item.stars, forks: item.forks,
+          license: item.license, description: item.description, topics: item.topics,
+          updatedAt: item.updatedAt, npmName: null, version: null,
+          hasPack: false, packKind: null, intro: '', install: '', readmeUrl: null,
+          importable: false, importError: String(error.message ?? error), manifest: null,
+        })
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: MARKET_DETAIL_CONCURRENCY }, () => worker()))
+  entries.sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0))
+  const result = { ok: true, cached: false, cachedAt: null, total: search.total, page: valid.page, source: valid.source, entries }
+  try {
+    writeJsonSafe(MARKET_CACHE_FILE(), { key: cacheKey, ...result, cachedAt: new Date().toISOString() })
+  } catch {}
+  return result
+}
+
 // ---------- 对外方法实现 ----------
 
 function statusSync() {
@@ -672,7 +1059,7 @@ class HotplugGateway extends TypertRemoteService {
   constructor(ctx) {
     super(ctx, 'dshHotplug')
     // 与 lib/typert.js、lib/client.js REMOTE.descriptors 三处同步。
-    const methods = ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check']
+    const methods = ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check', 'marketList']
     for (const method of methods) {
       const decorator = Remote(method)
       decorator(HotplugGateway.prototype[method], {
@@ -765,6 +1152,10 @@ class HotplugGateway extends TypertRemoteService {
   check() {
     return checkAsync()
   }
+
+  marketList(params) {
+    return marketListAsync(params)
+  }
 }
 
 export const name = 'dsh-hotplug-hub'
@@ -775,5 +1166,5 @@ export function apply(ctx) {
   new HotplugGateway(ctx)
 }
 
-export { HotplugGateway, parseHotpack }
+export { HotplugGateway, parseHotpack, marketListAsync, extractIntro, extractInstall }
 export default HotplugGateway
