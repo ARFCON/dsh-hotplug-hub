@@ -24,6 +24,8 @@ Thumbs.db
 # release/*.exe
 
 # 本地开发备份（Git 历史已具备版本管理，备份不进仓库）
-uninstaller/backups/
+uninstaller/**/backups/
+uninstaller/**/build/
+
 # 启动器自动生成的索引（勿提交）
 assembly/*/resolvedAssembly.json
