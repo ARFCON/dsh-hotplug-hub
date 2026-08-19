@@ -134,7 +134,14 @@ git push origin feature/文档1-<改动内容>
    - 修正：按 `开发文档/规范/文档格式规范.md` 统一空行与标题层级。
 
 修正后必须在 `开发文档/团队/共同开发文档.md` 和对应个人开发文档的修改记录中登记。
-## 10. macOS 跨平台支持
+## 10. 跨平台支持（macOS / Linux / Windows）
+
+- `launcher/core.js` 已支持 `IS_MAC`、Linux（`process.platform === ''linux''`）分支。
+- macOS：`scripts/macos/`；Linux：`scripts/linux/`。
+- 找不到桌面端时回退 `dsh` CLI。
+- 自检页支持检查项目自身更新（本程序版本 / 最新版本 / 检查更新 / 下载新版本）。
+- 修改跨平台代码必须同步更新 `开发文档/规范/跨平台支持规范.md`。
+
 
 - 启动器 launcher/core.js 已支持 macOS（IS_MAC 分支）。
 - macOS 下 indOfficialHarness() 查找 .app，找不到回退 dsh CLI。

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -34,6 +34,8 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
+        private const string APP_VERSION = "0.1.3";
+        private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
 
         public MainForm()
         {
@@ -93,6 +95,14 @@ namespace DSHHotplugHub
                         else if (message == "downloadHarness")
                         {
                             OpenOfficialDownloadPage();
+                        }
+                        else if (message == "checkUpdate")
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                        }
+                        else if (message == "downloadProject")
+                        {
+                            OpenProjectDownloadPage();
                         }
                         else if (message != null && message.StartsWith("ai:"))
                         {
@@ -190,6 +200,7 @@ namespace DSHHotplugHub
             string wv = null;
             try { wv = CoreWebView2Environment.GetAvailableBrowserVersionString(); } catch { }
             string profiles = DetectProfiles();
+            string latest = GetLatestReleaseVersion();
 
             string js =
                 "window.__nativeSelfCheck={" +
@@ -198,7 +209,9 @@ namespace DSHHotplugHub
                 "dshDesktop:" + JsString(dshDesktop) + "," +
                 "dshVersion:" + JsString(dshVersion) + "," +
                 "webview2:" + JsString(wv) + "," +
-                "profiles:" + JsString(profiles) +
+                "profiles:" + JsString(profiles) + "," +
+                "appVersion:" + JsString(APP_VERSION) + "," +
+                "latestVersion:" + JsString(latest) +
                 "};" +
                 "(function(){var o=getChecks;getChecks=function(){var r=o();" +
                 "for(var i=0;i<r.length;i++){" +
@@ -209,9 +222,12 @@ namespace DSHHotplugHub
                 "if(window.__nativeSelfCheck.webview2){r.push({name:'WebView2',desc:'桌面渲染内核',val:window.__nativeSelfCheck.webview2,status:'ok',text:'可用'});}" +
                 "if(window.__nativeSelfCheck.profiles){r.push({name:'本地 DSH Profile',desc:'~/.dsh/profiles 探测',val:window.__nativeSelfCheck.profiles,status:'ok',text:'已探测'});}" +
                 "if(window.__nativeSelfCheck.dshDesktop){r.push({name:'官方 Harness 路径',desc:'当前启动器',val:window.__nativeSelfCheck.dshDesktop,status:'ok',text:'已选择'});}" +
+                "if(window.__nativeSelfCheck.appVersion){r.push({name:'本程序版本',desc:'当前安装版本',val:window.__nativeSelfCheck.appVersion,status:'ok',text:'v'+window.__nativeSelfCheck.appVersion});}" +
+                "if(window.__nativeSelfCheck.latestVersion){r.push({name:'最新版本',desc:'GitHub 最新发布',val:window.__nativeSelfCheck.latestVersion,status:window.__nativeSelfCheck.latestVersion===window.__nativeSelfCheck.appVersion?'ok':'warn',text:window.__nativeSelfCheck.latestVersion===window.__nativeSelfCheck.appVersion?'已是最新':'可更新'});}" +
                 "return r;};" +
                 "if(typeof renderCheck==='function'){renderCheck();}" +
                 "var drs=document.querySelectorAll('.check-row');for(var i=0;i<drs.length;i++){var dn=drs[i].querySelector('.name');if(dn&&dn.textContent==='DSH 版本'){var db=document.createElement('button');db.className='btn sm primary';db.style.marginLeft='8px';db.textContent='⬇ 下载官方客户端';db.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('downloadHarness');}};drs[i].appendChild(db);}}" +
+                "var urs=document.querySelectorAll('.check-row');for(var i=0;i<urs.length;i++){var un=urs[i].querySelector('.name');if(un&&un.textContent==='本程序版本'){var b1=document.createElement('button');b1.className='btn sm primary';b1.style.marginLeft='8px';b1.textContent='检查更新';b1.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('checkUpdate');}};var b2=document.createElement('button');b2.className='btn sm';b2.style.marginLeft='8px';b2.textContent='下载新版本';b2.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('downloadProject');}};urs[i].appendChild(b1);urs[i].appendChild(b2);}}" +
                 "var rc=document.getElementById('recheck');if(rc){rc.addEventListener('click',function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('recheck');}});}" +
                 "})();";
             return js;
@@ -364,6 +380,47 @@ namespace DSHHotplugHub
                 MessageBox.Show("打开官方下载页失败：\n" + ex.Message, "DSH 热插拔中枢",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
+        }
+
+        private static void OpenProjectDownloadPage()
+        {
+            try
+            {
+                Process.Start("https://github.com/" + PROJECT_REPO + "/releases/latest");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("打开项目下载页失败：\n" + ex.Message, "DSH 热插拔中枢",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private static string GetLatestReleaseVersion()
+        {
+            try
+            {
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/" + PROJECT_REPO + "/releases/latest");
+                request.Method = "GET";
+                request.UserAgent = "DSH-Hotplug-Hub";
+                request.Accept = "application/vnd.github+json";
+                request.Timeout = 15000;
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                {
+                    string json = reader.ReadToEnd();
+                    JavaScriptSerializer ser = new JavaScriptSerializer();
+                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(json);
+                    if (root != null && root.ContainsKey("tag_name"))
+                    {
+                        string tag = Convert.ToString(root["tag_name"]);
+                        return tag.TrimStart('v');
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return null;
         }
 
         private static string FindOfficialHarness()

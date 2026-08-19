@@ -175,6 +175,18 @@ function findOfficialHarness() {
     return 'dsh';
   }
 
+  if (process.platform === 'linux') {
+    const linuxCandidates = [
+      '/usr/local/bin/dsh',
+      '/usr/bin/dsh',
+      path.join(os.homedir(), '.local/bin/dsh'),
+      path.join(os.homedir(), 'Applications', 'DSH Desktop', 'dsh')
+    ];
+    for (const c of linuxCandidates) { if (fs.existsSync(c)) return c; }
+    // 退回到 dsh CLI
+    return 'dsh';
+  }
+
   const candidates = [
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'DSH Desktop', 'DSH Desktop.exe'),
     path.join(process.env.ProgramFiles || '', 'DSH Desktop', 'DSH Desktop.exe'),
@@ -193,7 +205,7 @@ function launchAndCapture(id, opts = {}) {
   const logFile = path.join(SANDBOX_ROOT, id, 'logs', 'run.jsonl');
   ensureDir(path.dirname(logFile));
   const env = { ...process.env, DSH_PROFILE: id };
-  const args = IS_MAC && harness === 'dsh' ? ['--profile', id] : [];
+  const args = process.platform !== 'win32' && harness === 'dsh' ? ['--profile', id] : [];
   const child = spawn(harness, args, { cwd: synced.profile, env, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', (d) => appendLine(logFile, JSON.stringify({ t: new Date().toISOString(), stream: 'stdout', line: String(d).trim() })));
   child.stderr.on('data', (d) => appendLine(logFile, JSON.stringify({ t: new Date().toISOString(), stream: 'stderr', line: String(d).trim() })));
