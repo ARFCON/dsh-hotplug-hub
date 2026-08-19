@@ -610,6 +610,30 @@ async function httpGet(url, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {}) {
   return { ok: false, status: 0, text: '' }
 }
 
+/**
+ * 多通道竞速：官方与镜像 URL 同时发起请求，取第一个成功响应（"哪个快用哪个"）。
+ * 仅用于市场检索（searchMarketRepos）等公开只读抓取；不改变 scanFiles 的 404 短路语义。
+ */
+async function raceFetch(urls, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {}) {
+  if (!Array.isArray(urls) || urls.length === 0) return { ok: false, text: '' }
+  return new Promise((resolve) => {
+    let settled = false
+    let failures = 0
+    for (const url of urls) {
+      httpGet(url, timeoutMs, extraHeaders).then((res) => {
+        if (settled) return
+        if (res.ok) { settled = true; resolve({ ...res, url, raced: true }); return }
+        failures += 1
+        if (failures === urls.length) resolve({ ok: false, status: res.status, text: '' })
+      }).catch(() => {
+        if (settled) return
+        failures += 1
+        if (failures === urls.length) resolve({ ok: false, status: 0, text: '' })
+      })
+    }
+  })
+}
+
 /** 按候选 URL 依次抓取；官方返回 404 视为文件不存在，不再试镜像。 */
 async function scanFiles(urls, timeoutMs, extraHeaders) {
   for (const url of urls) {
@@ -638,34 +662,31 @@ function rawFileUrls(repo, ref, path, source) {
 }
 
 async function searchMarketRepos(topic, q, page, source) {
-  let lastError = ''
-  for (const url of apiSearchUrls(topic, q, page, source)) {
-    const res = await httpGet(url, 20000, { Accept: 'application/vnd.github+json' })
-    if (!res.ok) { lastError = 'HTTP ' + res.status; continue }
-    try {
-      const json = JSON.parse(res.text)
-      if (!Array.isArray(json.items)) { lastError = json.message ?? '响应结构异常'; continue }
-      const items = json.items
-        .filter((item) => item.fork !== true)
-        .slice(0, MARKET_PAGE_SIZE)
-        .map((item) => ({
-          repo: item.full_name,
-          ref: item.default_branch ?? 'main',
-          name: item.name,
-          author: (item.owner && item.owner.login) || String(item.full_name || '').split('/')[0],
-          stars: item.stargazers_count ?? 0,
-          forks: item.forks_count ?? 0,
-          license: (item.license && item.license.spdx_id) || '',
-          description: item.description ?? '',
-          topics: Array.isArray(item.topics) ? item.topics.slice(0, 12) : [],
-          updatedAt: item.updated_at ?? '',
-        }))
-      return { ok: true, total: json.total_count ?? items.length, items, url }
-    } catch (error) {
-      lastError = String(error.message ?? error)
-    }
+  // 官方与镜像两个通道同时发起，取第一个成功响应（"哪个快用哪个"）
+  const res = await raceFetch(apiSearchUrls(topic, q, page, source), 20000, { Accept: 'application/vnd.github+json' })
+  if (!res.ok) return { ok: false, error: 'HTTP ' + (res.status ?? 0) || '网络请求失败' }
+  try {
+    const json = JSON.parse(res.text)
+    if (!Array.isArray(json.items)) return { ok: false, error: json.message ?? '响应结构异常' }
+    const items = json.items
+      .filter((item) => item.fork !== true)
+      .slice(0, MARKET_PAGE_SIZE)
+      .map((item) => ({
+        repo: item.full_name,
+        ref: item.default_branch ?? 'main',
+        name: item.name,
+        author: (item.owner && item.owner.login) || String(item.full_name || '').split('/')[0],
+        stars: item.stargazers_count ?? 0,
+        forks: item.forks_count ?? 0,
+        license: (item.license && item.license.spdx_id) || '',
+        description: item.description ?? '',
+        topics: Array.isArray(item.topics) ? item.topics.slice(0, 12) : [],
+        updatedAt: item.updated_at ?? '',
+      }))
+    return { ok: true, total: json.total_count ?? items.length, items, url: res.url }
+  } catch (error) {
+    return { ok: false, error: String(error.message ?? error) }
   }
-  return { ok: false, error: lastError || '网络请求失败' }
 }
 
 /** 语言切换 / 导航类短段（如 "[English](README.md) 中文"），不作为介绍。 */

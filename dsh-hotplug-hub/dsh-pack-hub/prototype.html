@@ -596,6 +596,33 @@ async function fetchAny(urls, opts) {
   return { ok: false, error: lastErr };
 }
 
+// 多通道竞速：官方与镜像同时发起请求，取第一个成功响应（"哪个快用哪个"）。
+// 仅用于市场检索（searchMarketRepos）；scanFiles 保留依次尝试 + 404 短路语义。
+function raceFetchAny(urls, opts) {
+  return new Promise((resolve) => {
+    if (!Array.isArray(urls) || urls.length === 0) return resolve({ ok: false, error: '' });
+    let settled = false;
+    let failures = 0;
+    for (const url of urls) {
+      fetch(url, opts).then(async (res) => {
+        if (settled) return;
+        if (res.ok) {
+          settled = true;
+          const text = await res.text();
+          resolve({ ok: true, status: res.status, text, url, raced: true });
+          return;
+        }
+        failures += 1;
+        if (failures === urls.length) resolve({ ok: false, error: 'HTTP ' + res.status });
+      }).catch((e) => {
+        if (settled) return;
+        failures += 1;
+        if (failures === urls.length) resolve({ ok: false, error: e && e.message ? e.message : String(e) });
+      });
+    }
+  });
+}
+
 async function fetchJson(urls) {
   const r = await fetchAny(urls, { headers: { Accept: 'application/vnd.github+json' } });
   if (!r.ok) return { ok: false, error: r.error };
@@ -793,14 +820,18 @@ function parseHotpackJson(text) {
 
 /* ---- 4. 仓库搜索：按标签分页拉取仓库列表 ---- */
 async function searchMarketRepos(topic, q, page, source) {
+  // 官方与镜像两个通道同时发起，取第一个成功响应（"哪个快用哪个"）
   const urls = apiSearchUrls(topic, q, page, source);
-  const r = await fetchJson(urls);
-  if (!r.ok) return { ok: false, error: r.error };
-  const json = r.json;
-  const items = (json.items || []).filter((it) => it && it.fork !== true);
+  const r = await raceFetchAny(urls, { headers: { Accept: 'application/vnd.github+json' } });
+  if (!r.ok) return { ok: false, error: r.error || '网络请求失败' };
+  let json;
+  try { json = JSON.parse(r.text); } catch (e) { return { ok: false, error: '响应不是合法 JSON' }; }
+  if (!json || !Array.isArray(json.items)) return { ok: false, error: (json && json.message) || '响应结构异常' };
+  const items = json.items.filter((it) => it && it.fork !== true);
   return {
     ok: true,
     total: json.total_count || items.length,
+    url: r.url,
     items: items.map((it) => ({
       repo: it.full_name,
       ref: it.default_branch || 'main',
