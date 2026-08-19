@@ -758,7 +758,7 @@ namespace DSHHotplugHub
                 TextBox models = new TextBox(); models.Text = cfg.models; models.SetBounds(150, 126, 360, 26);
 
                 Label l5 = new Label(); l5.Text = "默认模型"; l5.SetBounds(20, 164, 120, 24);
-                TextBox defaultModel = new TextBox(); defaultModel.Text = cfg.defaultModel; defaultModel.SetBounds(150, 162, 360, 26);
+                ComboBox defaultModel = new ComboBox(); defaultModel.DropDownStyle = ComboBoxStyle.DropDown; defaultModel.Items.AddRange(cfg.models.Split(',')); defaultModel.Text = cfg.defaultModel; defaultModel.SetBounds(150, 162, 360, 26);
 
                 Label hint = new Label();
                 hint.Text = "保存后写入 ~/.dsh/.credentials.yaml 与 ~/.dsh/settings.yaml（与官方 DSH 共用同一份数据）。";
@@ -880,6 +880,7 @@ namespace DSHHotplugHub
                 "(function(){var ensureModelSelect=function(){" +
                 "var composeBtn=document.getElementById('composeBtn');" +
                 "if(!composeBtn||document.getElementById('aiModelSelect'))return;" +
+                "var status=document.createElement('div');status.style.cssText='margin:8px 0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--rad);background:var(--panel);cursor:pointer;';status.innerHTML='⚙ 当前模型：<b>'+(window.__apiConfig.defaultModel||'未知')+'</b>（点击配置）';status.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('openApiConfig');}};composeBtn.parentNode.insertBefore(status,composeBtn);" +
                 "var wrap=document.createElement('div');wrap.style.cssText='margin:10px 0;display:flex;align-items:center;gap:8px;';" +
                 "wrap.innerHTML='模型: ';" +
                 "var sel=document.createElement('select');sel.id='aiModelSelect';" +
