@@ -1115,8 +1115,10 @@ namespace DSHHotplugHub
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
                 if (Directory.GetFiles(dir, "*.md").Length == 0)
                 {
-                    File.WriteAllText(Path.Combine(dir, "skill-deep-research.md"), "# DeepSeek 深度研究\n\n多轮推理与资料整理\n");
-                    File.WriteAllText(Path.Combine(dir, "skill-code-review.md"), "# 代码审查\n\n代码质量与安全审查\n");
+                    File.WriteAllText(Path.Combine(dir, "skill-deep-research.md"),
+                        "---\nname: deep-research\ndescription: 多轮推理与深度研究\nwhenToUse: 用户需要深度研究时\ndisable-model-invocation: false\n---\n\n# DeepSeek 深度研究\n\n1. 拆解问题\n2. 检索与交叉验证\n3. 多轮推理\n4. 输出报告\n");
+                    File.WriteAllText(Path.Combine(dir, "skill-code-review.md"),
+                        "---\nname: code-review\ndescription: 代码质量与安全审查\nwhenToUse: 用户需要代码审查时\ndisable-model-invocation: false\n---\n\n# 代码审查\n\n1. 阅读改动\n2. 安全与质量检查\n3. 输出分级意见\n");
                 }
                 List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
                 foreach (string file in Directory.GetFiles(dir, "*.md"))
@@ -1198,14 +1200,8 @@ namespace DSHHotplugHub
                 string file = McpFilePath();
                 if (!File.Exists(file))
                 {
-                    List<Dictionary<string, object>> defaults = new List<Dictionary<string, object>>();
-                    Dictionary<string, object> fs = new Dictionary<string, object>();
-                    fs["id"] = "mcp-filesystem"; fs["name"] = "Filesystem MCP"; fs["command"] = "npx"; fs["args"] = "-y @modelcontextprotocol/server-filesystem";
-                    Dictionary<string, object> fetch = new Dictionary<string, object>();
-                    fetch["id"] = "mcp-fetch"; fetch["name"] = "Fetch MCP"; fetch["command"] = "npx"; fetch["args"] = "-y @modelcontextprotocol/server-fetch";
-                    defaults.Add(fs); defaults.Add(fetch);
                     Directory.CreateDirectory(Path.GetDirectoryName(file));
-                    File.WriteAllText(file, new JavaScriptSerializer().Serialize(defaults));
+                    File.WriteAllText(file, "[]");
                 }
                 return File.ReadAllText(file);
             }
