@@ -104,7 +104,38 @@ namespace DSHHotplugHub
                         {
                             OpenProjectDownloadPage();
                         }
-                        else if (message != null && message.StartsWith("ai:"))
+                        else if (message == "listSkills")
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                        }
+                        else if (message != null && message.StartsWith("addSkill:"))
+                        {
+                            SaveSkillFile(message.Substring("addSkill:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                        }
+                        else if (message != null && message.StartsWith("deleteSkill:"))
+                        {
+                            DeleteSkillFile(message.Substring("deleteSkill:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                        }
+                        else if (message == "listMcp")
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                        }
+                        else if (message != null && message.StartsWith("addMcp:"))
+                        {
+                            SaveMcpFile(message.Substring("addMcp:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                        }
+                        else if (message != null && message.StartsWith("deleteMcp:"))
+                        {
+                            DeleteMcpFile(message.Substring("deleteMcp:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                        }
+                        else if (message != null && message.StartsWith("startMcp:"))
+                        {
+                            StartMcpProcess(message.Substring("startMcp:".Length));
+                        }                        else if (message != null && message.StartsWith("ai:"))
                         {
                             await HandleAiRequestAsync(message.Substring(3));
                         }
@@ -122,6 +153,7 @@ namespace DSHHotplugHub
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildApiIntegrationScript());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listMcp');");
                         }
                     }
                     catch
@@ -897,6 +929,129 @@ namespace DSHHotplugHub
             }
         }
 
+        // ---------- Skill / MCP 真实文件管理 ----------
+
+        private static string SkillsDir()
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "skills");
+        }
+
+        private static string McpFilePath()
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "mcp.json");
+        }
+
+        private static string GetSkillsJson()
+        {
+            try
+            {
+                string dir = SkillsDir();
+                if (!Directory.Exists(dir)) return "[]";
+                List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
+                foreach (string file in Directory.GetFiles(dir, "*.md"))
+                {
+                    string id = Path.GetFileNameWithoutExtension(file);
+                    string firstLine = "";
+                    try { firstLine = File.ReadAllLines(file)[0].TrimStart('#', ' ', '\t'); } catch { }
+                    Dictionary<string, object> item = new Dictionary<string, object>();
+                    item["id"] = id;
+                    item["name"] = string.IsNullOrEmpty(firstLine) ? id : firstLine;
+                    item["enabled"] = true;
+                    item["desc"] = "本地 Skill";
+                    list.Add(item);
+                }
+                return new JavaScriptSerializer().Serialize(list);
+            }
+            catch { return "[]"; }
+        }
+
+        private static void SaveSkillFile(string payload)
+        {
+            try
+            {
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> data = ser.Deserialize<Dictionary<string, object>>(payload);
+                string name = data != null && data.ContainsKey("name") ? Convert.ToString(data["name"]) : "skill";
+                string id = "skill-" + DateTime.Now.Ticks.ToString("x");
+                string dir = SkillsDir();
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(Path.Combine(dir, id + ".md"), "# " + name + "\n\n" + (data != null && data.ContainsKey("desc") ? Convert.ToString(data["desc"]) : "") + "\n");
+            }
+            catch { }
+        }
+
+        private static void DeleteSkillFile(string id)
+        {
+            try
+            {
+                string file = Path.Combine(SkillsDir(), id + ".md");
+                if (File.Exists(file)) File.Delete(file);
+            }
+            catch { }
+        }
+
+        private static string GetMcpsJson()
+        {
+            try
+            {
+                string file = McpFilePath();
+                if (!File.Exists(file)) return "[]";
+                return File.ReadAllText(file);
+            }
+            catch { return "[]"; }
+        }
+
+        private static void SaveMcpFile(string payload)
+        {
+            try
+            {
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> mcp = ser.Deserialize<Dictionary<string, object>>(payload);
+                if (mcp == null) return;
+                string file = McpFilePath();
+                List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
+                if (File.Exists(file)) list = ser.Deserialize<List<Dictionary<string, object>>>(File.ReadAllText(file)) ?? new List<Dictionary<string, object>>();
+                if (!mcp.ContainsKey("id") || mcp["id"] == null) mcp["id"] = "mcp-" + DateTime.Now.Ticks.ToString("x");
+                string id = Convert.ToString(mcp["id"]);
+                int idx = list.FindIndex((x) => x.ContainsKey("id") && Convert.ToString(x["id"]) == id);
+                if (idx >= 0) list[idx] = mcp; else list.Add(mcp);
+                Directory.CreateDirectory(Path.GetDirectoryName(file));
+                File.WriteAllText(file, ser.Serialize(list));
+            }
+            catch { }
+        }
+
+        private static void DeleteMcpFile(string id)
+        {
+            try
+            {
+                string file = McpFilePath();
+                if (!File.Exists(file)) return;
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                List<Dictionary<string, object>> list = ser.Deserialize<List<Dictionary<string, object>>>(File.ReadAllText(file)) ?? new List<Dictionary<string, object>>();
+                list.RemoveAll((x) => x.ContainsKey("id") && Convert.ToString(x["id"]) == id);
+                File.WriteAllText(file, ser.Serialize(list));
+            }
+            catch { }
+        }
+
+        private static void StartMcpProcess(string id)
+        {
+            try
+            {
+                string file = McpFilePath();
+                if (!File.Exists(file)) return;
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                List<Dictionary<string, object>> list = ser.Deserialize<List<Dictionary<string, object>>>(File.ReadAllText(file)) ?? new List<Dictionary<string, object>>();
+                Dictionary<string, object> mcp = list.Find((x) => x.ContainsKey("id") && Convert.ToString(x["id"]) == id);
+                if (mcp == null) return;
+                string command = mcp.ContainsKey("command") ? Convert.ToString(mcp["command"]) : "";
+                string args = mcp.ContainsKey("args") ? Convert.ToString(mcp["args"]) : "";
+                if (string.IsNullOrEmpty(command)) return;
+                Process.Start(new ProcessStartInfo(command, args) { UseShellExecute = false, CreateNoWindow = true });
+            }
+            catch { }
+        }
         private static bool TestApiConnection(ApiConfig cfg, out string error)
         {
             error = "";

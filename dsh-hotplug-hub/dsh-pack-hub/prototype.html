@@ -910,17 +910,19 @@ function getChecks() {
 function StateOk() { return true; }
 
 function removeSkill(id) {
+  if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('deleteSkill:' + id); return; }
   if (!confirm('删除该 Skill？')) return;
   state.skills = (state.skills || []).filter((s) => s.id !== id);
   save(); renderSkills();
 }
 function removeMcp(id) {
+  if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('deleteMcp:' + id); return; }
   if (!confirm('删除该 MCP？')) return;
   state.mcps = (state.mcps || []).filter((m) => m.id !== id);
   save(); renderMcp();
 }
 function renderSkills() {
-  const rows = state.skills || [];
+  const rows = (window.chrome && window.chrome.webview && window.__skillsData) || state.skills || [];
   const market = SKILL_CATALOG || [];
   const installedIds = new Set(rows.map((s) => s.id));
   $('view-skills').innerHTML = `
@@ -964,6 +966,7 @@ function renderSkills() {
   if (add) add.addEventListener('click', () => {
     const name = $('newSkillName').value.trim();
     if (!name) return;
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('addSkill:' + JSON.stringify({ name, desc: '新增技能' })); return; }
     state.skills = state.skills || [];
     state.skills.push({ id: 'skill-' + Date.now().toString(36), name, enabled: true, desc: '新增技能' });
     save(); renderSkills();
@@ -971,6 +974,7 @@ function renderSkills() {
   document.querySelectorAll('[data-add-skill]').forEach((b) => b.addEventListener('click', () => {
     const item = market.find((x) => x.id === b.dataset.addSkill);
     if (!item) return;
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('addSkill:' + JSON.stringify({ name: item.name, desc: item.desc })); return; }
     state.skills = state.skills || [];
     if (!state.skills.some((s) => s.id === item.id)) state.skills.push({ id: item.id, name: item.name, enabled: true, desc: item.desc });
     save(); renderSkills();
@@ -978,7 +982,7 @@ function renderSkills() {
 }
 
 function renderMcp() {
-  const rows = state.mcps || [];
+  const rows = (window.chrome && window.chrome.webview && window.__mcpsData) || state.mcps || [];
   const market = MCP_CATALOG || [];
   const installedIds = new Set(rows.map((m) => m.id));
   $('view-mcp').innerHTML = `
@@ -1025,13 +1029,17 @@ function renderMcp() {
     const name = $('newMcpName').value.trim();
     const command = $('newMcpCmd').value.trim();
     if (!name || !command) return;
+    const payload = { name, command, args: $('newMcpArgs').value.trim() };
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('addMcp:' + JSON.stringify(payload)); return; }
     state.mcps = state.mcps || [];
-    state.mcps.push({ id: 'mcp-' + Date.now().toString(36), name, enabled: false, command, args: $('newMcpArgs').value.trim() });
+    state.mcps.push({ id: 'mcp-' + Date.now().toString(36), name, enabled: false, command, args: payload.args });
     save(); renderMcp();
   });
   document.querySelectorAll('[data-add-mcp]').forEach((b) => b.addEventListener('click', () => {
     const item = market.find((x) => x.id === b.dataset.addMcp);
     if (!item) return;
+    const payload = { name: item.name, command: item.command, args: item.args };
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('addMcp:' + JSON.stringify(payload)); return; }
     state.mcps = state.mcps || [];
     if (!state.mcps.some((m) => m.id === item.id)) state.mcps.push({ id: item.id, name: item.name, enabled: false, command: item.command, args: item.args });
     save(); renderMcp();
