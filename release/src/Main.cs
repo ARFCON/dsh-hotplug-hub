@@ -331,7 +331,7 @@ namespace DSHHotplugHub
                 "};" +
                 "if(window.__nativeSelfCheck.dshVersion){state.dshVersion=window.__nativeSelfCheck.dshVersion;state.latestVersion=window.__nativeSelfCheck.dshVersion;if(typeof renderShell==='function')renderShell();}" +
                 "if(window.__nativeSelfCheck.panelInstalled||window.__nativeSelfCheck.panelLatest){state.panelInstalled=window.__nativeSelfCheck.panelInstalled||state.panelInstalled||null;state.panelLatest=window.__nativeSelfCheck.panelLatest||state.panelLatest||null;}" +
-                "(function(){var o=getChecks;getChecks=function(){var r=o();" +
+                "(function(){window.__baseGetChecks=window.__baseGetChecks||getChecks;getChecks=function(){var r=window.__baseGetChecks();" +
                 "for(var i=0;i<r.length;i++){" +
                 "if(r[i].name==='Node.js'){r[i].val=window.__nativeSelfCheck.node||'未检测到';r[i].text=window.__nativeSelfCheck.node?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.node?'ok':'err';}" +
                 "if(r[i].name==='pnpm'){r[i].val=window.__nativeSelfCheck.pnpm||'未检测到';r[i].text=window.__nativeSelfCheck.pnpm?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.pnpm?'ok':'err';}" +
