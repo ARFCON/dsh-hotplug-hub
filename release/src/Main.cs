@@ -44,7 +44,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.9.0-pre";
+        private const string APP_VERSION = "0.9.0";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_REPO = "Fishquito7/dsh-skill-mcp-panel";
         // GitHub Token 不再硬编码进源码（仓库会触发 secret scanning）。
@@ -1505,7 +1505,7 @@ namespace DSHHotplugHub
                 Dictionary<string, string> info = GetMemoryHubReleaseInfo();
                 string url = info != null && info.ContainsKey("url")
                     ? info["url"]
-                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.0-pre/dsh-memory-hub-0.8.0-pre.tgz";
+                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.0/dsh-memory-hub-0.8.0-pre.tgz";
                 string latest = info != null && info.ContainsKey("latest") ? info["latest"] : null;
                 string installed = GetInstalledMemoryHubVersion();
                 if (!string.IsNullOrEmpty(installed) && !string.IsNullOrEmpty(latest) && installed == latest)
