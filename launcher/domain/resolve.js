@@ -47,9 +47,22 @@ function resolveVersion(name, version, registry) {
     let best = semver.maxSatisfying(available, range);
     let source = 'registry';
     if (!best) {
-      // C2 修复：仅含预发布版本时用 includePrerelease 二次尝试（beta 期插件可解析）
-      best = semver.maxSatisfying(available, range, { includePrerelease: true });
-      source = 'registry-prerelease';
+      // C2 修复（QA4 实证修正）：includePrerelease 对"候选仅含预发布版本"场景
+      // 实际无效——semver.maxSatisfying(..., {includePrerelease:true}) 在候选
+      // 无同元组正式版时仍返回 null（实测：['1.0.0-beta.2'] + '^1.0.0' → null）。
+      // 按注释声称的语义（beta 期插件可解析）手写元组宽松匹配：
+      // 候选的主.次.补丁元组满足 range 即视为可接受，取其中最高版本。
+      // 与 npm 严格语义的差异如实记录：range 未含预发布标识时也允许预发布候选。
+      const tupleMatches = available.filter((v) => {
+        const valid = semver.valid(v);
+        if (!valid) return false;
+        const tuple = valid.replace(/-.*$/, '');
+        return semver.satisfies(tuple, range);
+      });
+      if (tupleMatches.length > 0) {
+        best = tupleMatches.sort(semver.rcompare)[0];
+        source = 'registry-prerelease';
+      }
     }
     if (best) return { resolvedVersion: best, pinned: true, source };
     return {

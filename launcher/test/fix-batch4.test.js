@@ -128,9 +128,18 @@ describe('FIX-17 镜像重试链', () => {
         spawn: () => { throw new Error('n/a'); },
         spawnSync: (bin, args) => {
           calls.push({ bin, args });
-          // args = ['clone','--depth','1','--branch',ref,url,target]
-          const url = args[5];
-          const target = args[6];
+          // win32 经 cmd /c 包装（C6 对称修复）：['/c','git','clone','--depth','1','--branch',ref,url,target]
+          // POSIX 直接 git：['clone','--depth','1','--branch',ref,url,target]
+          const isWin = process.platform === 'win32';
+          const urlIdx = isWin ? 7 : 5;
+          const targetIdx = isWin ? 8 : 6;
+          const url = args[urlIdx];
+          const target = args[targetIdx];
+          // 防污染防护：target 必须位于系统临时目录内（索引错位曾把 ref 当 target
+          // 在 vitest cwd 下创建相对路径残留）
+          if (!path.isAbsolute(target) || !target.startsWith(os.tmpdir())) {
+            throw new Error(`git target 越界（防测试污染）：${target}`);
+          }
           // 第 1 次直连失败，镜像成功（模拟）
           if (url.startsWith('https://github.com/')) return { status: 1, error: null, stderr: 'fatal: unable to access', stdout: '' };
           // 镜像 URL：创建 package.json 模拟 clone 产物
@@ -145,8 +154,8 @@ describe('FIX-17 镜像重试链', () => {
     const r = await installGithubPluginWithMirror(core, plugin, profile, null);
     expect(r.ok).toBe(true);
     expect(calls.length).toBeGreaterThanOrEqual(2);
-    // 第 2 次调用使用镜像前缀
-    const mirrorUrl = calls[1].args[5];
+    // 第 2 次调用使用镜像前缀（索引按平台：win32 包装偏移）
+    const mirrorUrl = calls[1].args[process.platform === 'win32' ? 7 : 5];
     expect(GITHUB_MIRRORS.some((m) => mirrorUrl.startsWith(m))).toBe(true);
     fs.rmSync(profile, { recursive: true, force: true });
   });
