@@ -26,10 +26,10 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
   /** 统一 UI 令牌（单一事实来源镜像自 DSH-统一UI开发标准.md，仅本页作用域）。 */
   const TOKENS = {
     teal: '#0e7c6b', tealHover: '#0a6a5c', tealSoft: '#dceeea',
-    bg: '#f1f2ec', panel: '#fffef9', ink: '#17201d', muted: '#66736e', line: '#d9ddd4',
+    bg: '#f6f8fa', panel: '#ffffff', ink: '#1f2328', muted: '#667085', line: '#e5e7eb',
     green: '#1a7f4b', greenSoft: '#e7f5eb', amber: '#b45309', amberSoft: '#fbeede',
-    red: '#b3261e', redSoft: '#fbe7e4', neutralSoft: '#f0f2ec',
-    surfaceDark: '#10241f', surfaceDarkInk: '#cde8dd',
+    red: '#b3261e', redSoft: '#fbe7e4', neutralSoft: '#f6f8fa',
+    surfaceDark: '#f6f8fa', surfaceDarkInk: '#1f2328',
     rad: '8px', radFull: '20px', fontMono: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
   }
 
@@ -135,6 +135,8 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
     const [q, setQ] = React.useState('')
     const [busy, setBusy] = React.useState(false)
     const [error, setError] = React.useState('')
+    const [editing, setEditing] = React.useState(null)
+    const [editForm, setEditForm] = React.useState({ title: '', keywords: '', body: '' })
 
     const reload = React.useCallback(async () => {
       setBusy(true)
@@ -159,6 +161,27 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
     const act = async (fn) => {
       setBusy(true)
       try { await fn(); await reload() } catch (err) { setError(String(err?.message ?? err)) } finally { setBusy(false) }
+    }
+
+    const startEdit = (e) => {
+      setEditing(e)
+      setEditForm({ title: e.title ?? '', keywords: (e.keywords || []).join(', '), body: e.body ?? '' })
+    }
+    const saveEdit = () => {
+      if (editing === null) return
+      act(async () => {
+        await apiPost('update', {
+          id: editing.id,
+          title: editForm.title,
+          body: editForm.body,
+          keywords: editForm.keywords.split(',').map((k) => k.trim()).filter(Boolean),
+        })
+        setEditing(null)
+      })
+    }
+    const removeEntry = (e) => {
+      if (!confirm('删除记忆“' + (e.title || e.id) + '”？此操作会归档该条目。')) return
+      act(() => apiPost('forget', { id: e.id }))
     }
 
     const badgeClass = (activation, expired) => expired ? 'err'
@@ -189,6 +212,14 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
               h('button', { className: 'dshmh-btn', style: pack === '' ? { color: TOKENS.teal } : undefined, onClick: () => setPack('') }, t('allPacks')),
               packs.map((p) => h('button', { key: p.memoryPackId, className: 'dshmh-btn', style: pack === p.memoryPackId ? { borderColor: TOKENS.teal, color: TOKENS.teal } : undefined, onClick: () => setPack(p.memoryPackId) },
                 h('span', {}, p.memoryPackId), h('span', { className: 'dshmh-badge neutral' }, `${p.entries}`)))),
+            editing !== null && h('div', { className: 'dshmh-card', key: 'edit' },
+              h('div', { className: 'dshmh-sec', style: { marginTop: 0 } }, '编辑记忆 · ' + (editing.title || editing.id)),
+              h('input', { className: 'dshmh-search', style: { maxWidth: '100%', marginBottom: 8 }, value: editForm.title, onChange: (e) => setEditForm({ ...editForm, title: e.target.value }), placeholder: '标题' }),
+              h('input', { className: 'dshmh-search', style: { maxWidth: '100%', marginBottom: 8 }, value: editForm.keywords, onChange: (e) => setEditForm({ ...editForm, keywords: e.target.value }), placeholder: '关键词（逗号分隔）' }),
+              h('textarea', { className: 'dshmh-search', style: { width: '100%', maxWidth: '100%', minHeight: 90 }, value: editForm.body, onChange: (e) => setEditForm({ ...editForm, body: e.target.value }), placeholder: '正文' }),
+              h('div', { className: 'dshmh-bar' },
+                h('button', { className: 'dshmh-btn primary', disabled: busy, onClick: saveEdit }, '保存'),
+                h('button', { className: 'dshmh-btn', onClick: () => setEditing(null) }, '取消'))),
             h('div', { className: 'dshmh-sec', key: 'sec2' }, t('secEntries')),
             entryList(entries, badgeClass, badgeText),
             h('div', { className: 'dshmh-sec', key: 'sec3' }, t('secProposals') + ` (${proposals.length})`),
@@ -219,10 +250,13 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
     function entryList(entries, bc, bt) {
       if (entries === null) return h('div', { className: 'dshmh-empty' }, t('noEntry'))
       if (entries.length === 0) return h('div', { className: 'dshmh-empty' }, t('noEntry'))
-      return h('div', { key: 'el' }, entries.map((e) => h('div', { key: e.id, className: 'dshmh-row' },
+      return h('div', { key: 'el' }, entries.map((e) => h('div', { key: e.id, className: 'dshmh-row', style: { alignItems: 'center' } },
         h('span', { className: `dshmh-badge ${bc(e.activation, e.expired)}` }, bt(e)),
         h('span', { className: 'nm' }, e.title),
-        h('span', { className: 'meta' }, `r${e.revision} · ${e.packId} · ${e.name}`)))
+        h('span', { className: 'meta' }, `r${e.revision} · ${e.packId} · ${e.name}`),
+        h('span', { style: { flex: 1 } }),
+        h('button', { className: 'dshmh-btn', disabled: busy, onClick: () => startEdit(e) }, '编辑'),
+        h('button', { className: 'dshmh-btn', disabled: busy, onClick: () => removeEntry(e) }, '删除')))
       )
     }
 

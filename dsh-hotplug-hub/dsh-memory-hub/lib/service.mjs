@@ -9,7 +9,7 @@
 import { MemoryProtocolCore } from './protocol.mjs'
 import { recall, queryTerms } from './bm25.mjs'
 import { STRINGS, DEFAULTS, REVIEW_EVERY_TURNS } from './constants.mjs'
-import { InvalidInputError } from './errors.mjs'
+import { InvalidInputError, NotFoundError } from './errors.mjs'
 
 const ROUTE_KW_MAX = 128
 
@@ -74,6 +74,33 @@ export class MemoryHubService extends MemoryProtocolCore {
     const packId = payload.pack ?? routePackId(this.store.readRoutes(), packText(payload.entry))
     return this.submit({ action: 'create', packId, entry: payload.entry, reason: payload.reason ?? 'memory.suggest' })
   }
+  /** GUI/用户直接编辑（绕过 ask 提案，操作者=user；面板编辑按钮专用）。 */
+  updateDirect(payload) {
+    const found = this.store.findById(String(payload?.id ?? ''))
+    if (found === null) throw new NotFoundError(`条目不存在：${payload?.id}`)
+    const prev = found.entry
+    const next = {
+      ...prev,
+      title: typeof payload.title === 'string' && payload.title.trim() !== '' ? payload.title.trim().slice(0, 200) : prev.title,
+      body: typeof payload.body === 'string' ? payload.body : prev.body,
+      description: typeof payload.description === 'string' ? payload.description : prev.description,
+      keywords: Array.isArray(payload.keywords) ? payload.keywords.map((k) => String(k).slice(0, 60)) : prev.keywords,
+      type: ['user', 'feedback', 'project', 'reference'].includes(payload.type) ? payload.type : prev.type,
+    }
+    const entry = this.applyCreateOrUpdate(found.packId, next)
+    this.auditWrite('update', found.packId, entry.id, { outcome: 'allowed', source: 'user' })
+    return entry
+  }
+
+  /** GUI/用户直接删除（归档 + 移除活跃条目，操作者=user）。 */
+  removeDirect(id) {
+    const found = this.store.findById(String(id ?? ''))
+    if (found === null) throw new NotFoundError(`条目不存在：${id}`)
+    const removed = this.applyRemove(found.packId, found.entry.id)
+    this.auditWrite('remove', found.packId, found.entry.id, { outcome: 'allowed', source: 'user' })
+    return removed
+  }
+
 
   // ----- L3 日志轨（M3：不注入、按需读取，project/daily 高频内容）-----
 

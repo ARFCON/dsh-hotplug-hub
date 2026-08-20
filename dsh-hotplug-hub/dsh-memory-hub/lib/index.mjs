@@ -145,6 +145,43 @@ function buildTools(service, config) {
   }))
 
   tools.push(defineTool({
+    name: 'memory.update',
+    description: `Update a memory entry by id (title/body/description/keywords/type). Under writePolicy=ask (default) this creates a pending proposal like memory.commit; once approved the entry revision+1 and updatedAt refreshes. Use when the user corrects, edits, or asks to modify a remembered fact.`,
+    parameters: {
+      id: { type: 'string', required: true, description: 'Entry id (mem-...) to update.' },
+      title: { type: 'string', description: 'New title.' },
+      body: { type: 'string', description: 'New markdown body.' },
+      description: { type: 'string', description: 'New one-line description.' },
+      keywords: { type: 'array', items: { type: 'string' }, description: 'New keywords.' },
+      type: { type: 'string', enum: ['user', 'feedback', 'project', 'reference'], description: 'New type.' },
+    },
+    output: TEXT_OUTPUT,
+    timeoutMs: 10_000,
+    isConcurrencySafe: () => true,
+    execute: async (args) => {
+      const found = service.store.findById(String(args.id ?? ''))
+      if (found === null) return `未找到记忆条目：${args.id}`
+      const prev = found.entry
+      const res = await service.submit({
+        action: 'update',
+        packId: found.packId,
+        entry: {
+          id: prev.id,
+          name: prev.name,
+          title: args.title !== undefined ? String(args.title) : prev.title,
+          body: args.body !== undefined ? String(args.body) : prev.body,
+          description: args.description !== undefined ? String(args.description) : prev.description,
+          keywords: Array.isArray(args.keywords) ? args.keywords : prev.keywords,
+          type: args.type !== undefined ? args.type : prev.type,
+        },
+        reason: 'memory.update',
+      })
+      if (res.approved && res.entry) return `已更新记忆：${res.entry.name}（id ${res.entry.id}，revision ${res.entry.revision}）`
+      return `已创建更新提案：${res.proposalId}（writePolicy=ask，等待用户 /memory review 采纳）`
+    },
+  }))
+
+  tools.push(defineTool({
     name: 'memory.list',
     description: 'List memory hub entries / archived / pending proposals / memory packs.',
     parameters: {

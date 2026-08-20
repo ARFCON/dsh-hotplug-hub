@@ -332,6 +332,11 @@ button { font: inherit; color: inherit; }
   .wrap { padding: 14px; }
   .topbar { padding: 12px 14px; }
 }
+
+.mem-body{font-size:12.5px;color:var(--muted);line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.mem-edit{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);padding:14px;margin-top:14px}
+.mem-ta{width:100%;min-height:120px;margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--rad-sm);font:inherit;font-size:12.5px;resize:vertical;background:#fff;color:var(--ink)}
+.mem-ta:focus,.search:focus{outline:2px solid var(--teal);outline-offset:0}
 </style>
 </head>
 <body>
@@ -343,7 +348,7 @@ button { font: inherit; color: inherit; }
       </div>
       <div>
         <div class="brand-name">Dseam世界</div>
-        <div class="brand-sub">Dseam v0.2.0</div>
+        <div class="brand-sub">Dseam v0.8.0-pre</div>
       </div>
     </div>
     <nav class="nav" id="nav"></nav>
@@ -1455,31 +1460,100 @@ function compose() {
   tick();
 }
 
+function memoryRowHtml(m, index) {
+  const body = m.body || '';
+  const shown = body.length > 240 ? body.slice(0, 240) + '…' : body;
+  return `
+    <div class="mem" data-mem="${esc(m.id)}">
+      <div class="mem-top">
+        <div class="pack-icon" style="background:var(--teal)">${esc((m.title || 'M').slice(0, 1))}</div>
+        <div class="pack-title">
+          <h3>${esc(m.title || m.id)}</h3>
+          <div class="meta">${esc(m.packId || '')} · ${esc(m.type || '')} · ${esc((m.updatedAt || '').slice(0, 10))}</div>
+        </div>
+        <span class="badge ok">已记忆</span>
+      </div>
+      <div class="tags">${(m.keywords || []).map((k) => `<span class="kw">${esc(k)}</span>`).join('')}</div>
+      <div class="mem-body">${esc(shown)}</div>
+      <div class="pack-foot" style="margin-top:10px">
+        <div class="spacer"></div>
+        <button class="btn sm" data-edit-memory="${esc(m.id)}">${ICONS.edit || '✎'} 编辑</button>
+        <button class="btn sm danger" data-del-memory="${esc(m.id)}">${ICONS.trash} 删除</button>
+      </div>
+    </div>`;
+}
+
 function renderMemory() {
   const isWebView = !!(window.chrome && window.chrome.webview);
   const rows = isWebView ? (window.__memoryData || []) : [];
+  const q = ($('memSearch') && $('memSearch').value || '').trim().toLowerCase();
+  const filtered = q ? rows.filter((m) => ((m.title || '') + ' ' + (m.body || '') + ' ' + (m.keywords || []).join(' ')).toLowerCase().includes(q)) : rows;
   const emptyHint = isWebView
     ? '还没有真实记忆，读取文档后会自动写入 memory-hub'
     : '记忆中枢已接入 ~/.dsh/memory-hub，请在 DSH Desktop 中查看真实记忆。';
   $('view-memory').innerHTML = `
     <div class="section-head">
-      <div><h2>记忆中枢</h2><div class="sub">真实读取 ~/.dsh/memory-hub</div></div>
+      <div><h2>记忆中枢</h2><div class="sub">真实读取 ~/.dsh/memory-hub · 支持编辑与删除</div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="search" id="memSearch" placeholder="搜索标题 / 正文 / 关键词" value="${esc(q)}">
+        <button class="btn primary" id="memRefresh">${ICONS.refresh || '↻'} 刷新</button>
+      </div>
     </div>
     <div class="mem-list">
-      ${rows.length ? rows.map((m) => `
-        <div class="mem">
-          <div class="mem-top">
-            <div class="pack-icon" style="background:var(--teal)">${esc((m.title || 'M').slice(0, 1))}</div>
-            <div class="pack-title">
-              <h3>${esc(m.title || m.id)}</h3>
-              <div class="meta">${esc(m.packId || '')} · ${esc(m.type || '')}</div>
-            </div>
-            <span class="badge ok">已记忆</span>
-          </div>
-          <div class="tags">${(m.keywords || []).map((k) => `<span class="kw">${esc(k)}</span>`).join('')}</div>
-          <div style="font-size:12px;color:var(--muted)">${esc((m.body || '').slice(0, 200))}</div>
-        </div>`).join('') : `<div class="empty">${emptyHint}</div>`}
+      ${filtered.length ? filtered.map(memoryRowHtml).join('') : `<div class="empty">${emptyHint}</div>`}
     </div>`;
+  const refresh = $('memRefresh');
+  if (refresh) refresh.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('listMemory'); return; }
+    renderMemory();
+  });
+  const search = $('memSearch');
+  if (search) search.addEventListener('input', renderMemory);
+  document.querySelectorAll('[data-del-memory]').forEach((b) => b.addEventListener('click', () => {
+    const id = b.dataset.delMemory;
+    if (!confirm('删除这条记忆？删除后不可恢复。')) return;
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('deleteMemory:' + id); return; }
+    state.memories = (state.memories || []).filter((m) => m.id !== id);
+    save(); renderMemory();
+  }));
+  document.querySelectorAll('[data-edit-memory]').forEach((b) => b.addEventListener('click', () => {
+    const id = b.dataset.editMemory;
+    const row = rows.find((m) => m.id === id) || {};
+    const form = $('memEditForm');
+    if (form) form.remove();
+    const box = document.createElement('div');
+    box.id = 'memEditForm';
+    box.className = 'mem-edit';
+    box.innerHTML = `
+      <div class="section-head"><div><h3>编辑记忆</h3><div class="sub">修改后保存，更新 updatedAt</div></div></div>
+      <div class="toolbar">
+        <input class="search" id="memEditTitle" placeholder="标题" value="${esc(row.title || '')}">
+        <input class="search" id="memEditType" placeholder="类型 user/project/reference/feedback" value="${esc(row.type || '')}">
+      </div>
+      <div class="toolbar">
+        <input class="search" id="memEditKeywords" placeholder="关键词，逗号分隔" value="${esc((row.keywords || []).join(', '))}">
+      </div>
+      <textarea id="memEditBody" class="mem-ta" placeholder="记忆正文">${esc(row.body || '')}</textarea>
+      <div class="pack-foot" style="margin-top:10px">
+        <div class="spacer"></div>
+        <button class="btn" id="memEditCancel">取消</button>
+        <button class="btn primary" id="memEditSave">保存修改</button>
+      </div>`;
+    $('view-memory').appendChild(box);
+    $('memEditCancel').addEventListener('click', () => box.remove());
+    $('memEditSave').addEventListener('click', () => {
+      const title = $('memEditTitle').value.trim();
+      const type = $('memEditType').value.trim();
+      const keywords = $('memEditKeywords').value.split(',').map((k) => k.trim()).filter(Boolean);
+      const body = $('memEditBody').value;
+      if (!title && !body) return;
+      const payload = { id, title, type, keywords, body };
+      if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('saveMemory:' + JSON.stringify(payload)); return; }
+      const target = (state.memories || []).find((m) => m.id === id);
+      if (target) { target.title = title || target.title; target.type = type || target.type; target.keywords = keywords; target.body = body; }
+      save(); box.remove(); renderMemory();
+    });
+  }));
 }
 
 function getChecks() {
@@ -1568,32 +1642,47 @@ function renderSkills() {
   }));
 }
 
+function mcpRowHtml(m) {
+  const isHttp = (m.transport === 'streamable-http');
+  const target = isHttp ? (m.url || '') : ((m.command || '') + ' ' + ((m.args || []).join(' ')));
+  return `
+    <div class="pack">
+      <div class="pack-top">
+        <div class="pack-icon" style="background:#1d5f9e">${esc((m.name || 'M').slice(0, 1))}</div>
+        <div class="pack-title">
+          <h3>${esc(m.name)}</h3>
+          <div class="meta">${isHttp ? 'HTTP · ' : 'STDIO · '}${esc(target)}</div>
+        </div>
+        <span class="badge ${m.enabled ? 'ok' : 'neutral'}">${m.enabled ? '已启用' : '已停用'}</span>
+      </div>
+      <div class="pack-foot">
+        <div class="spacer"></div>
+        <button class="btn sm" data-test-mcp="${esc(m.id)}">${ICONS.play || '▶'} 测试</button>
+        <button class="btn sm danger" data-del-mcp="${esc(m.id)}">${ICONS.trash} 删除</button>
+        <button class="switch" role="switch" aria-checked="${m.enabled}" data-mcp="${esc(m.id)}"></button>
+      </div>
+    </div>`;
+}
+
 function renderMcp() {
   const rows = (window.chrome && window.chrome.webview && window.__mcpsData) || state.mcps || [];
   const market = MCP_CATALOG || [];
   const installedIds = new Set(rows.map((m) => m.id));
   $('view-mcp').innerHTML = `
     <div class="section-head">
-      <div><h2>MCP 管理</h2><div class="sub">MCP 服务器开关、新增与市场</div></div>
+      <div><h2>MCP 管理</h2><div class="sub">统一读写 dsh-skill-mcp-panel 受管块 · 支持 STDIO / streamable-http</div></div>
     </div>
     <div class="pack-list">
-      ${rows.length ? rows.map((m) => `
-        <div class="pack">
-          <div class="pack-top">
-            <div class="pack-icon" style="background:#1d5f9e">${esc(m.name.slice(0, 1))}</div>
-            <div class="pack-title"><h3>${esc(m.name)}</h3><div class="meta">${esc(m.command || '')} ${esc(m.args || '')}</div></div>
-            <span class="badge ${m.enabled ? 'ok' : 'neutral'}">${m.enabled ? '已启用' : '已停用'}</span>
-          </div>
-          <div class="pack-foot">
-            <div class="spacer"></div>
-            <button class="btn sm danger" onclick="removeMcp('${esc(m.id)}')">${ICONS.trash} 删除</button><button class="switch" role="switch" aria-checked="${m.enabled}" data-mcp="${esc(m.id)}"></button>
-          </div>
-        </div>`).join('') : '<div class="empty">还没有 MCP 服务器</div>'}
+      ${rows.length ? rows.map(mcpRowHtml).join('') : '<div class="empty">还没有 MCP 服务器</div>'}
     </div>
     <div class="toolbar">
-      <input class="search" id="newMcpName" placeholder="MCP 名称">
-      <input class="search" id="newMcpCmd" placeholder="命令，如 npx">
-      <input class="search" id="newMcpArgs" placeholder="参数">
+      <input class="search" id="newMcpName" placeholder="MCP 名称（如 godot-mcp）">
+      <select class="search" id="newMcpTransport" style="max-width:160px">
+        <option value="stdio">STDIO 命令</option>
+        <option value="streamable-http">HTTP 地址</option>
+      </select>
+      <input class="search" id="newMcpCmd" placeholder="STDIO 命令，如 npx 或 http 地址">
+      <input class="search" id="newMcpArgs" placeholder="参数（空格分隔，STDIO 用）">
       <button class="btn primary" id="addMcpBtn">＋ 新增 MCP</button>
     </div>
     <div class="section-head" style="margin-top:18px"><div><h2>MCP 市场</h2><div class="sub">一键添加到本地</div></div></div>
@@ -1614,22 +1703,38 @@ function renderMcp() {
   const add = $('addMcpBtn');
   if (add) add.addEventListener('click', () => {
     const name = $('newMcpName').value.trim();
+    const transport = $('newMcpTransport').value;
     const command = $('newMcpCmd').value.trim();
-    if (!name || !command) return;
-    const payload = { name, command, args: $('newMcpArgs').value.trim() };
+    const args = $('newMcpArgs').value.trim();
+    if (!name) return;
+    const payload = { name, transport, command, args: args ? args.split(/\s+/) : [], url: command };
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('addMcp:' + JSON.stringify(payload)); return; }
     state.mcps = state.mcps || [];
-    state.mcps.push({ id: 'mcp-' + Date.now().toString(36), name, enabled: false, command, args: payload.args });
+    state.mcps.push({ id: name, name, enabled: false, transport, command, args: payload.args, url: command });
     save(); renderMcp();
   });
   document.querySelectorAll('[data-add-mcp]').forEach((b) => b.addEventListener('click', () => {
     const item = market.find((x) => x.id === b.dataset.addMcp);
     if (!item) return;
-    const payload = { name: item.name, command: item.command, args: item.args };
+    const payload = { name: item.name, transport: 'stdio', command: item.command, args: item.args ? item.args.split(/\s+/) : [] };
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('addMcp:' + JSON.stringify(payload)); return; }
     state.mcps = state.mcps || [];
-    if (!state.mcps.some((m) => m.id === item.id)) state.mcps.push({ id: item.id, name: item.name, enabled: false, command: item.command, args: item.args });
+    if (!state.mcps.some((m) => m.id === item.id)) state.mcps.push({ id: item.id, name: item.name, enabled: false, transport: 'stdio', command: item.command, args: payload.args });
     save(); renderMcp();
+  }));
+  document.querySelectorAll('[data-mcp]').forEach((sw) => sw.addEventListener('click', () => {
+    const id = sw.dataset.mcp;
+    const on = sw.getAttribute('aria-checked') === 'true';
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage((on ? 'disableMcp:' : 'enableMcp:') + id); return; }
+    const row = (state.mcps || []).find((m) => m.id === id);
+    if (row) { row.enabled = !on; save(); renderMcp(); }
+  }));
+  document.querySelectorAll('[data-test-mcp]').forEach((b) => b.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('startMcp:' + b.dataset.testMcp); return; }
+    alert('测试需在 DSH Desktop 的 WebView 中运行');
+  }));
+  document.querySelectorAll('[data-del-mcp]').forEach((b) => b.addEventListener('click', () => {
+    removeMcp(b.dataset.delMcp);
   }));
 }
 function renderCheck() {

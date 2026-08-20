@@ -51,7 +51,8 @@ export function buildMemoryApi(service) {
       return list.slice(0, limit).map((e) => ({
         id: e.id, name: e.name, title: e.title, type: e.type, scope: e.scope,
         activation: e.activation, revision: e.revision, packId: e.packId,
-        keywords: e.keywords ?? [], updatedAt: e.updatedAt, expired: e.expiresAt ? Date.parse(e.expiresAt) < Date.now() : false,
+        keywords: e.keywords ?? [], body: e.body ?? '', description: e.description ?? '',
+        updatedAt: e.updatedAt, expired: e.expiresAt ? Date.parse(e.expiresAt) < Date.now() : false,
       }))
     },
 
@@ -62,6 +63,16 @@ export function buildMemoryApi(service) {
         limit: clamp(payload.limit, 1, 8, 4),
       })
       return { query: res.query, pack: res.pack, hits: res.hits, count: res.count, warning: res.warning }
+    },
+
+    update(payload = {}) {
+      const entry = service.updateDirect(payload)
+      return { ok: true, id: entry.id, revision: entry.revision, updatedAt: entry.updatedAt }
+    },
+
+    forget(payload = {}) {
+      const removed = service.removeDirect(payload.id)
+      return { ok: true, removed: { id: removed.id, name: removed.name } }
     },
 
     proposals(payload = {}) {

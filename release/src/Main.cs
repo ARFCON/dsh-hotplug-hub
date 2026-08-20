@@ -34,7 +34,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.2.0";
+        private const string APP_VERSION = "0.8.0-pre";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_REPO = "Fishquito7/dsh-skill-mcp-panel";
         // GitHub Token 不再硬编码进源码（仓库会触发 secret scanning）。
@@ -61,6 +61,8 @@ namespace DSHHotplugHub
         }
         private static bool _updateNotified = false;
         private static bool _panelUpdateNotified = false;
+        private NotifyIcon _trayIcon = null;
+        private bool _allowExit = false;
 
         public MainForm()
         {
@@ -77,6 +79,49 @@ namespace DSHHotplugHub
 
             Controls.Add(webView);
             Load += async delegate { await InitializeAsync(); };
+            FormClosing += (sender, e) =>
+            {
+                if (_allowExit) return;
+                // 关闭窗口时隐藏到托盘，保持后台进程常驻（运行后后台也有进程）。
+                e.Cancel = true;
+                Hide();
+                ShowInTaskbar = false;
+            };
+            SetupTray();
+        }
+
+        // 托盘常驻：关闭窗口不退出，从托盘恢复或退出。
+        private void SetupTray()
+        {
+            try
+            {
+                _trayIcon = new NotifyIcon();
+                _trayIcon.Text = "Dseam世界（DSH 插座中枢）";
+                try { _trayIcon.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
+                catch { _trayIcon.Icon = SystemIcons.Application; }
+                ContextMenuStrip menu = new ContextMenuStrip();
+                menu.Items.Add("打开 Dseam世界", null, delegate { ShowMainForm(); });
+                menu.Items.Add("退出", null, delegate { ExitApplication(); });
+                _trayIcon.ContextMenuStrip = menu;
+                _trayIcon.DoubleClick += delegate { ShowMainForm(); };
+                _trayIcon.Visible = true;
+            }
+            catch { /* 有意吞掉：托盘不可用时应用仍可正常使用 */ }
+        }
+
+        private void ShowMainForm()
+        {
+            Show();
+            ShowInTaskbar = true;
+            WindowState = FormWindowState.Normal;
+            Activate();
+        }
+
+        private void ExitApplication()
+        {
+            _allowExit = true;
+            try { _trayIcon.Visible = false; _trayIcon.Dispose(); } catch { /* 有意吞掉 */ }
+            Application.Exit();
         }
 
         private async Task InitializeAsync()
@@ -151,6 +196,16 @@ namespace DSHHotplugHub
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory(" + GetMemoryJson() + ");");
                         }
+                        else if (message != null && message.StartsWith("deleteMemory:"))
+                        {
+                            DeleteMemoryFile(message.Substring("deleteMemory:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory(" + GetMemoryJson() + ");");
+                        }
+                        else if (message != null && message.StartsWith("saveMemory:"))
+                        {
+                            SaveMemoryFile(message.Substring("saveMemory:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory(" + GetMemoryJson() + ");");
+                        }
                         else if (message == "listSkills")
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
@@ -185,9 +240,20 @@ namespace DSHHotplugHub
                         }
                         else if (message != null && message.StartsWith("startMcp:"))
                         {
-                            StartMcpProcess(message.Substring("startMcp:".Length));
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
-                        }                        else if (message != null && message.StartsWith("ai:"))
+                            string testResult = StartMcpProcess(message.Substring("startMcp:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(testResult) + ");");
+                        }
+                        else if (message != null && message.StartsWith("enableMcp:"))
+                        {
+                            RunDshPanelCli("mcp enable \"" + SanitizeServerName(message.Substring("enableMcp:".Length)) + "\"");
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                        }
+                        else if (message != null && message.StartsWith("disableMcp:"))
+                        {
+                            RunDshPanelCli("mcp disable \"" + SanitizeServerName(message.Substring("disableMcp:".Length)) + "\"");
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                        }
+                        else if (message != null && message.StartsWith("ai:"))
                         {
                             await HandleAiRequestAsync(message.Substring(3));
                         }
@@ -1423,7 +1489,7 @@ namespace DSHHotplugHub
                 Dictionary<string, string> info = GetMemoryHubReleaseInfo();
                 string url = info != null && info.ContainsKey("url")
                     ? info["url"]
-                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.2.0/dsh-memory-hub-0.2.1.tgz";
+                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.8.0-pre/dsh-memory-hub-0.8.0-pre.tgz";
                 string latest = info != null && info.ContainsKey("latest") ? info["latest"] : null;
                 string installed = GetInstalledMemoryHubVersion();
                 if (!string.IsNullOrEmpty(installed) && !string.IsNullOrEmpty(latest) && installed == latest)
@@ -1645,8 +1711,108 @@ namespace DSHHotplugHub
             }
             if (!m.ContainsKey("title")) m["title"] = Path.GetFileNameWithoutExtension(file);
             string bodyText = string.IsNullOrEmpty(body) ? "" : body;
-            m["body"] = bodyText.Length > 200 ? bodyText.Substring(0, 200) : bodyText;
+            m["body"] = bodyText.Length > 2000 ? bodyText.Substring(0, 2000) : bodyText;
             return m;
+        }
+
+        private static string FindMemoryEntryFile(string id)
+        {
+            try
+            {
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string hubDir = Path.Combine(home, ".dsh", "memory-hub");
+                if (!Directory.Exists(hubDir)) return null;
+                foreach (string packDir in Directory.GetDirectories(hubDir))
+                {
+                    string entriesDir = Path.Combine(packDir, "entries");
+                    if (!Directory.Exists(entriesDir)) continue;
+                    foreach (string entryFile in Directory.GetFiles(entriesDir, "*.md"))
+                    {
+                        if (Path.GetFileNameWithoutExtension(entryFile) == id) return entryFile;
+                        Dictionary<string, object> entry = ParseMemoryEntry(entryFile);
+                        if (entry.ContainsKey("id") && Convert.ToString(entry["id"]) == id) return entryFile;
+                    }
+                }
+            }
+            catch { /* 有意吞掉：查找失败返回 null，调用方按不存在处理 */ }
+            return null;
+        }
+
+        private static string SetFmValue(string fm, string key, string value)
+        {
+            string[] lines = fm.Replace("\r\n", "\n").Split('\n');
+            List<string> next = new List<string>();
+            bool replaced = false;
+            foreach (string line in lines)
+            {
+                string t = line.TrimEnd('\r');
+                if (t.StartsWith(key + ":"))
+                {
+                    next.Add(key + ": " + value);
+                    replaced = true;
+                }
+                else
+                {
+                    next.Add(t);
+                }
+            }
+            if (!replaced) next.Add(key + ": " + value);
+            return string.Join("\n", next);
+        }
+
+        private static void DeleteMemoryFile(string id)
+        {
+            try
+            {
+                string file = FindMemoryEntryFile(id);
+                if (file != null) File.Delete(file);
+            }
+            catch { /* 有意吞掉：删除失败在刷新后可见，不阻塞主流程 */ }
+        }
+
+        private static void SaveMemoryFile(string payload)
+        {
+            try
+            {
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> data = ser.Deserialize<Dictionary<string, object>>(payload);
+                if (data == null) return;
+                string id = data.ContainsKey("id") ? Convert.ToString(data["id"]) : "";
+                string file = FindMemoryEntryFile(id);
+                if (file == null) return;
+                string text = File.ReadAllText(file);
+                string title = data.ContainsKey("title") ? Convert.ToString(data["title"]) : "";
+                string body = data.ContainsKey("body") ? Convert.ToString(data["body"]) : "";
+                string type = data.ContainsKey("type") ? Convert.ToString(data["type"]) : "";
+                object[] keywords = data.ContainsKey("keywords") ? data["keywords"] as object[] : null;
+                List<string> kw = new List<string>();
+                if (keywords != null)
+                {
+                    foreach (object k in keywords)
+                    {
+                        string p = Convert.ToString(k).Trim();
+                        if (p.Length > 0) kw.Add(p);
+                    }
+                }
+                string fm = "";
+                string oldBody = "";
+                if (text.StartsWith("---"))
+                {
+                    int end = text.IndexOf("\n---", 3);
+                    if (end > 0)
+                    {
+                        fm = text.Substring(3, end - 3);
+                        oldBody = text.Substring(end + 4).Trim();
+                    }
+                }
+                if (title.Length > 0) fm = SetFmValue(fm, "title", title);
+                if (type.Length > 0) fm = SetFmValue(fm, "type", type);
+                fm = SetFmValue(fm, "updatedAt", DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'"));
+                if (kw.Count > 0) fm = SetFmValue(fm, "keywords", new JavaScriptSerializer().Serialize(kw));
+                if (body.Length == 0) body = oldBody;
+                File.WriteAllText(file, "---\n" + fm + "\n---\n\n" + body + "\n");
+            }
+            catch { /* 有意吞掉：保存失败在刷新后可见，不阻塞主流程 */ }
         }
         private static string GetSkillsJson()
         {
@@ -1783,17 +1949,102 @@ namespace DSHHotplugHub
             catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
 
+
+        private static string PanelCliPath()
+        {
+            try
+            {
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string cli = Path.Combine(home, ".dsh", "profiles", "web", "node_modules", "dsh-skill-mcp-panel", "lib", "cli.js");
+                if (File.Exists(cli)) return cli;
+                cli = Path.Combine(home, ".dsh", "profiles", "desktop", "node_modules", "dsh-skill-mcp-panel", "lib", "cli.js");
+                if (File.Exists(cli)) return cli;
+            }
+            catch { /* 有意吞掉：找不到面板 CLI 时 MCP 管理按失败处理 */ }
+            return null;
+        }
+
+        private static string RunDshPanelCli(string arguments)
+        {
+            string cli = PanelCliPath();
+            if (cli == null) return null;
+            return RunCli("node", "\"" + cli + "\" " + arguments);
+        }
+
+        private static string ExtractYamlValue(string text, string key)
+        {
+            string pattern = "^\\s*" + key + ":\\s*(.*)$";
+            foreach (string line in text.Replace("\r\n", "\n").Split('\n'))
+            {
+                System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(line, pattern);
+                if (m.Success)
+                {
+                    string v = m.Groups[1].Value.Trim();
+                    if (v.Length >= 2 && ((v[0] == '\'' && v[v.Length - 1] == '\'') || (v[0] == '"' && v[v.Length - 1] == '"'))) v = v.Substring(1, v.Length - 2);
+                    return v;
+                }
+            }
+            return null;
+        }
+
+        private static List<string> ExtractYamlStringList(string text, string key)
+        {
+            List<string> list = new List<string>();
+            string pattern = "^\\s*" + key + ":\\s*\\[(.*)\\]\\s*$";
+            foreach (string line in text.Replace("\r\n", "\n").Split('\n'))
+            {
+                System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(line, pattern);
+                if (m.Success)
+                {
+                    string inner = m.Groups[1].Value;
+                    foreach (string part in inner.Split(','))
+                    {
+                        string p = part.Trim().Trim('\'', '"');
+                        if (p.Length > 0) list.Add(p);
+                    }
+                    break;
+                }
+            }
+            return list;
+        }
+
         private static string GetMcpsJson()
         {
             try
             {
-                string file = McpFilePath();
-                if (!File.Exists(file))
+                List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
+                string patch = McpPatchPath();
+                if (File.Exists(patch))
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(file));
-                    File.WriteAllText(file, "[]");
+                    string text = File.ReadAllText(patch);
+                    string begin = "# >>> dsh-skill-mcp-panel:mcp:begin";
+                    string end = "# <<< dsh-skill-mcp-panel:mcp:end";
+                    int b = text.IndexOf(begin);
+                    int e = text.IndexOf(end);
+                    if (b >= 0 && e > b)
+                    {
+                        string block = text.Substring(b + begin.Length, e - b - begin.Length);
+                        System.Text.RegularExpressions.MatchCollection rows = System.Text.RegularExpressions.Regex.Matches(block, @"- id:\s*(panel-mcp-[A-Za-z0-9_-]+)[\s\S]*?(?=\n\s*- id:|\z)");
+                        foreach (System.Text.RegularExpressions.Match rowMatch in rows)
+                        {
+                            string rowText = rowMatch.Value;
+                            string id = rowMatch.Groups[1].Value;
+                            string serverName = ExtractYamlValue(rowText, "serverName") ?? id;
+                            string transport = ExtractYamlValue(rowText, "transport") ?? "stdio";
+                            Dictionary<string, object> item = new Dictionary<string, object>();
+                            item["id"] = serverName;
+                            item["name"] = serverName;
+                            item["enabled"] = !rowText.Contains("disabled: true");
+                            item["transport"] = transport;
+                            item["command"] = ExtractYamlValue(rowText, "command") ?? "";
+                            item["url"] = ExtractYamlValue(rowText, "url") ?? "";
+                            item["args"] = ExtractYamlStringList(rowText, "args");
+                            item["autoStart"] = false;
+                            list.Add(item);
+                        }
+                    }
                 }
-                return File.ReadAllText(file);
+                return new JavaScriptSerializer().Serialize(list);
             }
             catch { return "[]"; }
         }
@@ -1803,35 +2054,58 @@ namespace DSHHotplugHub
             try
             {
                 JavaScriptSerializer ser = new JavaScriptSerializer();
-                Dictionary<string, object> mcp = ser.Deserialize<Dictionary<string, object>>(payload);
-                if (mcp == null) return;
-                string file = McpFilePath();
-                List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
-                if (File.Exists(file)) list = ser.Deserialize<List<Dictionary<string, object>>>(File.ReadAllText(file)) ?? new List<Dictionary<string, object>>();
-                if (!mcp.ContainsKey("id") || mcp["id"] == null) mcp["id"] = "mcp-" + DateTime.Now.Ticks.ToString("x");
-                string id = Convert.ToString(mcp["id"]);
-                int idx = list.FindIndex((x) => x.ContainsKey("id") && Convert.ToString(x["id"]) == id);
-                if (idx >= 0) list[idx] = mcp; else list.Add(mcp);
-                Directory.CreateDirectory(Path.GetDirectoryName(file));
-                File.WriteAllText(file, ser.Serialize(list));
-                WriteMcpToPatch(mcp);
+                Dictionary<string, object> data = ser.Deserialize<Dictionary<string, object>>(payload);
+                if (data == null) return;
+                string name = data.ContainsKey("name") ? Convert.ToString(data["name"]) : "";
+                string oldName = data.ContainsKey("oldName") ? Convert.ToString(data["oldName"]) : "";
+                name = SanitizeServerName(name);
+                if (name.Length == 0) return;
+                string transport = data.ContainsKey("transport") ? Convert.ToString(data["transport"]) : "stdio";
+                bool enabled = !data.ContainsKey("enabled") || Convert.ToBoolean(data["enabled"]);
+                if (!string.IsNullOrEmpty(oldName) && oldName != name) RunDshPanelCli("mcp remove \"" + oldName + "\" --yes");
+                RunDshPanelCli("mcp remove \"" + name + "\" --yes");
+                string addArgs = "mcp add --profile web --name \"" + name + "\" ";
+                if (transport == "streamable-http")
+                {
+                    string url = data.ContainsKey("url") ? Convert.ToString(data["url"]) : "";
+                    if (url.Length == 0) return;
+                    addArgs += "--http --url \"" + url + "\"";
+                }
+                else
+                {
+                    string command = data.ContainsKey("command") ? Convert.ToString(data["command"]) : "";
+                    if (command.Length == 0) return;
+                    addArgs += "--stdio --command \"" + command + "\"";
+                    if (data.ContainsKey("args"))
+                    {
+                        object[] arr = data["args"] as object[];
+                        if (arr == null && data["args"] is string)
+                        {
+                            string argsRaw = Convert.ToString(data["args"]);
+                            foreach (string part in argsRaw.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                addArgs += " --args \"" + part + "\"";
+                            }
+                        }
+                        else if (arr != null)
+                        {
+                            foreach (object a in arr) addArgs += " --args \"" + Convert.ToString(a) + "\"";
+                        }
+                    }
+                }
+                RunDshPanelCli(addArgs);
+                if (!enabled) RunDshPanelCli("mcp disable \"" + name + "\"");
             }
-            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
+            catch { /* 有意吞掉：MCP 保存失败在刷新后可见，不阻塞主流程 */ }
         }
 
         private static void DeleteMcpFile(string id)
         {
             try
             {
-                string file = McpFilePath();
-                if (!File.Exists(file)) return;
-                JavaScriptSerializer ser = new JavaScriptSerializer();
-                List<Dictionary<string, object>> list = ser.Deserialize<List<Dictionary<string, object>>>(File.ReadAllText(file)) ?? new List<Dictionary<string, object>>();
-                list.RemoveAll((x) => x.ContainsKey("id") && Convert.ToString(x["id"]) == id);
-                File.WriteAllText(file, ser.Serialize(list));
-                RemoveMcpFromPatch(id);
+                RunDshPanelCli("mcp remove \"" + SanitizeServerName(id) + "\" --yes");
             }
-            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
+            catch { /* 有意吞掉：删除失败在刷新后可见，不阻塞主流程 */ }
         }
 
         private static string McpPatchPath()
@@ -1846,63 +2120,18 @@ namespace DSHHotplugHub
             return s.Length == 0 ? "mcp" : s;
         }
 
-        private static void WriteMcpToPatch(Dictionary<string, object> mcp)
+        private static string StartMcpProcess(string id)
         {
             try
             {
-                string patch = McpPatchPath();
-                if (!File.Exists(patch)) return;
-                string id = Convert.ToString(mcp.ContainsKey("id") ? mcp["id"] : "mcp");
-                string serverName = SanitizeServerName(id);
-                string command = mcp.ContainsKey("command") ? Convert.ToString(mcp["command"]) : "";
-                string argsRaw = mcp.ContainsKey("args") ? Convert.ToString(mcp["args"]) : "";
-                string[] args = argsRaw.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                string text = File.ReadAllText(patch);
-                // 移除旧块
-                text = System.Text.RegularExpressions.Regex.Replace(text, @"- insert:\r?\n\s+- id: mcp-" + System.Text.RegularExpressions.Regex.Escape(id) + @"[\s\S]*?(?=\r?\n- insert:|\r?\n\s*#|\z)", "");
-                string block =
-                    "- insert:\n" +
-                    "    - id: mcp-" + id + "\n" +
-                    "      name: '@deepseek-ai/dsh-mcp-client'\n" +
-                    "      config:\n" +
-                    "        transport: stdio\n" +
-                    "        serverName: " + serverName + "\n" +
-                    "        command: " + command + "\n" +
-                    "        args: [" + string.Join(", ", args) + "]\n";
-                text = text.TrimEnd() + "\n" + block;
-                File.WriteAllText(patch, text);
+                string name = SanitizeServerName(id);
+                string output = RunDshPanelCli("mcp test \"" + name + "\"");
+                return output ?? "MCP 测试失败（未找到 dsh-skill-mcp-panel CLI）";
             }
-            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
-        }
-
-        private static void RemoveMcpFromPatch(string id)
-        {
-            try
+            catch (Exception ex)
             {
-                string patch = McpPatchPath();
-                if (!File.Exists(patch)) return;
-                string text = File.ReadAllText(patch);
-                text = System.Text.RegularExpressions.Regex.Replace(text, @"- insert:\r?\n\s+- id: mcp-" + System.Text.RegularExpressions.Regex.Escape(id) + @"[\s\S]*?(?=\r?\n- insert:|\r?\n\s*#|\z)", "");
-                File.WriteAllText(patch, text);
+                return "MCP 测试异常：" + ex.Message;
             }
-            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
-        }
-        private static void StartMcpProcess(string id)
-        {
-            try
-            {
-                string file = McpFilePath();
-                if (!File.Exists(file)) return;
-                JavaScriptSerializer ser = new JavaScriptSerializer();
-                List<Dictionary<string, object>> list = ser.Deserialize<List<Dictionary<string, object>>>(File.ReadAllText(file)) ?? new List<Dictionary<string, object>>();
-                Dictionary<string, object> mcp = list.Find((x) => x.ContainsKey("id") && Convert.ToString(x["id"]) == id);
-                if (mcp == null) return;
-                string command = mcp.ContainsKey("command") ? Convert.ToString(mcp["command"]) : "";
-                string args = mcp.ContainsKey("args") ? Convert.ToString(mcp["args"]) : "";
-                if (string.IsNullOrEmpty(command)) return;
-                Process.Start(new ProcessStartInfo(command, args) { UseShellExecute = false, CreateNoWindow = true });
-            }
-            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
         private static bool TestApiConnection(ApiConfig cfg, out string error)
         {
