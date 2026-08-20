@@ -9,7 +9,7 @@
  *  - 无损替换：同一时刻只有一个激活包；切换包只替换 profile 的 patch 块 /
  *    bundles / link 依赖；全局记忆（~/.dsh/memory）、会话与 hotplug-store 不动。
  *
- * Remote 服务 `dshHotplug`（6 个方法；新增方法必须同步三处：
+ * Remote 服务 `dshHotplug`（8 个方法；新增方法必须同步三处：
  * 本文件 methods 列表、lib/typert.js、lib/client.js 的 REMOTE.descriptors）：
  *   status()              中枢状态（profile / 激活包 / 已导入包 / store）
  *   importPack(text)      导入 hotpack JSON（字符串或对象），只落盘不挂载
@@ -17,15 +17,22 @@
  *   activate(packId)      解析缺失插件并挂载（无损替换当前激活包）
  *   deactivate()          卸载当前激活包（保留 store 缓存）
  *   removePack(packId)    移除未激活的包记录
+ *   check()               自检：Node/pnpm 版本、profile 状态、patch 状态、冲突矩阵
+ *   marketList(params)    插件包市场：GitHub 标签搜索（官方 API + 镜像站兜底），
+ *                         对比文件（package.json / hotpack / .dshpack / README）提取
+ *                         介绍与安装方法，生成可导入的 hotpack manifest
  *
  * 红线（与 dsh-hub 同源）：
  *  - profile package.json / cordis.patch.yml 一律 writeTextSafe() 原子写；
  *  - 进 shell 的名字 / ref / repo 必须过白名单正则；参数走 argv；
  *  - 绝不执行包内任何脚本：npm 插件走 pnpm add（profile 正常依赖解析），
  *    github / path 源只做 link 挂载（同 graph-memory 模式）。
+ *  - 市场联网抓取只读公开元数据（GitHub 搜索 JSON / raw README / package.json），
+ *    不携带任何凭据；https 直连兜底仅对市场抓取关闭证书校验（兼容本地根 CA 拦截环境）。
  */
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { spawn } from 'node:child_process'
+import https from 'node:https'
 import {
   copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync,
   readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync,
@@ -48,7 +55,34 @@ const TAR_BIN = IS_WIN ? 'tar.exe' : 'tar'
 const ENSURE_TIMEOUT_MS = 5 * 60 * 1000
 const DOWNLOAD_TIMEOUT_MS = 120 * 1000
 const OUTPUT_CAP = 65536
-const GITHUB_MIRRORS = ['https://ghfast.top/', 'https://gh-proxy.com/', 'https://ghproxy.net/']
+// GitHub 官方通道 + 多个镜像站全并发测速，取第一个成功响应。
+// 镜像站仅代理公开只读内容，不携带凭据、不触发写操作；官方 api.github.com / raw.githubusercontent.com 始终保留。
+// GitHub 官方与镜像站。镜像站域名即「来源」标识（UI 上多选、逐个展示域名）。
+const GITHUB_MIRRORS = [
+  'https://ghfast.top/',
+  'https://gh-proxy.com/',
+  'https://ghproxy.net/',
+  'https://mirror.ghproxy.com/',
+  'https://ghproxy.cc/',
+  'https://gh-proxy.net/',
+]
+// 官方 GitHub 的来源标识（UI 多选里与镜像域名并列）
+const SOURCE_GITHUB = 'github'
+
+// 插件包市场（详见下方「插件包市场」节）：GitHub topic 即「标签」
+const MARKET_CACHE_FILE = () => join(hotplugRoot(), 'market-cache.json')
+const MARKET_PAGE_SIZE = 10
+const MARKET_DETAIL_CONCURRENCY = 4
+const MARKET_TIMEOUT_MS = 15000
+// 单个原始文件（README/package.json/hotpack）抓取更短超时：文件通常很小，
+// 官方通道几秒内即可返回；设太大会让不可达通道的 curl 兜底拖慢整页。
+const MARKET_FILE_TIMEOUT_MS = 8000
+// 每个仓库全部文件抓取的「总预算」：到期立即结算当前最优，避免 curl 兜底挂满。
+const MARKET_FILE_BUDGET_MS = 12000
+// 仓库存活探测用更短超时：死仓库（已删除/改名）应立即判 404，不能拖慢整页
+const MARKET_PROBE_TIMEOUT_MS = 5000
+const MARKET_README_CANDIDATES = ['README.zh.md', 'README.md', 'readme.md', 'README_CN.md', 'README_ZH.md', 'Readme.md', 'README.txt']
+const MARKET_PACK_CANDIDATES = ['hotpack.json', '.dshpack.json', 'dshpack.json']
 
 const PACK_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i
 const PLUGIN_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/
@@ -515,6 +549,482 @@ async function mountPack(pack) {
   return { ok: true, steps, restartNeeded: true }
 }
 
+// ---------- 插件包市场（真实数据源） ----------
+
+function sanitizeTopic(topic) {
+  if (typeof topic !== 'string') return null
+  const tokens = topic.split(/[,，\s]+/).map((s) => s.trim()).filter((s) => s !== '')
+  if (tokens.length === 0 || tokens.length > 4) return null
+  for (const token of tokens) {
+    if (!/^[0-9A-Za-z][0-9A-Za-z._-]{0,31}$/.test(token)) return null
+  }
+  return tokens.join(' ')
+}
+
+function sanitizeMarketParams(params) {
+  const p = params && typeof params === 'object' ? params : {}
+  const topic = sanitizeTopic(p.topic ?? 'dsh-plugin')
+  if (topic === null) return { ok: false, error: 'topic 只能是标签字符串（字母数字 . _ -，最长 32 字符，最多 4 个，逗号/空格分隔）' }
+  const q = typeof p.q === 'string' ? p.q.trim().slice(0, 80) : ''
+  const page = Math.min(Math.max(parseInt(String(p.page), 10) || 1, 1), 10)
+  // 多选来源：sources = ['github', 'ghfast.top', 'gh-proxy.com', ...]；兼容旧单值 source(auto/github/mirror)
+  const mirrorHosts = new Set(GITHUB_MIRRORS.map((m) => m.replace(/^https?:\/\//, '').replace(/\/+$/, '')))
+  let sources = []
+  if (Array.isArray(p.sources)) {
+    for (const s of p.sources) {
+      const v = String(s).trim()
+      if (v === SOURCE_GITHUB) sources.push(SOURCE_GITHUB)
+      else if (mirrorHosts.has(v)) sources.push(v)
+    }
+  } else if (p.source === 'github') {
+    sources = [SOURCE_GITHUB]
+  } else if (p.source === 'mirror') {
+    sources = [...mirrorHosts]
+  }
+  if (sources.length === 0) sources = [SOURCE_GITHUB, ...mirrorHosts] // 默认：官方 + 全部镜像
+  return { ok: true, topic, q, sources, page, refresh: p.refresh === true }
+}
+
+/**
+ * GET 文本，三层兜底，只用于市场公开只读抓取：
+ *  1) 运行时全局 fetch（DSH 应用进程通常已配置系统 CA / 代理，可直接用）
+ *  2) node:https 直连 rejectUnauthorized:false（兼容本地根 CA 拦截环境，如企业 MITM；
+ *     仅限公开只读元数据，不携带凭据、不触发写操作）
+ *  3) curl 兜底（schannel 正常的环境）
+ */
+function httpsGetText(url, timeoutMs, headers, hops = 0) {
+  return new Promise((resolve) => {
+    let settled = false
+    const done = (value) => { if (!settled) { settled = true; resolve(value) } }
+    const req = https.get(url, { rejectUnauthorized: false, headers }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && hops < 3) {
+        res.resume()
+        let next = res.headers.location
+        if (next.startsWith('/')) {
+          const base = new URL(url)
+          next = base.origin + next
+        }
+        done(httpsGetText(next, timeoutMs, headers, hops + 1))
+        return
+      }
+      let data = ''
+      res.setEncoding('utf8')
+      res.on('data', (chunk) => { if (data.length < 1000000) data += chunk })
+      res.on('end', () => done(res.statusCode === 200 ? { ok: true, status: 200, text: data } : { ok: false, status: res.statusCode, text: '' }))
+    })
+    req.setTimeout(timeoutMs, () => { try { req.destroy() } catch {} })
+    req.on('error', () => done({ ok: false, status: 0, text: '' }))
+  })
+}
+
+async function httpGet(url, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {}) {
+  const headers = { 'User-Agent': 'dsh-hotplug-hub/' + VERSION, ...extraHeaders }
+  if (typeof fetch === 'function') {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+    if (typeof timer.unref === 'function') timer.unref()
+    try {
+      const res = await fetch(url, { signal: ctrl.signal, redirect: 'follow', headers })
+      if (res.ok) return { ok: true, status: res.status, text: await res.text() }
+      return { ok: false, status: res.status, text: '' }
+    } catch {
+      // 网络 / TLS 失败 → 继续尝试 https 直连与 curl
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  const viaHttps = await httpsGetText(url, timeoutMs, headers)
+  if (viaHttps.ok) return viaHttps
+  const args = ['-fsSL', '--max-time', String(Math.ceil(timeoutMs / 1000)), '--retry', '1']
+  if (IS_WIN) args.splice(1, 0, '--ssl-no-revoke')
+  args.push(url)
+  const result = await runCli(CURL_BIN, args, timeoutMs + 5000, { shell: false, cwd: tmpdir() })
+  if (result.code === 0 && result.stdout !== '') return { ok: true, status: 200, text: result.stdout }
+  return { ok: false, status: 0, text: '' }
+}
+
+/** 从成功响应的 url 提取域名（如 api.github.com / ghfast.top），用作"来源"展示。 */
+function hostOf(url) {
+  try { return new URL(url).host } catch { return '' }
+}
+
+/**
+ * 多通道竞速：官方与镜像 URL 同时发起请求，取第一个成功响应（"哪个快用哪个"）。
+ * 仅用于市场检索（searchMarketRepos）等公开只读抓取；不改变 404 短路语义。
+ */
+async function raceFetch(urls, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders = {}, budgetMs = 0) {
+  if (!Array.isArray(urls) || urls.length === 0) return { ok: false, text: '' }
+  if (budgetMs > 0) {
+    const budget = new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ ok: false, status: 0, text: '', budget: true }), budgetMs)
+      if (typeof timer.unref === 'function') timer.unref()
+    })
+    return Promise.race([raceFetch(urls, timeoutMs, extraHeaders, 0), budget])
+  }
+  return new Promise((resolve) => {
+    let settled = false
+    let failures = 0
+    for (const url of urls) {
+      httpGet(url, timeoutMs, extraHeaders).then((res) => {
+        if (settled) return
+        if (res.ok) { settled = true; resolve({ ...res, url, raced: true }); return }
+        failures += 1
+        if (failures === urls.length) resolve({ ok: false, status: res.status, url, text: '' })
+      }).catch(() => {
+        if (settled) return
+        failures += 1
+        if (failures === urls.length) resolve({ ok: false, status: 0, url, text: '' })
+      })
+    }
+  })
+}
+
+/**
+ * 按候选 URL（README/package.json/hotpack 等原始文件）全并发测速，取第一个「确定性结论」。
+ * 确定性结论 = 成功(200) 或 明确不存在(404/403/410)。
+ * 这样文件存在→官方 200 立即返回（最快通道获胜）；文件不存在→官方 404 立即跳过该候选，
+ * 不会因某些镜像通道 curl 挂起而空等 ~30s（这是市场加载慢的根因）。
+ * 仅当通道普遍是「网络失败」（fetch/https/curl 全抛错，无 HTTP 状态）时才等全部通道结算兜底。
+ */
+async function raceFiles(urls, timeoutMs, extraHeaders, budgetMs = 0) {
+  if (!Array.isArray(urls) || urls.length === 0) return { ok: false, status: 0, text: '' }
+  // 总预算：到期立即结算当前最优结果，防止某镜像通道的 curl 兜底挂满拖慢整页
+  if (budgetMs > 0) {
+    const budget = new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ ok: false, status: 0, text: '', budget: true }), budgetMs)
+      if (typeof timer.unref === 'function') timer.unref()
+    })
+    return Promise.race([raceFiles(urls, timeoutMs, extraHeaders, 0), budget])
+  }
+  return new Promise((resolve) => {
+    let settled = false
+    let failures = 0
+    let firstFail = null
+    const done = (res) => { if (!settled) { settled = true; resolve(res) } }
+    for (const url of urls) {
+      httpGet(url, timeoutMs, extraHeaders).then((res) => {
+        if (settled) return
+        if (res.ok) { done({ ...res, url, raced: true }); return }
+        // 确定性「不存在」→ 立即结算，不空等镜像
+        if (res.status && res.status !== 0 && res.status < 500) { done({ ...res, url, raced: false }); return }
+        if (!firstFail) firstFail = res
+        failures += 1
+        if (failures === urls.length) done({ ok: false, status: firstFail ? firstFail.status : 0, url: firstFail ? firstFail.url : '', text: '' })
+      }).catch(() => {
+        if (settled) return
+        failures += 1
+        if (failures === urls.length) done({ ok: false, status: firstFail ? firstFail.status : 0, url: firstFail ? firstFail.url : '', text: '' })
+      })
+    }
+  })
+}
+
+/** 把「来源集合」（['github', 'ghfast.top', ...]）映射为候选 URL 列表；github 指官方原始 URL。 */
+function candidatesFromSources(sources, officialUrl) {
+  const out = []
+  for (const s of sources) {
+    if (s === SOURCE_GITHUB) {
+      out.push(officialUrl)
+    } else {
+      const host = String(s).replace(/^https?:\/\//, '').replace(/\/+$/, '')
+      out.push('https://' + host + '/' + officialUrl)
+    }
+  }
+  return out
+}
+
+function apiSearchUrls(topic, q, page, sources) {
+  const topicQuery = topic.split(' ').map((t) => 'topic:' + t).join(' ')
+  const query = 'q=' + encodeURIComponent(topicQuery) + (q !== '' ? '+' + encodeURIComponent(q) : '') +
+    '&sort=stars&order=desc&per_page=' + MARKET_PAGE_SIZE + '&page=' + page
+  return candidatesFromSources(sources, 'https://api.github.com/search/repositories?' + query)
+}
+
+function rawFileUrls(repo, ref, path, sources) {
+  return candidatesFromSources(sources, 'https://raw.githubusercontent.com/' + repo + '/' + ref + '/' + path)
+}
+
+/** 仓库元数据端点的候选 URL（官方 + 选中的镜像前缀），供存活探测用。 */
+function apiRepoUrls(repo, sources) {
+  return candidatesFromSources(sources, 'https://api.github.com/repos/' + repo)
+}
+
+/**
+ * 仓库存活探测：用极短超时快速判定仓库是否还存在。
+ * GitHub 搜索索引滞后于真实仓库——已删除/改名的仓库仍会出现在搜索结果里，
+ * 但其 raw/contents 通道会长时间超时，是市场加载慢的主因。
+ * 官方元数据端点能明确给出 200(存活)/404/410(死仓库)，优先用它判断；
+ * 仅在官方网络失败时才回退镜像通道做 best-effort（镜像可能 403 误判，不采信）。
+ */
+async function probeRepo(repo, sources) {
+  const probeUrl = () => apiRepoUrls(repo, sources)
+  if (sources.includes(SOURCE_GITHUB)) {
+    const off = await httpGet(probeUrl()[0], MARKET_PROBE_TIMEOUT_MS, { Accept: 'application/vnd.github+json' })
+    if (off.ok) return { ok: true, status: off.status }
+    if (off.status === 404 || off.status === 410) return { ok: false, status: off.status }
+    // 官方网络失败/其它 → 落到下面走镜像兜底
+  }
+  const res = await raceFetch(probeUrl(), MARKET_PROBE_TIMEOUT_MS, { Accept: 'application/vnd.github+json' }, MARKET_PROBE_TIMEOUT_MS + 1000)
+  if (res.ok) return { ok: true, status: res.status }
+  // 镜像全失败：不轻易判死（可能是镜像本身不可达），让详情抓取做 best-effort 兜底
+  return { ok: true, status: res.status }
+}
+
+async function searchMarketRepos(topic, q, page, sources) {
+  // 选中的来源通道同时发起，取第一个成功响应（"哪个快用哪个"）
+  const res = await raceFetch(apiSearchUrls(topic, q, page, sources), 20000, { Accept: 'application/vnd.github+json' }, 15000)
+  if (!res.ok) return { ok: false, error: 'HTTP ' + (res.status ?? 0) || '网络请求失败' }
+  try {
+    const json = JSON.parse(res.text)
+    if (!Array.isArray(json.items)) return { ok: false, error: json.message ?? '响应结构异常' }
+    const items = json.items
+      .filter((item) => item.fork !== true)
+      .slice(0, MARKET_PAGE_SIZE)
+      .map((item) => ({
+        repo: item.full_name,
+        ref: item.default_branch ?? 'main',
+        name: item.name,
+        author: (item.owner && item.owner.login) || String(item.full_name || '').split('/')[0],
+        stars: item.stargazers_count ?? 0,
+        forks: item.forks_count ?? 0,
+        license: (item.license && item.license.spdx_id) || '',
+        description: item.description ?? '',
+        topics: Array.isArray(item.topics) ? item.topics.slice(0, 12) : [],
+        updatedAt: item.updated_at ?? '',
+      }))
+    return { ok: true, total: json.total_count ?? items.length, items, url: res.url, fetchedVia: hostOf(res.url) }
+  } catch (error) {
+    return { ok: false, error: String(error.message ?? error) }
+  }
+}
+
+/** 语言切换 / 导航类短段（如 "[English](README.md) 中文"），不作为介绍。 */
+function looksLikeNav(para) {
+  const t = para.replace(/<[^>]+>/g, ' ').replace(/\[[^\]]*\]\([^)]*\)/g, ' ').replace(/[|·\-—=>]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (t === '' || t.length >= 30) return false
+  return /English|中文|한국어|日本語|简体|繁體|Deutsch|Français|Español/i.test(t)
+}
+
+function extractIntro(readmeText) {
+  const text = String(readmeText ?? '').replace(/^\uFEFF/, '')
+  const body = text.replace(/^#{1,6}\s+.*$/m, '').trim()
+  const paras = body.split(/\n\s*\n/).map((s) => s.trim()).filter((s) => s !== '')
+  const clean = (p) => p
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/!?\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/[#*_`>[\]|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  for (const p of paras) {
+    const t = clean(p)
+    if (t === '' || looksLikeNav(p)) continue
+    return t.length > 280 ? t.slice(0, 280) + '…' : t
+  }
+  for (const p of paras) {
+    const t = clean(p)
+    if (t !== '') return t.length > 280 ? t.slice(0, 280) + '…' : t
+  }
+  return ''
+}
+
+function extractInstall(readmeText) {
+  const text = String(readmeText ?? '')
+  const lines = text.split('\n')
+  const headingRe = /^#{2,4}\s*(安装|安装方法|安装与使用|Installation|Quick Start|快速开始|使用|Usage|Getting Started)/i
+  const start = lines.findIndex((line) => headingRe.test(line))
+  if (start === -1) return ''
+  const out = []
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i]
+    if (/^#{1,6}\s+/.test(line)) break
+    out.push(line)
+  }
+  const block = out.join('\n').replace(/```/g, '').replace(/<[^>]+>/g, ' ').replace(/[ \t]+\n/g, '\n').trim()
+  return block.length > 1200 ? block.slice(0, 1200) + '\n…' : block
+}
+
+/** .dshpack.json（规划格式）→ hotpack v1 转换；bundles 必须是精确 npm 版本。 */
+function dshpackToHotpack(text) {
+  let raw
+  try { raw = JSON.parse(text) } catch { return { ok: false, error: '.dshpack.json 不是合法 JSON' } }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: '.dshpack.json 必须是对象' }
+  const bundles = Array.isArray(raw.bundles) ? raw.bundles : []
+  const plugins = []
+  bundles.forEach((bundle, index) => {
+    if (bundle === null || typeof bundle !== 'object' || Array.isArray(bundle)) return
+    const name = bundle.package ?? bundle.name
+    const version = bundle.version
+    if (typeof name !== 'string' || typeof version !== 'string') return
+    const role = typeof bundle.role === 'string' && bundle.role !== '' ? bundle.role : 'plugin' + (index + 1)
+    const id = role.toLowerCase().replace(/[^a-z0-9_]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'plugin' + (index + 1)
+    plugins.push({ id, name, version, source: { type: bundle.source === 'github' ? 'github' : 'npm' } })
+  })
+  return parseHotpack(JSON.stringify({
+    hotpack: '1.0',
+    id: raw.packId ?? raw.id,
+    name: raw.name,
+    version: raw.version,
+    description: raw.description ?? '',
+    tags: raw.tags ?? [],
+    plugins,
+  }))
+}
+
+function packIdOf(repo) { return ('pack.' + repo).toLowerCase().replace(/[^a-z0-9._-]/g, '-').slice(0, 64) }
+
+/** 单插件 github 源 manifest：有 package.json 但仓库本身不是包集合时兜底生成。 */
+function buildGithubPluginPack(repo, ref, npmName, version, meta) {
+  const tags = [...new Set([...(meta.topics ?? []), ...(meta.keywords ?? [])])].slice(0, 12).map((t) => String(t).slice(0, 24))
+  return parseHotpack(JSON.stringify({
+    hotpack: '1.0',
+    id: packIdOf(repo),
+    name: meta.name ?? repo,
+    version: EXACT_VERSION_RE.test(String(version ?? '')) ? version : '0.0.0',
+    description: (meta.description ?? '').slice(0, 300),
+    tags,
+    plugins: [{ id: 'main', name: npmName, source: { type: 'github', repo, ref } }],
+  }))
+}
+
+async function fetchRepoDetail(repo, ref, meta, sources) {
+  const entry = {
+    id: packIdOf(repo),
+    repo,
+    ref,
+    repoUrl: 'https://github.com/' + repo,
+    name: meta.name || String(repo).split('/')[1],
+    author: meta.author,
+    stars: meta.stars,
+    forks: meta.forks,
+    license: meta.license,
+    description: meta.description,
+    topics: meta.topics,
+    updatedAt: meta.updatedAt,
+    npmName: null,
+    version: null,
+    hasPack: false,
+    packKind: null,
+    intro: '',
+    install: '',
+    readmeUrl: null,
+    importable: true,
+    importError: null,
+    manifest: null,
+  }
+  const raw = (name) => rawFileUrls(repo, ref, name, sources)
+  // 存活探测：已删除/改名的仓库（如搜索索引里的失效条目）立即判死，不再走耗时抓取
+  const alive = await probeRepo(repo, sources)
+  if (!alive.ok) {
+    entry.importable = false
+    entry.importError = '仓库不存在或已被删除/改名'
+    return entry
+  }
+  // 三路并发：包清单（hotpack/.dshpack）· package.json · README（候选对比）；
+  // 每路所有候选并行发起、取第一个成功，且受总预算约束（到期立即结算，防 curl 兜底挂满）。
+  const fetchFirstOk = async (candidateNames, budgetMs) => {
+    const start = Date.now()
+    // 每个候选并发发起（官方+选中镜像全竞速）；按候选出现顺序取第一个成功
+    const results = await Promise.all(candidateNames.map(async (name) => {
+      const remain = budgetMs - (Date.now() - start)
+      if (remain <= 0) return { name, res: { ok: false, status: 0, text: '' } }
+      const res = await raceFiles(raw(name), MARKET_FILE_TIMEOUT_MS, undefined, remain)
+      return { name, res }
+    }))
+    return results.find((r) => r.res.ok) || null
+  }
+  const [packScan, pkgRes, readmeScan] = await Promise.all([
+    (async () => {
+      const hit = await fetchFirstOk(MARKET_PACK_CANDIDATES, MARKET_FILE_BUDGET_MS)
+      if (!hit) return null
+      const parsed = hit.name === 'hotpack.json' ? parseHotpack(hit.res.text) : dshpackToHotpack(hit.res.text)
+      return parsed.ok ? { name: hit.name, pack: parsed.pack } : null
+    })(),
+    raceFiles(raw('package.json'), MARKET_FILE_TIMEOUT_MS, undefined, MARKET_FILE_BUDGET_MS),
+    (async () => {
+      const hit = await fetchFirstOk(MARKET_README_CANDIDATES, MARKET_FILE_BUDGET_MS)
+      if (!hit) return null
+      return { name: hit.name, text: hit.res.text, url: hit.res.url }
+    })(),
+  ])
+  // 1) 包 manifest：repo 本身就是包集合 → 直接作为导入对象
+  if (packScan) {
+    entry.hasPack = true
+    entry.packKind = packScan.name
+    entry.manifest = packScan.pack
+    entry.version = packScan.pack.version
+    if (!entry.npmName && packScan.pack.plugins[0]) entry.npmName = packScan.pack.plugins[0].name
+  }
+  // 2) package.json：取 npm 包名与版本（对比文件之一）
+  if (pkgRes && pkgRes.ok) {
+    try {
+      const pkg = JSON.parse(pkgRes.text)
+      if (typeof pkg.name === 'string') entry.npmName = entry.npmName ?? pkg.name
+      if (typeof pkg.version === 'string') entry.version = entry.version ?? pkg.version
+    } catch {}
+  }
+  // 3) README：提取介绍（首段）与安装方法（## 安装 / Installation / 快速开始 等小节）
+  if (readmeScan) {
+    entry.readmeUrl = 'https://github.com/' + repo + '/blob/' + ref + '/' + readmeScan.name
+    entry.intro = extractIntro(readmeScan.text)
+    entry.install = extractInstall(readmeScan.text)
+  }
+  // 4) 兜底生成单插件 manifest（github 源由中枢下载 + link，不跑脚本）
+  if (!entry.manifest) {
+    if (entry.npmName) {
+      const built = buildGithubPluginPack(repo, ref, entry.npmName, entry.version, {
+        name: entry.name, description: entry.description, topics: entry.topics,
+      })
+      if (built.ok) entry.manifest = built.pack
+      else { entry.importable = false; entry.importError = built.error }
+    } else {
+      entry.importable = false
+      entry.importError = '未找到 package.json 或 hotpack/.dshpack 清单，无法生成导入包'
+    }
+  }
+  return entry
+}
+
+async function marketListAsync(params) {
+  const valid = sanitizeMarketParams(params)
+  if (!valid.ok) return { ok: false, error: valid.error }
+  const cacheKey = valid.topic + '|' + valid.q + '|' + valid.sources.join(',') + '|' + valid.page
+  if (!valid.refresh) {
+    const cache = readJson(MARKET_CACHE_FILE())
+    if (cache && cache.key === cacheKey && Array.isArray(cache.entries)) {
+      return { ok: true, cached: true, cachedAt: cache.cachedAt, total: cache.total, page: cache.page, sources: cache.sources, fetchedVia: cache.fetchedVia, entries: cache.entries }
+    }
+  }
+  const search = await searchMarketRepos(valid.topic, valid.q, valid.page, valid.sources)
+  if (!search.ok) return { ok: false, error: search.error }
+  const entries = []
+  let index = 0
+  const worker = async () => {
+    while (index < search.items.length) {
+      const item = search.items[index++]
+      try {
+        entries.push(await fetchRepoDetail(item.repo, item.ref, item, valid.sources))
+      } catch (error) {
+        entries.push({
+          id: packIdOf(item.repo), repo: item.repo, ref: item.ref,
+          repoUrl: 'https://github.com/' + item.repo,
+          name: item.name, author: item.author, stars: item.stars, forks: item.forks,
+          license: item.license, description: item.description, topics: item.topics,
+          updatedAt: item.updatedAt, npmName: null, version: null,
+          hasPack: false, packKind: null, intro: '', install: '', readmeUrl: null,
+          importable: false, importError: String(error.message ?? error), manifest: null,
+        })
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: MARKET_DETAIL_CONCURRENCY }, () => worker()))
+  entries.sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0))
+  const result = { ok: true, cached: false, cachedAt: null, total: search.total, page: valid.page, sources: valid.sources, fetchedVia: search.fetchedVia, entries }
+  try {
+    writeJsonSafe(MARKET_CACHE_FILE(), { key: cacheKey, ...result, cachedAt: new Date().toISOString() })
+  } catch {}
+  return result
+}
+
 // ---------- 对外方法实现 ----------
 
 function statusSync() {
@@ -672,7 +1182,7 @@ class HotplugGateway extends TypertRemoteService {
   constructor(ctx) {
     super(ctx, 'dshHotplug')
     // 与 lib/typert.js、lib/client.js REMOTE.descriptors 三处同步。
-    const methods = ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check']
+    const methods = ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check', 'marketList']
     for (const method of methods) {
       const decorator = Remote(method)
       decorator(HotplugGateway.prototype[method], {
@@ -765,6 +1275,10 @@ class HotplugGateway extends TypertRemoteService {
   check() {
     return checkAsync()
   }
+
+  marketList(params) {
+    return marketListAsync(params)
+  }
 }
 
 export const name = 'dsh-hotplug-hub'
@@ -775,5 +1289,5 @@ export function apply(ctx) {
   new HotplugGateway(ctx)
 }
 
-export { HotplugGateway, parseHotpack }
+export { HotplugGateway, parseHotpack, marketListAsync, extractIntro, extractInstall }
 export default HotplugGateway

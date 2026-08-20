@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
 		let react = require("react");
 		const h = react.createElement;
 		const { useEffect, useRef, useState } = react;
-		const css = ".hp_section{width:100%;max-width:860px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:14px;display:flex}.hp_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:10px;padding:12px 14px;flex-direction:column;gap:8px;display:flex;min-width:0}.hp_heading{display:flex;align-items:baseline;gap:7px;margin:0}.hp_heading h3{margin:0;font-size:13px;font-weight:600;line-height:20px}.hp_heading span{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:12px}.hp_info{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.hp_bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hp_btn{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:34px;padding:0 14px;font-size:13px}.hp_btn:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_btn:disabled{opacity:.5;cursor:default}.hp_primary{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:0 0}.hp_notice{margin:0;font-size:13px;line-height:20px}.hp_notice[data-kind=error]{color:var(--dsw-alias-state-error-primary)}.hp_notice[data-kind=success]{color:var(--dsw-alias-state-success-primary)}.hp_textarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace}.hp_list{margin:0;padding:0;list-style:none;flex-direction:column;gap:8px;display:flex}.hp_row{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}.hp_row[data-active=true]{border-color:var(--dsw-alias-state-business-primary)}.hp_rowTop{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}.hp_name{font-weight:600;font-size:13px}.hp_meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_tag{font-size:11px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);padding:2px 8px;border-radius:10px;color:var(--dsw-alias-label-tertiary)}.hp_badge{font-size:11px;font-weight:600;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);padding:2px 8px;border-radius:10px}.hp_actions{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.hp_kv{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}.hp_code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:var(--dsw-alias-bg-layer-2);padding:2px 6px;border-radius:4px}.hp_empty{color:var(--dsw-alias-label-tertiary);font-size:13px;padding:8px 0}.hp_dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}.hp_dot[data-kind=reused]{background:var(--dsw-alias-state-success-primary)}.hp_dot[data-kind=download]{background:var(--dsw-alias-state-business-primary)}.hp_dot[data-kind=error]{background:var(--dsw-alias-state-error-primary)}.hp_preview{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}.hp_preview li{font-size:12px;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;gap:4px;flex-wrap:wrap}.hp_tabs{display:flex;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2);margin-bottom:14px;flex-wrap:wrap}.hp_tab{border:0;border-bottom:2px solid transparent;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;padding:8px 14px;cursor:pointer}.hp_tab:hover{color:var(--dsw-alias-label-primary)}.hp_tab[data-on=true]{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-state-business-primary)}.hp_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.hp_stat{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px}.hp_stat .hp_label{font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_stat .hp_num{font-size:22px;font-weight:700;margin-top:4px}.hp_log{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.7;padding:10px 12px;min-height:160px;max-height:300px;overflow-y:auto;white-space:pre-wrap}.hp_log .ok{color:var(--dsw-alias-state-success-primary)}.hp_log .warn{color:var(--dsw-alias-state-business-primary)}.hp_check{display:flex;align-items:center;gap:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px;font-size:13px}.hp_check .hp_val{margin-left:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_chip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer}.hp_chip[data-on=true]{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_input{flex:1;min-width:160px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px}.hp_input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}";
+		const css = ".hp_section{width:100%;max-width:860px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:14px;display:flex}.hp_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:10px;padding:12px 14px;flex-direction:column;gap:8px;display:flex;min-width:0}.hp_heading{display:flex;align-items:baseline;gap:7px;margin:0}.hp_heading h3{margin:0;font-size:13px;font-weight:600;line-height:20px}.hp_heading span{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:12px}.hp_info{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.hp_bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hp_btn{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:34px;padding:0 14px;font-size:13px}.hp_btn:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_btn:disabled{opacity:.5;cursor:default}.hp_primary{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:0 0}.hp_notice{margin:0;font-size:13px;line-height:20px}.hp_notice[data-kind=error]{color:var(--dsw-alias-state-error-primary)}.hp_notice[data-kind=success]{color:var(--dsw-alias-state-success-primary)}.hp_textarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace}.hp_list{margin:0;padding:0;list-style:none;flex-direction:column;gap:8px;display:flex}.hp_row{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}.hp_row[data-active=true]{border-color:var(--dsw-alias-state-business-primary)}.hp_rowTop{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}.hp_name{font-weight:600;font-size:13px}.hp_meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_tag{font-size:11px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);padding:2px 8px;border-radius:10px;color:var(--dsw-alias-label-tertiary)}.hp_badge{font-size:11px;font-weight:600;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);padding:2px 8px;border-radius:10px}.hp_actions{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.hp_kv{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}.hp_code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:var(--dsw-alias-bg-layer-2);padding:2px 6px;border-radius:4px}.hp_empty{color:var(--dsw-alias-label-tertiary);font-size:13px;padding:8px 0}.hp_dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}.hp_dot[data-kind=reused]{background:var(--dsw-alias-state-success-primary)}.hp_dot[data-kind=download]{background:var(--dsw-alias-state-business-primary)}.hp_dot[data-kind=error]{background:var(--dsw-alias-state-error-primary)}.hp_preview{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}.hp_preview li{font-size:12px;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;gap:4px;flex-wrap:wrap}.hp_tabs{display:flex;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2);margin-bottom:14px;flex-wrap:wrap}.hp_tab{border:0;border-bottom:2px solid transparent;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;padding:8px 14px;cursor:pointer}.hp_tab:hover{color:var(--dsw-alias-label-primary)}.hp_tab[data-on=true]{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-state-business-primary)}.hp_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.hp_stat{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px}.hp_stat .hp_label{font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_stat .hp_num{font-size:22px;font-weight:700;margin-top:4px}.hp_log{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.7;padding:10px 12px;min-height:160px;max-height:300px;overflow-y:auto;white-space:pre-wrap}.hp_log .ok{color:var(--dsw-alias-state-success-primary)}.hp_log .warn{color:var(--dsw-alias-state-business-primary)}.hp_check{display:flex;align-items:center;gap:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px;font-size:13px}.hp_check .hp_val{margin-left:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_chip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer}.hp_chip[data-on=true]{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_input{flex:1;min-width:160px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px}.hp_input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.hp_select{flex:0 0 auto;min-width:118px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}.hp_topic{flex:0 0 160px}.hp_link{border:1px solid var(--dsw-alias-border-l2);background:0 0;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:30px;padding:0 12px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:5px}.hp_link:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_expand{margin:0;padding:8px 10px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}.hp_loading{color:var(--dsw-alias-label-tertiary);font-size:13px;margin:0;padding:10px 2px;display:flex;align-items:center;gap:8px}.hp_loading .hp_spin{width:14px;height:14px;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);border-radius:50%;animation:hp-rotate .8s linear infinite;display:inline-block}@keyframes hp-rotate{to{transform:rotate(360deg)}}";
 		const tagId = "dsh-hotplug-hub/hotplug.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -64,11 +64,36 @@ window.__ModuleLoader__.load({
 			navMemory: "记忆中枢",
 			navCheck: "自检更新",
 			marketSearch: "搜索包名或标签",
+			marketGo: "搜索",
 			marketRefresh: "刷新",
+			marketFetching: "获取中…",
 			marketEmpty: "没有匹配的插座包",
 			marketInstall: "导入",
 			marketInstalled: "已导入",
-			marketNote: "示例目录数据，点击导入将包定义写入中枢",
+			marketUnavailable: "不可导入",
+			marketTopic: "GitHub 标签",
+			marketSource: "来源",
+			marketSourceSelect: "抓取通道（可多选）",
+			marketSourceGithub: "官方 GitHub",
+			marketSourceAll: "全选",
+			marketSourceNone: "清空",
+			marketSourceDefault: "默认（官方+全部镜像）",
+			marketInstallMethod: "安装方法",
+			marketRepo: "仓库",
+			marketMore: "加载更多",
+			marketNoIntro: "（无 README 介绍）",
+			marketNoInstall: "README 未找到安装方法",
+			marketFetchError: "获取市场失败：",
+			marketRetry: "重试",
+			marketOffline: "无法连接 GitHub（官方与镜像均失败），显示内置示例目录",
+			marketCached: "缓存于",
+			marketTotal: "个结果",
+			marketVia: "数据源",
+			marketStars: "★",
+			marketForks: "⑂",
+			marketLicense: "许可",
+			marketUpdated: "更新",
+			marketNote: "数据来源：GitHub 标签搜索（官方 API + 多镜像站全并发测速取最快），README 对比提取介绍与安装方法",
 			aiTitle: "AI 组装器",
 			aiPlaceholder: "描述你的工作场景和需要的插件能力",
 			aiCompose: "开始组装",
@@ -133,7 +158,8 @@ window.__ModuleLoader__.load({
 				descriptor("activate", ["packId"]),
 				descriptor("deactivate", []),
 				descriptor("removePack", ["packId"]),
-				descriptor("check", [])
+				descriptor("check", []),
+				descriptor("marketList", ["params"])
 			]
 		};
 		function unwrap(result) {
@@ -141,6 +167,8 @@ window.__ModuleLoader__.load({
 			const detail = result?.error?.message ?? String(result?.error ?? "remote failed");
 			throw new Error(detail);
 		}
+		// 市场抓取来源通道：'github'=官方，其余为镜像站域名（需与 lib/index.js GITHUB_MIRRORS 一致）
+		const MARKET_SOURCE_OPTIONS = ["github", "ghfast.top", "gh-proxy.com", "ghproxy.net", "mirror.ghproxy.com", "ghproxy.cc", "gh-proxy.net"];
 		const CATALOG = [
 			{ id: "pack-research", name: "科研插座包", tags: ["科研", "论文", "文献"], desc: "文献检索、综述、论文写作、引用与审稿建议", plugins: 4, accent: "#0e7c6b" },
 			{ id: "pack-video", name: "视频制作插座包", tags: ["视频", "剪辑", "字幕"], desc: "脚本、分镜、剪辑清单、字幕与封面生成", plugins: 4, accent: "#b45309" },
@@ -178,6 +206,13 @@ window.__ModuleLoader__.load({
 			const [checkData, setCheckData] = useState(null);
 			const [marketQuery, setMarketQuery] = useState("");
 			const [marketFilter, setMarketFilter] = useState("全部");
+			const [marketData, setMarketData] = useState(null);
+			const [marketLoading, setMarketLoading] = useState(false);
+			const [marketError, setMarketError] = useState(null);
+			const [marketSources, setMarketSources] = useState(null); // null = 默认(官方+全部镜像)；否则为选中来源数组 ['github','ghfast.top',...]
+			const [marketTopic, setMarketTopic] = useState("dsh-plugin");
+			const [marketPage, setMarketPage] = useState(1);
+			const [marketOpen, setMarketOpen] = useState(null);
 			const [aiInput, setAiInput] = useState("");
 			const [aiRunning, setAiRunning] = useState(false);
 			const [aiLog, setAiLog] = useState([]);
@@ -271,14 +306,42 @@ window.__ModuleLoader__.load({
 					say("error", String(error.message ?? error));
 				}
 			};
+			const loadMarket = async (params) => {
+				setMarketLoading(true);
+				setMarketError(null);
+				try {
+					const result = unwrap(await api.marketList(params));
+					if (result && result.ok === false) {
+						setMarketError(String(result.error ?? "?"));
+					} else if (result && Array.isArray(result.entries)) {
+						setMarketData((prev) => {
+							if (!prev || (params.page ?? 1) === 1) {
+								return { entries: result.entries, total: result.total ?? result.entries.length, sources: result.sources ?? params.sources ?? null, cachedAt: result.cachedAt ?? null, cached: result.cached === true };
+							}
+							const seen = new Set(prev.entries.map((e) => e.id));
+							return { ...prev, entries: [...prev.entries, ...result.entries.filter((e) => !seen.has(e.id))], total: result.total ?? prev.total };
+						});
+					} else {
+						setMarketError("marketList 返回异常");
+					}
+				} catch (error) {
+					setMarketError(String(error.message ?? error));
+				} finally {
+					setMarketLoading(false);
+				}
+			};
+			const marketParams = (page, refresh) => ({ topic: marketTopic, q: marketQuery, sources: marketSources, page, refresh });
+			const doMarketSearch = () => { setMarketPage(1); loadMarket(marketParams(1, false)); };
+			const doMarketRefresh = () => { setMarketPage(1); loadMarket(marketParams(1, true)); };
+			const doMarketMore = () => { const next = marketPage + 1; setMarketPage(next); loadMarket(marketParams(next, false)); };
 			const doMarketInstall = (pack) => {
-				const manifest = {
+				const manifest = pack.manifest || {
 					hotpack: "1.0",
 					id: pack.id,
 					name: pack.name,
 					version: "1.0.0",
-					description: pack.desc,
-					tags: pack.tags,
+					description: pack.description || pack.desc || "",
+					tags: pack.tags || pack.topics || [],
 					plugins: []
 				};
 				run("import", () => api.importPack(JSON.stringify(manifest))).then((result) => {
@@ -434,43 +497,97 @@ window.__ModuleLoader__.load({
 						: h("div", { className: "hp_meta" }, data.store.entries.map((entry) => h("span", { key: entry, className: "hp_tag" }, entry)))
 				)
 			);
-			const marketCats = ["全部", ...new Set(CATALOG.flatMap((p) => p.tags))];
+			const sourceEntries = marketData ? marketData.entries : [];
+			const marketCats = ["全部", ...new Set(sourceEntries.length ? sourceEntries.flatMap((p) => p.topics ?? p.tags ?? []) : CATALOG.flatMap((p) => p.tags))];
 			const marketQ = marketQuery.trim().toLowerCase();
-			const marketList = CATALOG.filter((p) =>
-				(marketFilter === "全部" || p.tags.includes(marketFilter)) &&
-				(!marketQ || p.name.toLowerCase().includes(marketQ) || p.tags.some((tag) => tag.toLowerCase().includes(marketQ)) || p.desc.toLowerCase().includes(marketQ))
-			);
+			const marketPool = sourceEntries.length ? sourceEntries : CATALOG;
+			const shown = marketPool.filter((p) => {
+				const tags = p.topics ?? p.tags ?? [];
+				const hay = (p.name || "").toLowerCase() + " " + tags.join(" ").toLowerCase() + " " + String(p.intro || p.description || p.desc || "").toLowerCase();
+				return (marketFilter === "全部" || tags.includes(marketFilter)) && (!marketQ || hay.includes(marketQ));
+			});
 			const importedIds = data && data.packs ? new Set(data.packs.map((p) => p.id)) : new Set();
+			const renderMarketCard = (p) => {
+				const tags = p.topics ?? p.tags ?? [];
+				const desc = p.intro || p.description || p.desc || "";
+				const installable = p.importable !== false;
+				return h("div", { key: p.id, className: "hp_card" },
+					h("div", { className: "hp_rowTop" },
+						h("div", null,
+							h("div", { className: "hp_name" }, p.name),
+							h("div", { className: "hp_meta" },
+								p.author ? h("span", { key: "au", className: "hp_tag" }, p.author) : null,
+								typeof p.stars === "number" ? h("span", { key: "st", className: "hp_tag" }, t("marketStars") + " " + p.stars) : null,
+								p.version ? h("span", { key: "ve", className: "hp_tag" }, "v" + p.version) : null,
+								p.license ? h("span", { key: "li", className: "hp_tag" }, t("marketLicense") + " " + p.license) : null,
+								p.npmName ? h("span", { key: "np", className: "hp_tag" }, p.npmName) : null
+							)
+						),
+						importedIds.has(p.id) ? h("span", { className: "hp_tag" }, t("marketInstalled")) : null
+					),
+					tags.length ? h("div", { className: "hp_meta" }, tags.map((tag) => h("span", { key: tag, className: "hp_tag" }, tag))) : null,
+					h("p", { className: "hp_info" }, desc || t("marketNoIntro")),
+					h("div", { className: "hp_bar" },
+						h("button", { className: "hp_btn", disabled: !p.install, onClick: () => setMarketOpen(marketOpen === p.id ? null : p.id) }, t("marketInstallMethod")),
+						p.repoUrl ? h("a", { className: "hp_link", href: p.repoUrl, target: "_blank", rel: "noreferrer" }, t("marketRepo")) : null,
+						typeof p.plugins === "number" ? h("span", { className: "hp_stat" }, p.plugins + t("pluginsCount")) : null,
+						p.hasPack ? h("span", { className: "hp_tag" }, "hotpack") : null,
+						p.updatedAt ? h("span", { className: "hp_stat" }, t("marketUpdated") + " " + String(p.updatedAt).slice(0, 10)) : null
+					),
+					marketOpen === p.id ? h("pre", { className: "hp_expand" }, p.install || t("marketNoInstall")) : null,
+					importedIds.has(p.id) ? null : h("div", { className: "hp_bar" },
+						h("button", { className: "hp_btn hp_primary", disabled: busy || !installable, title: p.importError ?? "", onClick: () => doMarketInstall(p) },
+							installable ? t("marketInstall") : t("marketUnavailable"))
+					)
+				);
+			};
 			const renderMarket = () => h("div", null,
 				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
 				h("div", { className: "hp_card" },
 					h("div", { className: "hp_bar" },
-						h("input", { className: "hp_input", placeholder: t("marketSearch"), value: marketQuery, onChange: (e) => setMarketQuery(e.target.value) }),
-						h("button", { className: "hp_btn", onClick: load }, t("marketRefresh")),
-						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: () => fileRef.current && fileRef.current.click() }, t("importFile")),
+						h("input", { className: "hp_input", placeholder: t("marketSearch"), value: marketQuery, onChange: (e) => setMarketQuery(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") doMarketSearch(); } }),
+						h("input", { className: "hp_input hp_topic", placeholder: t("marketTopic"), value: marketTopic, onChange: (e) => setMarketTopic(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") doMarketSearch(); }, title: "GitHub topic，如 dsh-plugin" }),
+						h("button", { className: "hp_btn hp_primary", disabled: marketLoading, onClick: doMarketSearch }, marketLoading ? t("marketFetching") : t("marketGo")),
+						h("button", { className: "hp_btn", disabled: marketLoading, onClick: doMarketRefresh }, t("marketRefresh")),
+						h("button", { className: "hp_btn", disabled: busy, onClick: () => fileRef.current && fileRef.current.click() }, t("importFile")),
 						h("input", { ref: fileRef, type: "file", accept: ".json,.hotpack.json,application/json", style: { display: "none" }, onChange: onFile })
 					),
 					h("div", { className: "hp_bar" },
-						marketCats.map((cat) => h("button", { key: cat, className: "hp_chip", "data-on": cat === marketFilter, onClick: () => setMarketFilter(cat) }, cat))
+						h("span", { className: "hp_stat" }, t("marketSourceSelect")),
+						MARKET_SOURCE_OPTIONS.map((s) => {
+							const on = !marketSources || marketSources.includes(s);
+							return h("button", { key: s, className: "hp_chip", "data-on": on, title: s === "github" ? "api.github.com" : s, onClick: () => {
+								setMarketSources((prev) => {
+									const cur = prev ? [...prev] : [...MARKET_SOURCE_OPTIONS];
+									const has = cur.includes(s);
+									const next = has ? cur.filter((x) => x !== s) : [...cur, s];
+									return next.length === MARKET_SOURCE_OPTIONS.length ? null : next;
+								});
+								setMarketPage(1);
+							} }, s === "github" ? t("marketSourceGithub") : s);
+						}),
+						h("button", { className: "hp_chip", onClick: () => { setMarketSources(null); setMarketPage(1); } }, t("marketSourceDefault"))
+					),
+					h("div", { className: "hp_bar" },
+						marketCats.map((cat) => h("button", { key: cat, className: "hp_chip", "data-on": cat === marketFilter, onClick: () => setMarketFilter(cat) }, cat)),
+						marketData ? h("span", { className: "hp_stat" }, marketData.total + t("marketTotal") + (marketData.fetchedVia ? " · " + t("marketVia") + " " + marketData.fetchedVia : "") + (marketData.cached && marketData.cachedAt ? " · " + t("marketCached") + " " + String(marketData.cachedAt).slice(0, 10) : "")) : null
 					)
 				),
+				marketLoading && !marketData ? h("div", { className: "hp_card" }, h("p", { className: "hp_loading" }, h("span", { className: "hp_spin" }), t("marketFetching")), h("p", { className: "hp_info" }, t("marketNote"))) : null,
+				marketError && !marketData ? h("div", { className: "hp_card" },
+					h("p", { className: "hp_notice", "data-kind": "error" }, t("marketFetchError") + marketError),
+					h("div", { className: "hp_bar" },
+						h("button", { className: "hp_btn", onClick: doMarketSearch }, t("marketRetry")),
+						h("span", { className: "hp_stat" }, t("marketOffline"))
+					)
+				) : null,
 				h("div", { className: "hp_grid" },
-					marketList.length ? marketList.map((pack) =>
-						h("div", { key: pack.id, className: "hp_card" },
-							h("div", { className: "hp_rowTop" },
-								h("div", { className: "hp_name", style: { color: pack.accent } }, pack.name),
-								importedIds.has(pack.id) ? h("span", { className: "hp_tag" }, t("marketInstalled")) : null
-							),
-							h("div", { className: "hp_meta" }, pack.tags.map((tag) => h("span", { key: tag, className: "hp_tag" }, tag))),
-							h("p", { className: "hp_info" }, pack.desc),
-							h("div", { className: "hp_meta" }, pack.plugins + t("pluginsCount")),
-							importedIds.has(pack.id)
-								? null
-								: h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: () => doMarketInstall(pack) }, t("marketInstall"))
-						)
-					) : h("p", { className: "hp_empty" }, t("marketEmpty"))
+					shown.length ? shown.map(renderMarketCard) : h("p", { className: "hp_empty" }, t("marketEmpty"))
 				),
-				h("p", { className: "hp_info" }, t("marketNote"))
+				marketData && marketData.entries.length < (marketData.total ?? 0) ? h("div", { className: "hp_bar", style: { justifyContent: "center" } },
+					h("button", { className: "hp_btn", disabled: marketLoading, onClick: doMarketMore }, marketLoading ? t("marketFetching") : t("marketMore"))
+				) : null,
+				marketData ? h("p", { className: "hp_info" }, t("marketNote")) : null
 			);
 			const renderAi = () => h("div", null,
 				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
@@ -598,6 +715,7 @@ window.__ModuleLoader__.load({
 						onClick: () => {
 							setTab(tabItem.id);
 							if (tabItem.id === "check" && !checkData) doCheck();
+							if (tabItem.id === "market" && !marketData && !marketError && !marketLoading) doMarketSearch();
 						}
 					}, tabItem.label))
 				),
@@ -640,7 +758,8 @@ window.__ModuleLoader__.load({
 				activate: (packId) => remote().then((face) => face.activate(packId)),
 				deactivate: () => remote().then((face) => face.deactivate()),
 				removePack: (packId) => remote().then((face) => face.removePack(packId)),
-				check: () => remote().then((face) => face.check())
+				check: () => remote().then((face) => face.check()),
+				marketList: (params) => remote().then((face) => face.marketList(params))
 			});
 			ctx.slots.inject("settings.section", () => ctx.slots.register({
 				name: "settings.section",

@@ -1,4 +1,5 @@
-﻿> ⚠️ AI 必读：开始任何工作前，请先阅读根目录 `AI_AGENTS.md`，并遵守其中的同步、检查、记忆与更新公告规则。
+> ⚠️ AI 必读：`AI_AGENTS.md` 工作前，请先阅读根目录 `AI_AGENTS.md`，并遵守其中的同步、检查、记忆与更新公告规则。
+
 # dsh-hotplug-hub — DSH 热插拔中枢
 
 DeepSeek Harness（dsh）是插座，这个插件是插在插座上的**空排插**：本体不含任何原生插件，只负责导入外部**热插拔包（hotpack）**。不同场景切不同的包：科研包、视频包、考研包……切换是无损替换，全局记忆与会话不受影响。
@@ -20,7 +21,7 @@ DeepSeek Harness（dsh）是插座，这个插件是插在插座上的**空排�
 | 页签 | 功能 |
 |---|---|
 | 插件中枢 | 导入 hotpack JSON（粘贴或选文件）、包列表、预览（复用/待下载）、激活/停用/移除、store 缓存展示 |
-| 插件包市场 | 6 个内置示例包目录（科研/视频/社交/考研/全栈/笔记），搜索 + 标签筛选 + 一键导入 |
+| 插件包市场 | **真实 GitHub 市场**：按标签（topic）搜索项目（官方 API + 多镜像全并发测速取最快），对比文件（README.zh.md/README.md、package.json、hotpack.json/.dshpack.json）提取介绍与安装方法，生成可导入 manifest；支持搜索/标签筛选/来源多选（官方 GitHub + 各镜像站域名逐个勾选）/分页/本地缓存 |
 | AI 组装 | 输入需求描述 → 关键词匹配场景 → 5 步日志动画 → 生成 hotpack manifest + README → 复制 JSON 或一键导入 |
 | 记忆中枢 | 展示 `~/.dsh/memory` 全局记忆目录路径与 store 缓存条目 |
 | 自检更新 | 调用 `check()` 远程方法，展示 Node/pnpm 版本、profile 状态、patch 状态、插件冲突矩阵、包数/store 数 |
@@ -65,6 +66,7 @@ dsh plugin --profile desktop add "link:$HOME/.dsh/plugin-src/dsh-hotplug-hub"
 | `deactivate` | — | 卸载当前激活包（保留 store 缓存） |
 | `removePack` | `packId` | 移除未激活的包记录 |
 | `check` | — | 自检：Node/pnpm 版本、profile 状态、patch 状态、插件冲突矩阵、包数/store 数 |
+| `marketList` | `params` | 插件包市场：按标签搜索 GitHub 项目（`topic` 默认 `dsh-plugin`，`sources` 可选来源数组如 `['github','ghfast.top',...]`（默认官方+全部镜像），`page` 分页，`refresh` 强制重抓），返回条目含 star/作者/许可/介绍（README 首段）/安装方法（README 安装节）/生成好的 hotpack manifest |
 
 ## 热插拔包格式（hotpack v1）
 

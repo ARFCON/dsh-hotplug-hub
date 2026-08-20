@@ -291,6 +291,33 @@ button { font: inherit; color: inherit; }
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
 .footnote { font-size: 11px; color: var(--muted); }
+
+/* ===== 插件包市场（真实 GitHub 数据源）样式 ===== */
+.mkt-banner { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; }
+.mkt-banner.err { background: var(--red-soft, rgba(220,38,38,0.12)); color: var(--red, #dc2626); }
+.mkt-banner.ok { background: var(--green-soft, rgba(16,185,129,0.12)); color: var(--green, #10b981); }
+.mkt-tags { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.mkt-tags-toggle { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line, rgba(128,128,128,0.35)); background: transparent; color: var(--ink); border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer; align-self: flex-start; }
+.mkt-tags-toggle:hover { border-color: var(--teal); }
+.mkt-tags-label { font-weight: 600; }
+.mkt-tags-count { font-size: 12px; color: var(--teal); background: rgba(14,124,107,0.12); padding: 1px 8px; border-radius: 999px; }
+.mkt-tags-count.muted { color: var(--muted); background: rgba(128,128,128,0.12); }
+.mkt-tags-caret { font-size: 11px; color: var(--muted); transition: transform 0.15s; }
+.mkt-tags-panel { display: none; }
+.mkt-tags-panel.open { display: flex; }
+.mkt-topic-wrap { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.mkt-topic { width: 130px; padding: 7px 10px; border: 1px solid var(--border, rgba(128,128,128,0.35)); border-radius: 8px; background: transparent; color: inherit; font-size: 13px; }
+.mkt-topic:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
+.mkt-select { padding: 7px 10px; border: 1px solid var(--border, rgba(128,128,128,0.35)); border-radius: 8px; background: transparent; color: inherit; font-size: 13px; }
+.mkt-select:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
+.mkt-source { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mkt-source-label { font-size: 12px; color: var(--muted); margin-right: 2px; }
+.mkt-desc { font-size: 13px; color: var(--muted); line-height: 1.55; margin: 8px 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.mkt-link { font-size: 12px; color: var(--teal); text-decoration: none; }
+.mkt-link:hover { text-decoration: underline; }
+.mkt-details { margin: 6px 0; font-size: 12px; }
+.mkt-details summary { cursor: pointer; color: var(--teal); font-size: 12px; }
+.mkt-pre { background: rgba(0,0,0,0.06); border: 1px solid var(--border, rgba(128,128,128,0.3)); border-radius: 8px; padding: 10px; font-family: monospace; font-size: 11px; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; line-height: 1.5; }
 @media (max-width: 1000px) {
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pack-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -376,16 +403,86 @@ const ICONS = {
   trash: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'
 };
 
-const CATALOG = [];
+const CATALOG = [
+  {
+    id: 'pack-research', name: '科研插座包', author: 'Arito', stars: 2840, version: '1.0.0',
+    tags: ['科研', '论文', '文献'], desc: '文献检索、综述、论文写作、引用与审稿建议',
+    bundles: [
+      { name: '@dsh-community/dsh-tool-literature', role: '文献检索', version: '1.2.3' },
+      { name: '@dsh-community/dsh-cite', role: '引用管理', version: '0.9.1' },
+      { name: '@dsh-community/dsh-paper-writer', role: '论文写作', version: '2.0.0' },
+      { name: '@dsh-community/dsh-review-board', role: '审稿建议', version: '1.1.0' }
+    ],
+    memory: ['global.research'], accent: '#0e7c6b'
+  },
+  {
+    id: 'pack-video', name: '视频制作插座包', author: '清泫', stars: 1920, version: '0.8.2',
+    tags: ['视频', '剪辑', '字幕'], desc: '脚本、分镜、剪辑清单、字幕与封面生成',
+    bundles: [
+      { name: '@dsh-community/dsh-video-script', role: '脚本', version: '1.4.0' },
+      { name: '@dsh-community/dsh-shots', role: '分镜', version: '0.6.2' },
+      { name: '@dsh-community/dsh-subtitle', role: '字幕', version: '1.0.5' },
+      { name: '@dsh-community/dsh-cover', role: '封面', version: '0.3.1' }
+    ],
+    memory: ['global.video'], accent: '#b45309'
+  },
+  {
+    id: 'pack-social', name: '自媒体插座包', author: '笑笑熊', stars: 1530, version: '1.1.0',
+    tags: ['自媒体', '选题', '文案'], desc: '热点选题、拆解、文案与发布清单',
+    bundles: [
+      { name: '@dsh-community/dsh-topic-radar', role: '选题', version: '1.0.2' },
+      { name: '@dsh-community/dsh-copy-kit', role: '文案', version: '2.2.1' },
+      { name: '@dsh-community/dsh-crosspost', role: '发布', version: '0.5.0' }
+    ],
+    memory: ['global.social'], accent: '#8b5e3c'
+  },
+  {
+    id: 'pack-kaoyan', name: '考研冲刺插座包', author: 'Moss 小组', stars: 980, version: '0.6.1',
+    tags: ['考研', '学习', '闪卡'], desc: '背诵计划、真题梳理、中日双语文法和闪卡导出',
+    bundles: [
+      { name: '@dsh-community/dsh-recall', role: '背诵', version: '1.3.0' },
+      { name: '@dsh-community/dsh-paper-miner', role: '真题', version: '0.8.3' },
+      { name: '@dsh-community/dsh-flashcard', role: '闪卡', version: '1.2.0' }
+    ],
+    memory: ['global.study'], accent: '#1d5f9e'
+  },
+  {
+    id: 'pack-fullstack', name: '全栈开发插座包', author: '黄昏', stars: 2160, version: '1.4.0',
+    tags: ['开发', '全栈', 'DevOps'], desc: '脚手架、代码评审、测试和安全检查',
+    bundles: [
+      { name: '@dsh-community/dsh-scaffold', role: '脚手架', version: '3.0.0' },
+      { name: '@dsh-community/dsh-review', role: '评审', version: '1.8.1' },
+      { name: '@dsh-community/dsh-test-runner', role: '测试', version: '0.9.5' },
+      { name: '@dsh-community/dsh-sec-scan', role: '安全', version: '1.0.4' }
+    ],
+    memory: ['global.dev'], accent: '#5b5488'
+  },
+  {
+    id: 'pack-notes', name: '知识管理插座包', author: '清泫', stars: 1240, version: '1.0.3',
+    tags: ['笔记', '知识库', '整理'], desc: '网页收藏、笔记整理、书摘提取与双链',
+    bundles: [
+      { name: '@dsh-community/dsh-web-clipper', role: '收藏', version: '1.1.1' },
+      { name: '@dsh-community/dsh-notes', role: '笔记', version: '2.0.2' },
+      { name: '@dsh-community/dsh-book-extract', role: '书摘', version: '0.7.0' }
+    ],
+    memory: ['global.knowledge'], accent: '#237a57'
+  }
+];
 
-const SKILL_CATALOG = [];
+const SKILL_CATALOG = [
+  { id: 'skill-anthropic', name: 'Anthropic Skills', repo: 'anthropics/skills', desc: '官方 Claude Skills 合集', tags: ['官方','技能'] },
+  { id: 'skill-superpowers', name: 'Superpowers', repo: 'obra/superpowers', desc: 'Claude Code 技能增强', tags: ['增强'] },
+  { id: 'skill-awesome', name: 'Awesome Claude Skills', repo: 'hesreallyhim/awesome-claude-code', desc: '社区技能合集', tags: ['社区','技能'] },
+  { id: 'skill-deep-research', name: 'DeepSeek 深度研究', desc: '多轮推理与资料整理', tags: ['研究','推理'] }
+];
 
 const MCP_CATALOG = [
   { id: 'mcp-filesystem', name: 'Filesystem MCP', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-filesystem', desc: '读写本地文件', tags: ['官方','文件'] },
   { id: 'mcp-fetch', name: 'Fetch MCP', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-fetch', desc: '抓取网页', tags: ['官方','网络'] },
   { id: 'mcp-memory', name: 'Memory MCP', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-memory', desc: '知识图谱记忆', tags: ['官方','记忆'] },
   { id: 'mcp-git', name: 'Git MCP', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-git', desc: 'Git 操作', tags: ['官方','Git'] },
-  { id: 'mcp-sequential-thinking', name: 'Sequential Thinking', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-sequential-thinking', desc: '逐步推理', tags: ['官方','推理'] }
+  { id: 'mcp-sequential-thinking', name: 'Sequential Thinking', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-sequential-thinking', desc: '逐步推理', tags: ['官方','推理'] },
+  { id: 'mcp-awesome', name: 'Awesome MCP Servers', repo: 'punkpeye/awesome-mcp-servers', desc: '社区 MCP 服务器大全', tags: ['社区','MCP'] }
 ];
 const DEFAULT_STATE = {
   dshVersion: '0.1.0-rc.7',
@@ -393,15 +490,24 @@ const DEFAULT_STATE = {
   nodeVersion: '22.19.0',
   pnpmVersion: '11.7.0',
   pendingRestart: 0,
-  installed: [],
+  installed: [
+    { packId: 'pack-research', active: true, installedAt: '2026-08-18', status: 'healthy' },
+    { packId: 'pack-notes', active: true, installedAt: '2026-08-18', status: 'healthy' }
+  ],
   imported: [],
   aiCount: 0,
   memories: [],
   memoryLog: [],
     panelInstalled: null,
     panelLatest: null,
-    skills: [],
-    mcps: []
+    skills: [
+      { id: 'deepseek-research', name: 'DeepSeek 深度研究', enabled: true, desc: '深度推理与研究技能' },
+      { id: 'code-review', name: '代码审查', enabled: true, desc: '代码质量与安全审查' }
+    ],
+    mcps: [
+      { id: 'filesystem', name: '文件系统 MCP', enabled: false, command: 'npx', args: '-y @modelcontextprotocol/server-filesystem' },
+      { id: 'fetch', name: '网络抓取 MCP', enabled: false, command: 'npx', args: '-y @modelcontextprotocol/server-fetch' }
+    ]
 };
 
 let state;
@@ -422,11 +528,473 @@ const installedRow = (id) => state.installed.find((i) => i.packId === id);
 
 let currentView = 'hub';
 let marketQuery = '';
-let marketFilter = '全部';
+let marketFilters = []; // 多选标签筛选（空 = 全部）
 let aiRunning = false;
 let aiResult = null;
 let checks = null;
 let dlgAction = null;
+
+/* ===== 插件包市场 · 真实 GitHub 数据源（独立静态页，浏览器内 fetch，官方 API + 多镜像全并发测速） ===== */
+const MARKET_MIRRORS = [
+  'https://ghfast.top/',
+  'https://gh-proxy.com/',
+  'https://ghproxy.net/',
+  'https://mirror.ghproxy.com/',
+  'https://ghproxy.cc/',
+  'https://gh-proxy.net/'
+];
+const MARKET_SOURCE_GITHUB = 'github';
+// 来源通道可选项：'github'=官方，其余为镜像站域名（逐个展示域名，多选）
+const MARKET_SOURCE_OPTIONS = [MARKET_SOURCE_GITHUB, ...MARKET_MIRRORS.map((m) => m.replace(/^https?:\/\//, '').replace(/\/+$/, ''))];
+const MARKET_PACK_CANDIDATES = ['hotpack.json', '.dshpack.json', 'dshpack.json'];
+const MARKET_README_CANDIDATES = ['README.zh.md', 'README.md', 'readme.md', 'README_CN.md', 'README_ZH.md', 'Readme.md', 'README.txt'];
+const MARKET_PAGE_SIZE = 10;
+const MARKET_DETAIL_CONCURRENCY = 4;
+const MARKET_DEFAULT_TOPIC = 'dsh-plugin';
+let marketData = [];          // 抓取的条目 {repo,ref,name,author,stars,forks,license,description,topics,version,npmName,hasPack,intro,install,importable,importError,manifest}
+let marketTotal = 0;          // 搜索命中总数
+let marketLoading = false;    // 是否正在抓取
+let marketError = '';         // 抓取错误（为空则无）
+let marketSources = null;     // null=默认(官方+全部镜像)；否则为选中来源数组 ['github','ghfast.top',...]
+let marketTopic = MARKET_DEFAULT_TOPIC; // GitHub 标签
+let marketPage = 1;           // 当前分页
+let marketCachedAt = '';      // 缓存时间（localStorage）
+let marketTagsOpen = false;   // 标签面板是否展开（默认折叠）
+let marketAppending = false; // 加载更多时保留已有卡片，仅底部显示加载中
+let marketFetchedVia = '';   // 本次数据实际来源域名（官方 api.github.com 或命中的镜像站，如 ghfast.top）
+
+function marketCacheKey() { return 'dsh-market-' + marketTopic + '-' + (marketQuery || '').trim() + '-' + (marketSources ? marketSources.join(',') : 'default'); }
+
+function sanitizeTopic(t) {
+  const m = String(t || '').trim();
+  if (!m) return '';
+  const parts = m.split(/\s+/).map((s) => s.toLowerCase());
+  const ok = [];
+  for (const s of parts) {
+    if (/^[0-9a-z][0-9a-z._-]{0,31}$/.test(s)) ok.push(s);
+  }
+  return ok.slice(0, 4).join(' ');
+}
+
+/* ---- 1. 网络请求层：官方 API + 多镜像源（逐个域名多选，全并发测速取最快） ---- */
+// 把「来源集合」（['github','ghfast.top',...]）映射为候选 URL；github=官方原始 URL
+function candidatesFromSources(sources, officialUrl) {
+  const list = Array.isArray(sources) && sources.length ? sources : MARKET_SOURCE_OPTIONS;
+  const out = [];
+  for (const s of list) {
+    if (s === MARKET_SOURCE_GITHUB) { out.push(officialUrl); }
+    else { out.push('https://' + String(s).replace(/^https?:\/\//, '').replace(/\/+$/, '') + '/' + officialUrl); }
+  }
+  return out;
+}
+
+function apiSearchUrls(topic, q, page, sources) {
+  const terms = topic.split(/\s+/).map((t) => 'topic:' + t).join(' ');
+  const query = 'q=' + encodeURIComponent(terms + (q ? ' ' + q : '')) +
+    '&sort=stars&order=desc&per_page=' + MARKET_PAGE_SIZE + '&page=' + page;
+  return candidatesFromSources(sources, 'https://api.github.com/search/repositories?' + query);
+}
+
+function rawFileUrls(repo, ref, path, sources) {
+  return candidatesFromSources(sources, 'https://raw.githubusercontent.com/' + repo + '/' + ref + '/' + path);
+}
+
+function apiRepoUrls(repo, sources) {
+  return candidatesFromSources(sources, 'https://api.github.com/repos/' + repo);
+}
+
+// 带超时的 fetch：浏览器 fetch 无自动超时，镜像挂起会永远不 settle，这里用 AbortController 兜底
+const FETCH_TIMEOUT_MS = 12000;
+async function fetchTimeout(url, opts) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try { return await fetch(url, Object.assign({}, opts, { signal: ctrl.signal })); }
+  finally { clearTimeout(timer); }
+}
+
+// 依次尝试多个 URL，全部失败返回最后一个错误信息
+async function fetchAny(urls, opts) {
+  let lastErr = '';
+  for (const url of urls) {
+    try {
+      const res = await fetchTimeout(url, opts);
+      if (!res.ok) { lastErr = 'HTTP ' + res.status; continue; }
+      return { ok: true, status: res.status, text: await res.text(), url };
+    } catch (e) { lastErr = e && e.message ? e.message : String(e); continue; }
+  }
+  return { ok: false, error: lastErr };
+}
+
+// 多通道竞速：官方与镜像同时发起请求，取第一个成功响应（"哪个快用哪个"）。
+// 仅用于市场检索（searchMarketRepos）；raceFilesAny 处理原始文件全并发测速。
+function raceFetchAny(urls, opts) {
+  return new Promise((resolve) => {
+    if (!Array.isArray(urls) || urls.length === 0) return resolve({ ok: false, error: '' });
+    let settled = false;
+    let failures = 0;
+    for (const url of urls) {
+      fetchTimeout(url, opts).then(async (res) => {
+        if (settled) return;
+        if (res.ok) {
+          settled = true;
+          const text = await res.text();
+          resolve({ ok: true, status: res.status, text, url, raced: true });
+          return;
+        }
+        failures += 1;
+        if (failures === urls.length) resolve({ ok: false, error: 'HTTP ' + res.status });
+      }).catch((e) => {
+        if (settled) return;
+        failures += 1;
+        if (failures === urls.length) resolve({ ok: false, error: e && e.message ? e.message : String(e) });
+      });
+    }
+  });
+}
+
+async function fetchJson(urls) {
+  const r = await fetchAny(urls, { headers: { Accept: 'application/vnd.github+json' } });
+  if (!r.ok) return { ok: false, error: r.error };
+  try { return { ok: true, json: JSON.parse(r.text), url: r.url }; }
+  catch (e) { return { ok: false, error: '响应不是合法 JSON: ' + e.message }; }
+}
+
+/** 从成功响应的 url 提取域名（如 api.github.com / ghfast.top），用作"来源"展示。 */
+function hostOf(url) {
+  try { return new URL(url).host; } catch (e) { return ''; }
+}
+
+/**
+ * 原始文件（README/package.json/hotpack 等）全并发测速：官方 + 所有镜像同时发起，
+ * 取第一个成功响应（"哪个快用哪个"）。原 scanFiles 是顺序试（官方先、镜像逐个试）——
+ * 是市场加载慢的主因。全失败则取第一个失败（404=文件不存在）。
+ */
+function raceFilesAny(urls, opts) {
+  return new Promise((resolve) => {
+    if (!Array.isArray(urls) || urls.length === 0) return resolve({ ok: false, error: '' });
+    let settled = false;
+    let failures = 0;
+    let first = null;
+    for (const url of urls) {
+      fetchTimeout(url, opts).then(async (res) => {
+        if (settled) return;
+        if (res.ok) {
+          settled = true;
+          const text = await res.text();
+          resolve({ ok: true, status: res.status, text, url, raced: true });
+          return;
+        }
+        if (!first) first = res;
+        failures += 1;
+        if (failures === urls.length) resolve({ ok: false, error: 'HTTP ' + first.status, url: first.url });
+      }).catch((e) => {
+        if (settled) return;
+        failures += 1;
+        if (failures === urls.length) resolve({ ok: false, error: e && e.message ? e.message : String(e), url: first ? first.url : '' });
+      });
+    }
+  });
+}
+
+/* ---- 2. README 解析层：提取简介与安装方法 ---- */
+function looksLikeNav(para) {
+  if (!para) return false;
+  const s = String(para).trim();
+  if (!s) return true;
+  if (/^\s*(English|中文|简体中文|繁體|한국어|日本語|Deutsch|Français|Español|Русский)\s*$/.test(s)) return true;
+  const stripped = s.replace(/\[[^\]]*\]\([^)]*\)/g, '').replace(/[#*_>`|~]/g, '').trim();
+  return stripped.length < 30 && /(english|中文|简|繁|한국어|日本語|deutsch|français|español|русский)/i.test(stripped);
+}
+
+function cleanMd(text) {
+  return String(text || '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')          // 图片
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')        // 链接→文本
+    .replace(/`([^`]*)`/g, '$1')                    // 行内代码
+    .replace(/[#*_>~|]+/g, ' ')                     // markdown 符号
+    .replace(/<[^>]+>/g, '')                        // HTML 标签
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function extractIntro(readme) {
+  if (!readme) return '';
+  const lines = String(readme).split('\n');
+  const paras = [];
+  let buf = '';
+  for (const ln of lines) {
+    if (!ln.trim()) { if (buf.trim()) paras.push(buf.trim()); buf = ''; continue; }
+    buf += (buf ? ' ' : '') + ln.trim();
+  }
+  if (buf.trim()) paras.push(buf.trim());
+  for (const para of paras) {
+    const cleaned = cleanMd(para);
+    if (!cleaned || looksLikeNav(cleaned)) continue;
+    return cleaned.slice(0, 280);
+  }
+  return '';
+}
+
+function extractInstall(readme) {
+  if (!readme) return '';
+  const lines = String(readme).split('\n');
+  let inSection = false;
+  let out = [];
+  const headRe = /^#{2,4}\s*(安装|安装方法|安装与使用|Installation|Quick Start|快速开始|使用|Usage|Getting Started)/i;
+  for (const ln of lines) {
+    const h = ln.match(/^#{1,6}\s+(.+)/);
+    if (h) {
+      if (inSection) break;
+      if (headRe.test(ln)) { inSection = true; continue; }
+      continue;
+    }
+    if (inSection) out.push(ln);
+  }
+  if (!inSection || !out.length) return '';
+  const text = out.join('\n').replace(/```[a-z]*\n?/gi, '').replace(/<[^>]+>/g, '').trim();
+  return text.slice(0, 1200);
+}
+
+// dshpack(.dshpack.json) → hotpack v1 结构
+/* ---- 3. manifest 生成层：生成可导入的 hotpack v1 ---- */
+function dshpackToHotpack(text) {
+  let data;
+  try { data = JSON.parse(text); } catch (e) { return null; }
+  if (!data || typeof data !== 'object') return null;
+  const bundles = Array.isArray(data.bundles) ? data.bundles : [];
+  if (!data.packId || !data.name || !bundles.length) return null;
+  const plugins = bundles.map((b) => {
+    const p = {
+      id: String(b.role || 'main').toLowerCase().replace(/[^a-z0-9._-]/g, '-'),
+      name: b.package || b.name || '',
+      source: { type: (b.source && b.source.type) || 'npm' }
+    };
+    if (p.source.type === 'npm') p.version = b.version || 'latest';
+    else if (p.source.type === 'github') {
+      if (b.source && b.source.repo) p.source.repo = b.source.repo;
+      if (b.source && b.source.ref) p.source.ref = b.source.ref;
+    } else if (b.source && b.source.path) p.source.path = b.source.path;
+    return p;
+  });
+  return {
+    hotpack: '1.0',
+    id: data.packId,
+    name: data.name,
+    version: data.version || '0.0.0',
+    description: data.description || '',
+    plugins
+  };
+}
+
+function packIdOf(repo) {
+  return 'pack.' + String(repo).toLowerCase().replace(/[^a-z0-9._-]/g, '-').slice(0, 64);
+}
+
+function buildGithubPluginPack(repo, ref, npmName, version, meta) {
+  const v = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(String(version || '')) ? version : '0.0.0';
+  return {
+    hotpack: '1.0',
+    id: packIdOf(repo),
+    name: (meta && meta.name) || repo.split('/')[1] || repo,
+    version: v,
+    description: (meta && meta.description) || '',
+    tags: (meta && meta.topics) || [],
+    plugins: [{
+      id: 'main',
+      name: npmName || (repo.split('/')[1] || repo),
+      source: { type: 'github', repo, ref: ref || 'main' }
+    }]
+  };
+}
+
+// 拉取单个仓库的详情：包清单 + package.json + README，生成可导入 manifest
+async function fetchRepoDetail(repo, ref, meta, sources) {
+  const entry = {
+    repo, ref: ref || 'main', name: meta.name, author: meta.author,
+    stars: meta.stars, forks: meta.forks, license: meta.license,
+    description: meta.description, topics: meta.topics || [],
+    version: '', npmName: '', hasPack: false, intro: '', install: '',
+    importable: false, importError: '', manifest: null, updatedAt: meta.updatedAt
+  };
+  let manifest = null;
+  let manifestErr = '';
+  let pkgName = '', pkgVersion = '';
+
+  const packScans = MARKET_PACK_CANDIDATES.map((f) => rawFileUrls(repo, entry.ref, f, sources));
+  const pkgUrl = rawFileUrls(repo, entry.ref, 'package.json', sources);
+  const readmeUrls = MARKET_README_CANDIDATES.map((f) => rawFileUrls(repo, entry.ref, f, sources));
+
+  const runPack = async () => {
+    for (const urls of packScans) {
+      const r = await raceFilesAny(urls, {});
+      if (!r.ok) continue;
+      const hp = parseHotpackJson(r.text) || dshpackToHotpack(r.text);
+      if (hp) { manifest = hp; entry.hasPack = true; return; }
+      manifestErr = 'hotpack/.dshpack 解析失败';
+    }
+  };
+  const runPkg = async () => {
+    const r = await raceFilesAny(pkgUrl, {});
+    if (r.ok) {
+      try {
+        const j = JSON.parse(r.text);
+        pkgName = j && j.name; pkgVersion = j && j.version;
+      } catch (e) { /* 忽略 */ }
+    }
+  };
+  const runReadme = async () => {
+    const r = await raceFilesAny(readmeUrls, {});
+    if (r.ok) {
+      entry.intro = extractIntro(r.text);
+      entry.install = extractInstall(r.text);
+    }
+  };
+
+  await Promise.all([runPack(), runPkg(), runReadme()]);
+
+  entry.version = pkgVersion || (manifest && manifest.version) || '';
+  entry.npmName = pkgName || '';
+  if (!manifest) {
+    if (pkgName) manifest = buildGithubPluginPack(repo, entry.ref, pkgName, pkgVersion, meta);
+    else if (!manifestErr) manifestErr = '未找到 package.json 或 hotpack/.dshpack 清单，无法生成导入包';
+  }
+  entry.importable = Boolean(manifest);
+  entry.importError = manifest ? '' : (manifestErr || '无法生成导入包');
+  entry.manifest = manifest;
+  return entry;
+}
+
+// 兼容宿主端 parseHotpack 的核心校验（prototype 内联精简版）
+function parseHotpackJson(text) {
+  let data;
+  try { data = JSON.parse(text); } catch (e) { return null; }
+  if (!data || data.hotpack !== '1.0') return null;
+  if (!data.id || !data.name || !Array.isArray(data.plugins) || !data.plugins.length) return null;
+  return data;
+}
+
+/* ---- 4. 仓库搜索：按标签分页拉取仓库列表 ---- */
+async function searchMarketRepos(topic, q, page, sources) {
+  // 选中的来源通道同时发起，取第一个成功响应（"哪个快用哪个"）
+  const urls = apiSearchUrls(topic, q, page, sources);
+  const r = await raceFetchAny(urls, { headers: { Accept: 'application/vnd.github+json' } });
+  if (!r.ok) return { ok: false, error: r.error || '网络请求失败' };
+  let json;
+  try { json = JSON.parse(r.text); } catch (e) { return { ok: false, error: '响应不是合法 JSON' }; }
+  if (!json || !Array.isArray(json.items)) return { ok: false, error: (json && json.message) || '响应结构异常' };
+  const items = json.items.filter((it) => it && it.fork !== true);
+  return {
+    ok: true,
+    total: json.total_count || items.length,
+    url: r.url,
+    fetchedVia: hostOf(r.url),
+    items: items.map((it) => ({
+      repo: it.full_name,
+      ref: it.default_branch || 'main',
+      name: it.name,
+      author: it.owner && it.owner.login,
+      stars: it.stargazers_count || 0,
+      forks: it.forks_count || 0,
+      license: it.license && it.license.spdx_id,
+      description: it.description || '',
+      topics: it.topics || [],
+      updatedAt: it.updated_at
+    }))
+  };
+}
+
+// 并发受限地拉取前 N 个仓库的详情
+/* ---- 5. 市场加载：搜索 → 并发详情 → 分页去重 → 缓存 ---- */
+async function loadMarket(params) {
+  const topic = sanitizeTopic(params && params.topic !== undefined ? params.topic : marketTopic);
+  const q = (params && params.q) || marketQuery || '';
+  const page = (params && params.page) || 1;
+  const sources = (params && params.sources) || marketSources || null;
+  const refresh = Boolean(params && params.refresh);
+  marketTopic = topic || MARKET_DEFAULT_TOPIC;
+  marketQuery = q;
+  marketSources = sources;
+  marketPage = page;
+  marketLoading = true;
+  marketAppending = page > 1; // 加载更多时不清空已有卡片
+  marketError = '';
+
+  // 缓存：仅第一页可命中；加载更多（page>1）与 refresh 都绕过缓存直接抓取
+  const cacheKey = marketCacheKey();
+  if (!refresh && page === 1) {
+    try {
+      const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+      if (cached && cached.entries && cached.entries.length) {
+        marketData = cached.entries;
+        marketTotal = cached.total || marketData.length;
+        marketCachedAt = cached.cachedAt || '';
+        marketFetchedVia = cached.fetchedVia || '';
+        marketLoading = false;
+        renderMarket();
+        return { ok: true, cached: true, entries: marketData, total: marketTotal, sources, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia };
+      }
+    } catch (e) { /* 缓存读取失败忽略 */ }
+  }
+
+  renderMarket(); // 立即展示 loading
+  const search = await searchMarketRepos(marketTopic, q, page, sources);
+  if (!search.ok) {
+    marketLoading = false;
+    marketAppending = false;
+    marketError = '抓取失败：' + search.error + '。已回退到内置示例目录。';
+    renderMarket();
+    return { ok: false, error: search.error };
+  }
+
+  // 分页去重：只抓取尚未加载的仓库，已加载的不再重复抓取
+  const loadedRepos = new Set(marketData.map((e) => e.repo));
+  const metas = search.items.slice(0, 12).filter((m) => !loadedRepos.has(m.repo));
+  const entries = [];
+  const seen = new Set();
+  let idx = 0;
+  const worker = async () => {
+    while (idx < metas.length) {
+      const m = metas[idx++];
+      if (seen.has(m.repo)) continue;
+      seen.add(m.repo);
+      try { entries.push(await fetchRepoDetail(m.repo, m.ref, m, sources)); }
+      catch (e) { /* 单条失败跳过 */ }
+    }
+  };
+  const workers = [];
+  for (let i = 0; i < Math.min(MARKET_DETAIL_CONCURRENCY, metas.length || 1); i++) workers.push(worker());
+  await Promise.all(workers);
+  // 合并去重（防止搜索分页在多次调用间条目漂移导致重复）
+  const merged = new Map();
+  marketData.forEach((e) => merged.set(e.repo, e));
+  entries.forEach((e) => { if (e) merged.set(e.repo, e); });
+  marketData = [...merged.values()].sort((a, b) => b.stars - a.stars);
+
+  marketTotal = search.total;
+  marketFetchedVia = search.fetchedVia || '';
+  marketLoading = false;
+  marketAppending = false;
+  marketCachedAt = new Date().toISOString();
+  if (page === 1) {
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify({ topic: marketTopic, sources, entries, total: search.total, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia }));
+    } catch (e) { /* file:// 模式无 localStorage */ }
+  }
+  renderMarket();
+  return { ok: true, cached: false, entries: marketData, total: search.total, sources, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia };
+}
+
+function doMarketSearch() { marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: true }); }
+function doMarketRefresh() { marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: true }); }
+function doMarketMore() { marketPage += 1; loadMarket({ topic: marketTopic, q: marketQuery, page: marketPage, sources: marketSources, refresh: true }); }
+
+// 多选标签筛选：空数组=全部；否则命中任一选中标签即通过
+function matchFilters(tags) {
+  if (!marketFilters.length) return true;
+  const set = tags || [];
+  return marketFilters.some((f) => set.includes(f));
+}
 
 function toast(msg) {
   const el = $('toast');
@@ -503,7 +1071,10 @@ function switchView(id) {
 
 function renderCurrent() {
   if (currentView === 'hub') renderHub();
-  if (currentView === 'market') renderMarket();
+  if (currentView === 'market') {
+    renderMarket();
+    if (!marketData.length && !marketLoading && !marketError) doMarketSearch(); // 首次进入自动抓取
+  }
   if (currentView === 'ai') renderAi();
   if (currentView === 'memory') renderMemory();
   if (currentView === 'check') renderCheck();
@@ -584,27 +1155,149 @@ function packCard(p, showManage = false) {
     </div>`;
 }
 
+function marketEntryToImport(entry) {
+  const m = entry.manifest || {};
+  return {
+    packId: m.id || packIdOf(entry.repo),
+    name: m.name || entry.name || entry.repo,
+    version: m.version || entry.version || '0.0.0',
+    tags: m.tags || entry.topics || [],
+    description: m.description || entry.intro || entry.description || '',
+    bundles: (m.plugins || []).map((pl) => ({
+      package: pl.name,
+      role: pl.id === 'main' ? (entry.name || '主插件') : pl.id,
+      version: pl.version || '0.0.0',
+      source: pl.source
+    })),
+    market: { author: entry.author, stars: entry.stars, license: entry.license, source: entry.repo }
+  };
+}
+
+/* ---- 6. 市场渲染层：卡片与页面 ---- */
+function renderMarketCard(e) {
+  const accent = '#0e7c6b';
+  const letter = (e.name || e.repo).trim().slice(0, 1);
+  const metaBits = [];
+  metaBits.push(e.author || '—');
+  metaBits.push('⭐ ' + (e.stars || 0));
+  if (e.version) metaBits.push('v' + e.version);
+  if (e.license) metaBits.push(e.license);
+  const hasPackBadge = e.hasPack ? '<span class="badge ok">内置清单</span>' : '<span class="badge neutral">单插件</span>';
+  const installBtn = e.importable
+    ? `<button class="btn sm primary" data-mkt-install="${esc(e.repo)}">${ICONS.plus} 导入</button>`
+    : `<button class="btn sm" disabled title="${esc(e.importError || '无法生成导入包')}">${ICONS.plus} 不可导入</button>`;
+  const installHtml = e.install
+    ? `<details class="mkt-details"><summary>安装方法</summary><pre class="mkt-pre">${esc(e.install)}</pre></details>`
+    : '';
+  return `
+    <div class="pack">
+      <div class="pack-top">
+        <div class="pack-icon" style="background:${accent}">${esc(letter)}</div>
+        <div class="pack-title">
+          <h3>${esc(e.name || e.repo)}</h3>
+          <div class="meta">${metaBits.join(' · ')}</div>
+        </div>
+        ${hasPackBadge}
+      </div>
+      ${(e.topics || []).length ? `<div class="tags">${e.topics.slice(0, 6).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+      <div class="mkt-desc">${esc(e.intro || e.description || '暂无简介')}</div>
+      ${installHtml}
+      <div class="pack-foot">
+        <a class="mkt-link" href="https://github.com/${esc(e.repo)}" target="_blank" rel="noopener">${esc(e.repo)} ↗</a>
+        <div class="spacer"></div>
+        ${installBtn}
+      </div>
+    </div>`;
+}
+
 function renderMarket() {
-  const cats = ['全部', ...new Set(CATALOG.flatMap((p) => p.tags))];
+  const cats = marketData.length
+    ? [...new Set(marketData.flatMap((e) => e.topics || []))]
+    : [...new Set(CATALOG.flatMap((p) => p.tags))];
   const q = marketQuery.trim().toLowerCase();
-  const list = CATALOG.filter((p) => (marketFilter === '全部' || p.tags.includes(marketFilter)) && (!q || p.name.toLowerCase().includes(q) || p.tags.some((t) => t.toLowerCase().includes(q)) || p.desc.toLowerCase().includes(q)));
+  const srcLabel = (marketSources && marketSources.length ? marketSources.join('+') : '官方+全部镜像');
+
+  let body = '';
+  let statusLine = '';
+
+  if (marketLoading && !marketAppending) {
+    body = `<div class="empty">正在从 GitHub 获取「${esc(marketTopic)}」标签的项目…（官方 API + 多镜像全并发测速取最快）</div>`;
+  } else if (marketError) {
+    statusLine = `<div class="mkt-banner err">${ICONS.warn} ${esc(marketError)} <button class="btn sm" id="retryMarket">重试</button></div>`;
+    body = marketData.length
+      ? marketData.filter((e) => matchFilters(e.topics) && (!q || (e.name || '').toLowerCase().includes(q) || (e.intro || '').toLowerCase().includes(q))).map(renderMarketCard).join('')
+      : `<div class="empty">网络不可用，已回退到内置示例目录。</div>` + CATALOG.map((p) => packCard(p, false)).join('');
+  } else {
+    const list = marketData.length
+      ? marketData.filter((e) => matchFilters(e.topics) && (!q || (e.name || '').toLowerCase().includes(q) || (e.intro || '').toLowerCase().includes(q)))
+      : CATALOG.filter((p) => matchFilters(p.tags) && (!q || p.name.toLowerCase().includes(q) || p.desc.toLowerCase().includes(q)));
+    body = marketData.length
+      ? (list.length ? list.map(renderMarketCard).join('') : '<div class="empty">没有匹配的插座包</div>')
+      : list.map((p) => packCard(p, false)).join('');
+    if (marketLoading && marketAppending) body += `<div class="empty muted" style="padding:8px">正在加载更多…</div>`;
+    if (marketData.length) statusLine = `<div class="footnote">共 ${marketTotal} 个仓库 · 已加载 ${marketData.length} · 数据源 ${marketFetchedVia || srcLabel}${marketCachedAt ? ' · 更新于 ' + new Date(marketCachedAt).toLocaleString() : ''}</div>`;
+  }
+
   $('view-market').innerHTML = `
     <div class="toolbar">
-      <div class="search">${ICONS.search}<input id="marketSearch" placeholder="搜索包名或标签" value="${esc(marketQuery)}"></div>
-      <button class="btn" id="refreshMarket">${ICONS.refresh} 刷新目录</button>
-      <button class="btn primary" id="importBtn2">${ICONS.upload} 导入包</button>
+      <div class="search">${ICONS.search}<input id="marketSearch" placeholder="搜索包名/简介" value="${esc(marketQuery)}"></div>
+      <div class="mkt-topic-wrap">标签
+        <input id="marketTopic" class="mkt-topic" placeholder="dsh-plugin" value="${esc(marketTopic)}">
+      </div>
+      <div class="mkt-source" id="marketSourcesWrap">
+        <span class="mkt-source-label">来源</span>
+        <button class="chip ${!marketSources ? 'on' : ''}" data-src="__all">官方+全部</button>
+        ${MARKET_SOURCE_OPTIONS.map((s) => `<button class="chip ${!marketSources || marketSources.includes(s) ? 'on' : ''}" data-src="${s}">${s === MARKET_SOURCE_GITHUB ? 'GitHub 官方' : s}</button>`).join('')}
+      </div>
+      <button class="btn primary" id="doSearchMarket">${ICONS.search} 搜索</button>
+      <button class="btn" id="refreshMarket">${ICONS.refresh} 刷新</button>
+      <button class="btn" id="importBtn2">${ICONS.upload} 导入文件</button>
     </div>
-    <div class="chip-row" id="marketChips">
-      ${cats.map((c) => `<button class="chip ${c === marketFilter ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
+    ${statusLine}
+    <div class="mkt-tags">
+      <button class="mkt-tags-toggle" id="tagsToggle" aria-expanded="${marketTagsOpen}">
+        <span class="mkt-tags-label">标签</span>
+        ${marketFilters.length ? `<span class="mkt-tags-count">已选 ${marketFilters.length}</span>` : '<span class="mkt-tags-count muted">全部</span>'}
+        <span class="mkt-tags-caret">${marketTagsOpen ? '▾' : '▸'}</span>
+      </button>
+      <div class="chip-row mkt-tags-panel${marketTagsOpen ? ' open' : ''}" id="marketChips">
+        <button class="chip ${marketFilters.length === 0 ? 'on' : ''}" data-cat="__all">全部</button>
+        ${cats.map((c) => `<button class="chip ${marketFilters.includes(c) ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
+      </div>
     </div>
     <div class="pack-grid">
-      ${list.length ? list.map((p) => packCard(p, false)).join('') : '<div class="empty">没有匹配的插座包</div>'}
+      ${body}
     </div>
-    <div class="footnote">示例目录数据，用于原型演示</div>`;
-  $('marketSearch').addEventListener('input', (e) => { marketQuery = e.target.value; renderMarket(); });
-  document.querySelectorAll('#marketChips .chip').forEach((c) => c.addEventListener('click', () => { marketFilter = c.dataset.cat; renderMarket(); }));
-  $('refreshMarket').addEventListener('click', () => { toast('目录已同步（示例）'); renderMarket(); });
+    ${marketData.length && !marketError ? `<div style="text-align:center;margin:14px 0"><button class="btn" id="moreMarket">${ICONS.refresh} 加载更多</button></div>` : ''}
+    ${marketData.length ? '' : '<div class="footnote">示例目录数据，用于原型演示</div>'}`;
+
+  $('marketSearch').addEventListener('input', (e) => { marketQuery = e.target.value; });
+  $('marketSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') doMarketSearch(); });
+  $('marketTopic').addEventListener('keydown', (e) => { if (e.key === 'Enter') doMarketSearch(); });
+  document.querySelectorAll('#marketSourcesWrap .chip').forEach((c) => c.addEventListener('click', () => {
+    const v = c.dataset.src;
+    if (v === '__all') { marketSources = null; }
+    else {
+      const cur = marketSources ? [...marketSources] : [...MARKET_SOURCE_OPTIONS];
+      const next = cur.includes(v) ? cur.filter((x) => x !== v) : cur.concat(v);
+      marketSources = next.length === MARKET_SOURCE_OPTIONS.length ? null : next;
+    }
+    renderMarket();
+  }));
+  $('doSearchMarket').addEventListener('click', doMarketSearch);
+  $('refreshMarket').addEventListener('click', doMarketRefresh);
   $('importBtn2').addEventListener('click', () => $('importFile').click());
+  const tagsToggle = $('tagsToggle');
+  if (tagsToggle) tagsToggle.addEventListener('click', () => { marketTagsOpen = !marketTagsOpen; renderMarket(); });
+  const more = $('moreMarket'); if (more) more.addEventListener('click', doMarketMore);
+  const retry = $('retryMarket'); if (retry) retry.addEventListener('click', doMarketRefresh);
+  document.querySelectorAll('#marketChips .chip').forEach((c) => c.addEventListener('click', () => {
+    const v = c.dataset.cat;
+    if (v === '__all') { marketFilters = []; }
+    else { marketFilters = marketFilters.includes(v) ? marketFilters.filter((x) => x !== v) : marketFilters.concat(v); }
+    renderMarket();
+  }));
+  document.querySelectorAll('[data-mkt-install]').forEach((b) => b.addEventListener('click', () => installMarketEntry(b.dataset.mktInstall)));
 }
 
 function renderAi() {
@@ -798,7 +1491,7 @@ function getChecks() {
     { name: 'Profile 清单', desc: 'dsh.profile.bundles 可解析', val: 'desktop', status: 'ok', text: StateOk() ? '完好' : '需检查' },
     { name: '插件健康', desc: '已装包自检', val: conflicts.length + ' 冲突', status: conflicts.length ? 'warn' : 'ok', text: conflicts.length ? '见冲突矩阵' : '健康' },
     { name: '记忆中枢', desc: '全局记忆包状态', val: (window.__memoryData || state.memories || []).length + ' 条', status: 'ok', text: (window.__memoryData || state.memories || []).length ? '在线' : '暂无真实记忆' },
-    { name: '官方 Skill/MCP 面板', desc: 'dsh-skill-mcp-panel 插件', val: state.panelInstalled || '未安装', status: state.panelInstalled ? (state.panelLatest && state.panelInstalled !== state.panelLatest ? 'update' : 'ok') : 'warn', text: state.panelInstalled ? (state.panelInstalled === state.panelLatest ? '已最新' : '可更新至 v' + (state.panelLatest || '?')) : '可安装 v' + (state.panelLatest || '?') }
+    { name: '官方 Skill/extension 面板', desc: 'dsh-skill-extension-panel 插件', val: state.panelInstalled || '未安装', status: state.panelInstalled ? (state.panelLatest && state.panelInstalled !== state.panelLatest ? 'update' : 'ok') : 'warn', text: state.panelInstalled ? (state.panelInstalled === state.panelLatest ? '已最新' : '可更新至 v' + (state.panelLatest || '?')) : '可安装 v' + (state.panelLatest || '?') }
   ];
 }
 function StateOk() { return true; }
@@ -958,11 +1651,11 @@ function renderCheck() {
           <div style="font-size:12px;color:var(--muted);min-width:110px;text-align:right">${esc(c.text)}</div>
         </div>`).join('')}
     </div>
-    <div class="section-head"><div><h2>官方 Skill/MCP 面板</h2><div class="sub">Fishquito7/dsh-skill-mcp-panel · 安装到 DSH 设置页</div></div></div>
+    <div class="section-head"><div><h2>官方 Skill/extension 面板</h2><div class="sub">Fishquito7/dsh-skill-extension-panel · 安装到 DSH 设置页</div></div></div>
     <div class="check-list">
       <div class="check-row">
         <span class="badge ${state.panelInstalled ? 'ok' : 'warn'}">${state.panelInstalled ? ICONS.check : ICONS.download}</span>
-        <div><div class="name">dsh-skill-mcp-panel</div><div class="desc">本地：${esc(state.panelInstalled || '未安装')} · 最新：${esc(state.panelLatest || '检测中')}</div></div>
+        <div><div class="name">dsh-skill-extension-panel</div><div class="desc">本地：${esc(state.panelInstalled || '未安装')} · 最新：${esc(state.panelLatest || '检测中')}</div></div>
         <div class="val">${esc(state.panelInstalled && state.panelInstalled === state.panelLatest ? '已最新' : '可安装')}</div>
         <div style="display:flex;gap:8px;margin-left:auto">
           <button class="btn sm primary" id="panelInstallBtn">${state.panelInstalled ? '重装/更新' : '安装插件'}</button>
@@ -997,7 +1690,7 @@ function renderCheck() {
   const panelPage = $('panelPageBtn');
   if (panelPage) panelPage.addEventListener('click', () => {
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('openPanelPage'); return; }
-    window.open('https://github.com/Fishquito7/dsh-skill-mcp-panel/releases/latest', '_blank');
+    window.open('https://github.com/Fishquito7/dsh-skill-extension-panel/releases/latest', '_blank');
   });
   const up = $('updateDsh');
   if (up) up.addEventListener('click', () => {
@@ -1096,6 +1789,15 @@ function installPack(id) {
       save(); renderAll(); switchView('hub');
       toast(p.name + ' 已安装，重启后生效');
     }, '确认安装');
+}
+
+function installMarketEntry(repo) {
+  const e = marketData.find((x) => x.repo === repo);
+  if (!e) { toast('未找到该条目'); return; }
+  if (e.importError) { toast('不可导入：' + e.importError); return; }
+  const item = marketEntryToImport(e);
+  if (isInstalled(item.packId) || state.imported.some((p) => p.id === item.packId)) { toast('该包已安装或已导入'); return; }
+  importPacks([item]);
 }
 
 function togglePack(id, el) {
