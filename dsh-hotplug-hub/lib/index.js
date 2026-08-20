@@ -132,8 +132,8 @@ function readJson(path) {
 function writeTextSafe(path, text) {
   const tmp = `${path}.tmp`
   writeFileSync(tmp, text, 'utf8')
-  try { copyFileSync(path, `${path}.bak`) } catch {}
-  try { rmSync(path, { force: true }) } catch {}
+  try { copyFileSync(path, `${path}.bak`) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
+  try { rmSync(path, { force: true }) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
   renameSync(tmp, path)
 }
 function writeJsonSafe(path, value) {
@@ -181,7 +181,7 @@ function runCli(command, args, timeoutMs, options = {}) {
     let stdout = ''
     let stderr = ''
     const timer = setTimeout(() => {
-      try { child.kill('SIGKILL') } catch {}
+      try { child.kill('SIGKILL') } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
     }, timeoutMs)
     if (typeof timer.unref === 'function') timer.unref()
     child.stdout.on('data', (chunk) => {
@@ -235,39 +235,8 @@ function parseHotpack(input) {
   const seenNames = new Set()
   if (Array.isArray(pluginsRaw)) {
     for (const [index, item] of pluginsRaw.entries()) {
-      const at = `plugins[${index}]`
-      if (item === null || typeof item !== 'object' || Array.isArray(item)) { errors.push(`${at} 必须是对象`); continue }
-      const pid = item.id
-      const pname = item.name
-      if (typeof pid !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,40}$/i.test(pid)) { errors.push(`${at}.id 非法`); continue }
-      if (seenIds.has(pid)) { errors.push(`${at}.id 重复：${pid}`); continue }
-      seenIds.add(pid)
-      if (typeof pname !== 'string' || !PLUGIN_NAME_RE.test(pname) || pname.length > 214) { errors.push(`${at}.name 不是合法 npm 包名`); continue }
-      if (seenNames.has(pname)) { errors.push(`${at}.name 重复：${pname}`); continue }
-      seenNames.add(pname)
-      const source = item.source === null || typeof item.source !== 'object' || Array.isArray(item.source) ? {} : item.source
-      const type = source.type
-      const entry = { id: pid, name: pname, source: { type }, config: item.config && typeof item.config === 'object' && !Array.isArray(item.config) ? item.config : {} }
-      if (type === 'npm' || type === undefined) {
-        entry.source.type = 'npm'
-        if (typeof item.version !== 'string' || !EXACT_VERSION_RE.test(item.version)) { errors.push(`${at} npm 源必须给精确 version`); continue }
-        entry.version = item.version
-      } else if (type === 'path') {
-        const abs = expandPath(source.path)
-        if (abs === null) { errors.push(`${at} path 源必须给 source.path`); continue }
-        entry.source.path = abs
-      } else if (type === 'github') {
-        const repo = source.repo
-        const ref = source.ref ?? 'main'
-        if (typeof repo !== 'string' || !REPO_RE.test(repo)) { errors.push(`${at} github 源必须给合法 source.repo（owner/repo）`); continue }
-        if (typeof ref !== 'string' || !REF_RE.test(ref) || ref.length > 100) { errors.push(`${at} github 源 ref 只允许字母数字 . _ -`); continue }
-        entry.source.repo = repo
-        entry.source.ref = ref
-      } else {
-        errors.push(`${at} source.type 只支持 npm / path / github`)
-        continue
-      }
-      plugins.push(entry)
+      const entry = parseHotpackPluginItem(item, `plugins[${index}]`, errors, seenIds, seenNames)
+      if (entry) plugins.push(entry)
     }
   }
   if (errors.length > 0) return { ok: false, error: errors.join('；') }
@@ -286,6 +255,40 @@ function parseHotpack(input) {
       memory: { keep: true },
     },
   }
+}
+function parseHotpackPluginItem(item, at, errors, seenIds, seenNames) {
+  if (item === null || typeof item !== 'object' || Array.isArray(item)) { errors.push(`${at} 必须是对象`); return null }
+  const pid = item.id
+  const pname = item.name
+  if (typeof pid !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,40}$/i.test(pid)) { errors.push(`${at}.id 非法`); return null }
+  if (seenIds.has(pid)) { errors.push(`${at}.id 重复：${pid}`); return null }
+  seenIds.add(pid)
+  if (typeof pname !== 'string' || !PLUGIN_NAME_RE.test(pname) || pname.length > 214) { errors.push(`${at}.name 不是合法 npm 包名`); return null }
+  if (seenNames.has(pname)) { errors.push(`${at}.name 重复：${pname}`); return null }
+  seenNames.add(pname)
+  const source = item.source === null || typeof item.source !== 'object' || Array.isArray(item.source) ? {} : item.source
+  const type = source.type
+  const entry = { id: pid, name: pname, source: { type }, config: item.config && typeof item.config === 'object' && !Array.isArray(item.config) ? item.config : {} }
+  if (type === 'npm' || type === undefined) {
+    entry.source.type = 'npm'
+    if (typeof item.version !== 'string' || !EXACT_VERSION_RE.test(item.version)) { errors.push(`${at} npm 源必须给精确 version`); return null }
+    entry.version = item.version
+  } else if (type === 'path') {
+    const abs = expandPath(source.path)
+    if (abs === null) { errors.push(`${at} path 源必须给 source.path`); return null }
+    entry.source.path = abs
+  } else if (type === 'github') {
+    const repo = source.repo
+    const ref = source.ref ?? 'main'
+    if (typeof repo !== 'string' || !REPO_RE.test(repo)) { errors.push(`${at} github 源必须给合法 source.repo（owner/repo）`); return null }
+    if (typeof ref !== 'string' || !REF_RE.test(ref) || ref.length > 100) { errors.push(`${at} github 源 ref 只允许字母数字 . _ -`); return null }
+    entry.source.repo = repo
+    entry.source.ref = ref
+  } else {
+    errors.push(`${at} source.type 只支持 npm / path / github`)
+    return null
+  }
+  return entry
 }
 
 // ---------- 插件解析：有就直接调用，缺了才下 ----------
@@ -363,7 +366,7 @@ async function ensureGithub(entry) {
   try {
     let downloaded = false
     for (const url of githubZipUrls(entry.source.repo, entry.source.ref)) {
-      try { rmSync(zipPath, { force: true }) } catch {}
+      try { rmSync(zipPath, { force: true }) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
       if (await downloadZip(url, zipPath)) { downloaded = true; break }
     }
     if (!downloaded) return { ok: false, status: 'error', error: `GitHub 下载失败：${entry.source.repo}@${entry.source.ref}（已尝试官方源与国内镜像）` }
@@ -384,8 +387,8 @@ async function ensureGithub(entry) {
     cpSync(root, dest, { recursive: true })
     return { ok: true, status: 'downloaded', path: dest, detail: `已下载 ${entry.source.repo}@${entry.source.ref} 到 hotplug-store` }
   } finally {
-    try { rmSync(zipPath, { force: true }) } catch {}
-    try { rmSync(extractDir, { recursive: true, force: true }) } catch {}
+    try { rmSync(zipPath, { force: true }) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
+    try { rmSync(extractDir, { recursive: true, force: true }) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
   }
 }
 
@@ -471,7 +474,7 @@ function unlinkEntryFromProfile(entry, manifest) {
       rmSync(linkPath, { force: true })
       changed = true
     }
-  } catch {}
+  } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
   return changed
 }
 
@@ -612,7 +615,7 @@ function httpsGetText(url, timeoutMs, headers, hops = 0) {
       res.on('data', (chunk) => { if (data.length < 1000000) data += chunk })
       res.on('end', () => done(res.statusCode === 200 ? { ok: true, status: 200, text: data } : { ok: false, status: res.statusCode, text: '' }))
     })
-    req.setTimeout(timeoutMs, () => { try { req.destroy() } catch {} })
+    req.setTimeout(timeoutMs, () => { try { req.destroy() } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ } })
     req.on('error', () => done({ ok: false, status: 0, text: '' }))
   })
 }
@@ -886,39 +889,11 @@ function buildGithubPluginPack(repo, ref, npmName, version, meta) {
   }))
 }
 
-async function fetchRepoDetail(repo, ref, meta, sources) {
-  const entry = {
-    id: packIdOf(repo),
-    repo,
-    ref,
-    repoUrl: 'https://github.com/' + repo,
-    name: meta.name || String(repo).split('/')[1],
-    author: meta.author,
-    stars: meta.stars,
-    forks: meta.forks,
-    license: meta.license,
-    description: meta.description,
-    topics: meta.topics,
-    updatedAt: meta.updatedAt,
-    npmName: null,
-    version: null,
-    hasPack: false,
-    packKind: null,
-    intro: '',
-    install: '',
-    readmeUrl: null,
-    importable: true,
-    importError: null,
-    manifest: null,
-  }
+async function fetchRepoDetailFiles(repo, ref, sources) {
   const raw = (name) => rawFileUrls(repo, ref, name, sources)
   // 存活探测：已删除/改名的仓库（如搜索索引里的失效条目）立即判死，不再走耗时抓取
   const alive = await probeRepo(repo, sources)
-  if (!alive.ok) {
-    entry.importable = false
-    entry.importError = '仓库不存在或已被删除/改名'
-    return entry
-  }
+  if (!alive.ok) return { alive: false }
   // 三路并发：包清单（hotpack/.dshpack）· package.json · README（候选对比）；
   // 每路所有候选并行发起、取第一个成功，且受总预算约束（到期立即结算，防 curl 兜底挂满）。
   const fetchFirstOk = async (candidateNames, budgetMs) => {
@@ -946,6 +921,11 @@ async function fetchRepoDetail(repo, ref, meta, sources) {
       return { name: hit.name, text: hit.res.text, url: hit.res.url }
     })(),
   ])
+  return { alive: true, packScan, pkgRes, readmeScan }
+}
+
+function applyRepoDetailFiles(entry, files, repo, ref) {
+  const { packScan, pkgRes, readmeScan } = files
   // 1) 包 manifest：repo 本身就是包集合 → 直接作为导入对象
   if (packScan) {
     entry.hasPack = true
@@ -960,7 +940,7 @@ async function fetchRepoDetail(repo, ref, meta, sources) {
       const pkg = JSON.parse(pkgRes.text)
       if (typeof pkg.name === 'string') entry.npmName = entry.npmName ?? pkg.name
       if (typeof pkg.version === 'string') entry.version = entry.version ?? pkg.version
-    } catch {}
+    } catch { /* 有意吞掉：package.json 解析失败不影响其他候选文件 */ }
   }
   // 3) README：提取介绍（首段）与安装方法（## 安装 / Installation / 快速开始 等小节）
   if (readmeScan) {
@@ -981,6 +961,40 @@ async function fetchRepoDetail(repo, ref, meta, sources) {
       entry.importError = '未找到 package.json 或 hotpack/.dshpack 清单，无法生成导入包'
     }
   }
+  return entry
+}
+async function fetchRepoDetail(repo, ref, meta, sources) {
+  const entry = {
+    id: packIdOf(repo),
+    repo,
+    ref,
+    repoUrl: 'https://github.com/' + repo,
+    name: meta.name || String(repo).split('/')[1],
+    author: meta.author,
+    stars: meta.stars,
+    forks: meta.forks,
+    license: meta.license,
+    description: meta.description,
+    topics: meta.topics,
+    updatedAt: meta.updatedAt,
+    npmName: null,
+    version: null,
+    hasPack: false,
+    packKind: null,
+    intro: '',
+    install: '',
+    readmeUrl: null,
+    importable: true,
+    importError: null,
+    manifest: null,
+  }
+  const files = await fetchRepoDetailFiles(repo, ref, sources)
+  if (!files.alive) {
+    entry.importable = false
+    entry.importError = '仓库不存在或已被删除/改名'
+    return entry
+  }
+  applyRepoDetailFiles(entry, files, repo, ref)
   return entry
 }
 
@@ -1021,7 +1035,7 @@ async function marketListAsync(params) {
   const result = { ok: true, cached: false, cachedAt: null, total: search.total, page: valid.page, sources: valid.sources, fetchedVia: search.fetchedVia, entries }
   try {
     writeJsonSafe(MARKET_CACHE_FILE(), { key: cacheKey, ...result, cachedAt: new Date().toISOString() })
-  } catch {}
+  } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
   return result
 }
 
@@ -1062,7 +1076,7 @@ function statusSync() {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort()
-  } catch {}
+  } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
   const patchText = existsSync(patchPath()) ? readFileSync(patchPath(), 'utf8') : ''
   return {
     version: VERSION,
@@ -1137,7 +1151,7 @@ async function checkAsync() {
   try {
     const result = await runCli('pnpm', ['--version'], 5000, { shell: IS_WIN })
     if (result.code === 0) pnpmVersion = (result.stdout || '').trim()
-  } catch {}
+  } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
   const allPlugins = new Map()
   const conflicts = []
   for (const pack of status.packs) {

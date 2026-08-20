@@ -77,7 +77,7 @@ function atomicWriteText(path, text) {
   try {
     renameSync(tmp, path)
   } catch (error) {
-    try { rmSync(tmp, { force: true }) } catch {}
+    try { rmSync(tmp, { force: true }) } catch { /* 有意吞掉：尽力而为的清理，失败不影响主流程 */ }
     throw error
   }
 }
@@ -539,7 +539,7 @@ export class MemoryStore {
     // 滚动：超过阈值重命名旧账本（保留站内历史）。
     if (existsSync(path) && statSync(path).size > DEFAULTS.auditRollAfter * 200) {
       const rolled = `${path}.${Date.now()}`
-      try { renameSync(path, rolled) } catch {}
+      try { renameSync(path, rolled) } catch { /* 有意吞掉：尽力而为的清理，失败不影响主流程 */ }
     }
     mkdirSync(dirname(path), { recursive: true })
     const fd = openSync(path, 'a')

@@ -608,8 +608,8 @@ window.__ModuleLoader__.load({
 					h("p", { className: "hp_info" }, t("aiDone") + aiResult.name),
 					h("div", { className: "hp_meta" }, aiResult.tags.map((tag) => h("span", { key: tag, className: "hp_tag" }, tag))),
 					h("div", { className: "hp_bar" },
-						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(aiResult.manifest, null, 2)); } catch {} } }, t("aiCopyManifest")),
-						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(aiResult.readme); } catch {} } }, t("aiCopyReadme")),
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(aiResult.manifest, null, 2)); } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ } } }, t("aiCopyManifest")),
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(aiResult.readme); } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ } } }, t("aiCopyReadme")),
 						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: doAiImport }, t("aiImport"))
 					),
 					h("pre", { className: "hp_code", style: { whiteSpace: "pre-wrap", maxHeight: 200, overflow: "auto" } }, JSON.stringify(aiResult.manifest, null, 2))

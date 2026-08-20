@@ -21,7 +21,7 @@ namespace DSHHotplugHub
         private static void Main()
         {
             SetProcessDPIAware();
-            try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { }
+            try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
@@ -300,10 +300,10 @@ namespace DSHHotplugHub
             string dshVersion = GetDshCoreVersion();
             if (string.IsNullOrEmpty(dshVersion) && dshDesktop != null)
             {
-                try { dshVersion = FileVersionInfo.GetVersionInfo(dshDesktop).FileVersion; } catch { }
+                try { dshVersion = FileVersionInfo.GetVersionInfo(dshDesktop).FileVersion; } catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             }
             string wv = null;
-            try { wv = CoreWebView2Environment.GetAvailableBrowserVersionString(); } catch { }
+            try { wv = CoreWebView2Environment.GetAvailableBrowserVersionString(); } catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             string profiles = DetectProfiles();
             string latest = GetLatestReleaseVersion();
             string panelInstalled = GetInstalledPanelVersion();
@@ -1242,7 +1242,7 @@ namespace DSHHotplugHub
                     }
                 }
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             return cfg;
         }
 
@@ -1266,7 +1266,7 @@ namespace DSHHotplugHub
                 yaml = System.Text.RegularExpressions.Regex.Replace(yaml, pattern, "");
                 File.WriteAllText(settings, yaml);
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
 
         private static void SaveProviderToOfficial(ApiConfig cfg)
@@ -1288,7 +1288,7 @@ namespace DSHHotplugHub
                     File.AppendAllText(cred, (credText.Length == 0 || credText.EndsWith("\n") ? "" : Environment.NewLine) + keyLine + Environment.NewLine);
                 }
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
         private static void SyncApiConfigToOfficialDesktop(ApiConfig cfg)
         {
@@ -1443,10 +1443,10 @@ namespace DSHHotplugHub
                         File.AppendAllText(Path.Combine(logDir, "plugin-install.log"),
                             DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " memory-hub install failed: " + output + Environment.NewLine);
                     }
-                    catch { }
+                    catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
                 }
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
 
         private static Dictionary<string, string> GetMemoryHubReleaseInfo()
@@ -1485,7 +1485,7 @@ namespace DSHHotplugHub
                     }
                 }
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             return null;
         }
 
@@ -1516,7 +1516,7 @@ namespace DSHHotplugHub
                     }
                 }
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             return null;
         }
         private static string GetMemoryJson()
@@ -1729,7 +1729,7 @@ namespace DSHHotplugHub
                     }
                 }
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             return m;
         }
 
@@ -1756,7 +1756,7 @@ namespace DSHHotplugHub
                     desc + "\n";
                 File.WriteAllText(Path.Combine(dir, "SKILL.md"), frontmatter);
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
 
         private static string SanitizeSkillName(string name)
@@ -1780,7 +1780,7 @@ namespace DSHHotplugHub
                 string file = Path.Combine(SkillsDir(), id + ".md");
                 if (File.Exists(file)) File.Delete(file);
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
 
         private static string GetMcpsJson()
@@ -1816,7 +1816,7 @@ namespace DSHHotplugHub
                 File.WriteAllText(file, ser.Serialize(list));
                 WriteMcpToPatch(mcp);
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
 
         private static void DeleteMcpFile(string id)
@@ -1831,7 +1831,7 @@ namespace DSHHotplugHub
                 File.WriteAllText(file, ser.Serialize(list));
                 RemoveMcpFromPatch(id);
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
 
         private static string McpPatchPath()
@@ -1872,7 +1872,7 @@ namespace DSHHotplugHub
                 text = text.TrimEnd() + "\n" + block;
                 File.WriteAllText(patch, text);
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
 
         private static void RemoveMcpFromPatch(string id)
@@ -1885,7 +1885,7 @@ namespace DSHHotplugHub
                 text = System.Text.RegularExpressions.Regex.Replace(text, @"- insert:\r?\n\s+- id: mcp-" + System.Text.RegularExpressions.Regex.Escape(id) + @"[\s\S]*?(?=\r?\n- insert:|\r?\n\s*#|\z)", "");
                 File.WriteAllText(patch, text);
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
         private static void StartMcpProcess(string id)
         {
@@ -1902,7 +1902,7 @@ namespace DSHHotplugHub
                 if (string.IsNullOrEmpty(command)) return;
                 Process.Start(new ProcessStartInfo(command, args) { UseShellExecute = false, CreateNoWindow = true });
             }
-            catch { }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
         private static bool TestApiConnection(ApiConfig cfg, out string error)
         {
