@@ -44,7 +44,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.9.0";
+        private const string APP_VERSION = "0.9.1";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_REPO = "Fishquito7/dsh-skill-mcp-panel";
         // GitHub Token 不再硬编码进源码（仓库会触发 secret scanning）。
@@ -1505,7 +1505,7 @@ namespace DSHHotplugHub
                 Dictionary<string, string> info = GetMemoryHubReleaseInfo();
                 string url = info != null && info.ContainsKey("url")
                     ? info["url"]
-                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.0/dsh-memory-hub-0.8.0-pre.tgz";
+                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.1/dsh-memory-hub-0.8.0-pre.tgz";
                 string latest = info != null && info.ContainsKey("latest") ? info["latest"] : null;
                 string installed = GetInstalledMemoryHubVersion();
                 if (!string.IsNullOrEmpty(installed) && !string.IsNullOrEmpty(latest) && installed == latest)
@@ -1922,18 +1922,23 @@ namespace DSHHotplugHub
             {
                 string root = SkillSourceDir();
                 List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
+                List<string> seen = new List<string>();
                 if (Directory.Exists(root))
                 {
                     string[] mds = Directory.GetFiles(root, "SKILL.md", SearchOption.AllDirectories);
                     foreach (string md in mds)
                     {
                         string full = Path.GetFullPath(md);
-                        string id = Path.GetFileName(Path.GetDirectoryName(full));
+                        string dirName = Path.GetFileName(Path.GetDirectoryName(full));
                         Dictionary<string, string> fm = ReadSkillFrontmatter(full);
-                        bool installed = SkillInstalled(id);
+                        string sourceId = string.IsNullOrEmpty(fm["name"]) ? SanitizeSkillName(dirName) : SanitizeSkillName(fm["name"]);
+                        if (sourceId.Length == 0) sourceId = SanitizeSkillName(dirName);
+                        if (sourceId.Length == 0 || seen.Contains(sourceId)) continue;
+                        seen.Add(sourceId);
+                        bool installed = SkillInstalled(sourceId);
                         Dictionary<string, object> item = new Dictionary<string, object>();
-                        item["id"] = id;
-                        item["name"] = string.IsNullOrEmpty(fm["name"]) ? id : fm["name"];
+                        item["id"] = sourceId;
+                        item["name"] = string.IsNullOrEmpty(fm["name"]) ? sourceId : fm["name"];
                         item["desc"] = fm["desc"];
                         item["path"] = Path.GetDirectoryName(full);
                         item["installed"] = installed;
@@ -1981,12 +1986,15 @@ namespace DSHHotplugHub
         {
             try
             {
-                string id = SanitizeSkillName(Path.GetFileName(Path.GetFullPath(sourceDir)));
+                string src = Path.Combine(sourceDir, "SKILL.md");
+                Dictionary<string, string> fm = File.Exists(src) ? ReadSkillFrontmatter(src) : null;
+                string dirName = Path.GetFileName(Path.GetFullPath(sourceDir));
+                string id = fm != null && !string.IsNullOrEmpty(fm["name"]) ? SanitizeSkillName(fm["name"]) : SanitizeSkillName(dirName);
+                if (id.Length == 0) id = SanitizeSkillName(dirName);
                 if (id.Length == 0) return;
                 string target = Path.Combine(SkillsDir(), id);
                 if (Directory.Exists(target) || File.Exists(target + ".md")) return;
                 Directory.CreateDirectory(target);
-                string src = Path.Combine(sourceDir, "SKILL.md");
                 if (File.Exists(src)) File.Copy(src, Path.Combine(target, "SKILL.md"));
                 foreach (string file in Directory.GetFiles(sourceDir))
                 {
