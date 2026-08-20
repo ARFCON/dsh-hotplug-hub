@@ -348,7 +348,7 @@ button { font: inherit; color: inherit; }
       </div>
       <div>
         <div class="brand-name">Dseam世界</div>
-        <div class="brand-sub">Dseam v0.9.1</div>
+        <div class="brand-sub">Dseam v0.9.3</div>
       </div>
     </div>
     <nav class="nav" id="nav"></nav>
@@ -363,6 +363,7 @@ button { font: inherit; color: inherit; }
       <section id="view-memory" class="view hidden"></section>
       <section id="view-check" class="view hidden"></section>
         <section id="view-skills" class="view hidden"></section>
+        <section id="view-plugins" class="view hidden"></section>
         <section id="view-mcp" class="view hidden"></section>
     </div>
   </main>
@@ -386,8 +387,9 @@ const NAV = [
   { id: 'market', label: '插件包市场', icon: 'store' },
   { id: 'ai', label: 'AI 组装', icon: 'spark' },
   { id: 'memory', label: '记忆中枢', icon: 'brain' },
-  { id: 'check', label: '自检更新', icon: 'shield' },
   { id: 'skills', label: 'Skill 管理', icon: 'spark' },
+  { id: 'plugins', label: '插件管理', icon: 'box' },
+  { id: 'check', label: '自检更新', icon: 'shield' },
   { id: 'mcp', label: 'MCP 管理', icon: 'box' }
 ];
 
@@ -505,7 +507,8 @@ const DEFAULT_STATE = {
     mcps: [
       { id: 'filesystem', name: '文件系统 MCP', enabled: false, command: 'npx', args: '-y @modelcontextprotocol/server-filesystem' },
       { id: 'fetch', name: '网络抓取 MCP', enabled: false, command: 'npx', args: '-y @modelcontextprotocol/server-fetch' }
-    ]
+    ],
+    plugins: []
 };
 
 let state;
@@ -1077,6 +1080,7 @@ function renderCurrent() {
   if (currentView === 'memory') renderMemory();
   if (currentView === 'check') renderCheck();
     if (currentView === 'skills') renderSkills();
+  if (currentView === 'plugins') renderPlugins();
     if (currentView === 'mcp') renderMcp();
 }
 
@@ -1655,6 +1659,84 @@ function mcpRowHtml(m) {
     </div>`;
 }
 
+function renderPlugins() {
+  const isWebView = !!(window.chrome && window.chrome.webview);
+  const rows = isWebView ? (window.__pluginsData || []) : (state.plugins || []);
+  const hasUpdate = rows.filter((r) => r.hasUpdate).length;
+  $('view-plugins').innerHTML = `
+    <div class="section-head">
+      <div><h2>插件管理</h2><div class="sub">安装 / 卸载 / 启用 / 关闭 / 更新 DSH profile 插件</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" id="pluginCheckBtn">${ICONS.refresh} 检查更新</button>
+        <button class="btn" id="pluginRefreshBtn">${ICONS.refresh} 刷新列表</button>
+      </div>
+    </div>
+    ${hasUpdate ? `<div class="pill warn" style="margin-bottom:8px">${hasUpdate} 个插件有可用更新</div>` : ''}
+    <div class="pack-list">
+      ${rows.length ? rows.map((r) => `
+        <div class="pack">
+          <div class="pack-top">
+            <div class="pack-icon" style="background:#6a5acd">${esc((r.name || 'P').slice(0, 1))}</div>
+            <div class="pack-title">
+              <h3>${esc(r.name)}</h3>
+              <div class="meta">已装 ${esc(r.version || '未知')}${r.latest && r.latest !== r.version ? ' · 最新 ' + esc(r.latest) : ''}</div>
+              <div class="meta">${esc(r.spec || '')}</div>
+            </div>
+            <span class="badge ${r.enabled ? 'ok' : 'neutral'}">${r.enabled ? '已启用' : '已停用'}</span>
+          </div>
+          <div class="pack-foot">
+            <div class="spacer"></div>
+            ${r.repo ? `<button class="btn sm" data-url="${esc(r.repo)}">${ICONS.store} 仓库</button>` : ''}
+            ${r.hasUpdate ? `<button class="btn sm" data-plugin-update="${esc(r.id)}">${ICONS.download} 更新</button>` : ''}
+            <button class="btn sm danger" data-plugin-del="${esc(r.id)}">${ICONS.trash} 删除</button>
+            <button class="switch" role="switch" aria-checked="${r.enabled}" data-plugin-toggle="${esc(r.id)}"></button>
+          </div>
+        </div>`).join('') : '<div class="empty">还没有插件依赖，请在下方添加 dsh-hub / tgz / git 插件</div>'}
+    </div>
+    <div class="section-head" style="margin-top:18px"><div><h2>添加插件</h2><div class="sub">支持 tgz 地址、GitHub tarball、file:/link: 本地路径或 npm 包名</div></div></div>
+    <div class="toolbar" style="display:flex;gap:8px">
+      <input class="search" id="pluginAddInput" placeholder="例如 https://github.com/ARFCON/dsh-hub-DSH/archive/refs/heads/main.tar.gz 或 lodash">
+      <button class="btn primary" id="pluginAddBtn">＋ 添加插件</button>
+    </div>`;
+  const refreshBtn = $('pluginRefreshBtn');
+  if (refreshBtn) refreshBtn.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('listPlugins'); else renderPlugins();
+    toast('插件列表已刷新');
+  });
+  const addBtn = $('pluginAddBtn');
+  if (addBtn) addBtn.addEventListener('click', () => {
+    const input = $('pluginAddInput');
+    const spec = input ? input.value.trim() : '';
+    if (!spec) { toast('请输入插件名或地址'); return; }
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('addPlugin:' + JSON.stringify({ name: spec, source: '' }));
+    else toast('请在 DSH Desktop 中使用该功能');
+  });
+  document.querySelectorAll('#view-plugins [data-plugin-toggle]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.pluginToggle;
+      const enabled = btn.getAttribute('aria-checked') === 'true';
+      if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage((enabled ? 'disablePlugin:' : 'enablePlugin:') + id);
+      else toast('请在 DSH Desktop 中使用该功能');
+    });
+  });
+  document.querySelectorAll('#view-plugins [data-plugin-del]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.pluginDel;
+      if (!confirm('确认删除插件 ' + id + ' ？')) return;
+      if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('deletePlugin:' + id);
+    });
+  });
+  document.querySelectorAll('#view-plugins [data-plugin-update]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.pluginUpdate;
+      if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('updatePlugin:' + id);
+    });
+  });
+  document.querySelectorAll('#view-plugins [data-url]').forEach((btn) => {
+    btn.addEventListener('click', () => { window.open(btn.dataset.url, '_blank'); });
+  });
+}
+
 function renderMcp() {
   const rows = (window.chrome && window.chrome.webview && window.__mcpsData) || state.mcps || [];
   const market = MCP_CATALOG || [];
@@ -1780,7 +1862,7 @@ function renderCheck() {
   const panelPage = $('panelPageBtn');
   if (panelPage) panelPage.addEventListener('click', () => {
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('openPanelPage'); return; }
-    window.open('https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.9.1', '_blank');
+    window.open('https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.9.3', '_blank');
   });
   const up = $('updateDsh');
   if (up) up.addEventListener('click', () => {

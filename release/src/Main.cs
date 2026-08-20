@@ -44,8 +44,9 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.9.1";
+        private const string APP_VERSION = "0.9.3";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
+        private static string _cachedDshHubLatest = null;
         private const string PANEL_REPO = "Fishquito7/dsh-skill-mcp-panel";
         // GitHub Token 不再硬编码进源码（仓库会触发 secret scanning）。
         // 有速率限制时可设置环境变量 DSH_HUB_GITHUB_TOKEN，或写入 ~/.dsh/github-token.txt。
@@ -253,6 +254,44 @@ namespace DSHHotplugHub
                             RunDshPanelCli("skill disable \"" + SanitizeServerName(message.Substring("disableSkill:".Length)) + "\"");
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
                         }
+                        else if (message == "checkPlugins")
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + CheckPluginUpdates() + ");");
+                        }
+                        else if (message == "listPlugins")
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
+                        }
+                        else if (message != null && message.StartsWith("addPlugin:"))
+                        {
+                            AddPlugin(message.Substring("addPlugin:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                        }
+                        else if (message != null && message.StartsWith("deletePlugin:"))
+                        {
+                            DeletePlugin(message.Substring("deletePlugin:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                        }
+                        else if (message != null && message.StartsWith("enablePlugin:"))
+                        {
+                            SetPluginEnabled(message.Substring("enablePlugin:".Length), true);
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                        }
+                        else if (message != null && message.StartsWith("disablePlugin:"))
+                        {
+                            SetPluginEnabled(message.Substring("disablePlugin:".Length), false);
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                        }
+                        else if (message != null && message.StartsWith("updatePlugin:"))
+                        {
+                            UpdatePlugin(message.Substring("updatePlugin:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                        }
                         else if (message == "listMcp")
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
@@ -302,7 +341,7 @@ namespace DSHHotplugHub
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildApiIntegrationScript());
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory=function(d){window.__memoryData=d||[];if(typeof renderMemory==='function')renderMemory();if(typeof renderShell==='function')renderShell();};window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setSkillSource=function(d){window.__skillSourceData=d||null;if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.chrome.webview.postMessage('listMemory');window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listSkillSource');window.chrome.webview.postMessage('listMcp');");
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory=function(d){window.__memoryData=d||[];if(typeof renderMemory==='function')renderMemory();if(typeof renderShell==='function')renderShell();};window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setSkillSource=function(d){window.__skillSourceData=d||null;if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.__setPlugins=function(d){window.__pluginsData=d||[];if(typeof renderPlugins==='function')renderPlugins();};window.chrome.webview.postMessage('listMemory');window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listSkillSource');window.chrome.webview.postMessage('listMcp');window.chrome.webview.postMessage('listPlugins');");
                             string latestCheck = GetLatestReleaseVersion();
                             if (!_updateNotified && !string.IsNullOrEmpty(latestCheck) && latestCheck != APP_VERSION)
                             {
@@ -1505,28 +1544,28 @@ namespace DSHHotplugHub
                 Dictionary<string, string> info = GetMemoryHubReleaseInfo();
                 string url = info != null && info.ContainsKey("url")
                     ? info["url"]
-                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.1/dsh-memory-hub-0.8.0-pre.tgz";
+                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.3/dsh-memory-hub-0.8.0-pre.tgz";
                 string latest = info != null && info.ContainsKey("latest") ? info["latest"] : null;
                 string installed = GetInstalledMemoryHubVersion();
-                if (!string.IsNullOrEmpty(installed) && !string.IsNullOrEmpty(latest) && installed == latest)
+                if (string.IsNullOrEmpty(installed) || string.IsNullOrEmpty(latest) || installed != latest)
                 {
-                    return;
-                }
-                string output = RunDshPluginAdd(url);
-                if (output != null && (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:")))
-                {
-                    try
+                    string output = RunDshPluginAdd(url);
+                    if (output != null && (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:")))
                     {
-                        string logDir = Path.Combine(
-                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                            "DSH-Hotplug-Hub");
-                        Directory.CreateDirectory(logDir);
-                        File.AppendAllText(Path.Combine(logDir, "plugin-install.log"),
-                            DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " memory-hub install failed: " + output + Environment.NewLine);
+                        try
+                        {
+                            string logDir = Path.Combine(
+                                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                "DSH-Hotplug-Hub");
+                            Directory.CreateDirectory(logDir);
+                            File.AppendAllText(Path.Combine(logDir, "plugin-install.log"),
+                                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " memory-hub install failed: " + output + Environment.NewLine);
+                        }
+                        catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
                     }
-                    catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
                 }
                 InstallEmbeddedSkillMcp();
+                EnsureDshHub();
             }
             catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
@@ -1624,6 +1663,351 @@ namespace DSHHotplugHub
             catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             return null;
         }
+        // 内置 dsh-hub：插件仓库保持为 ARFCON/dsh-hub-DSH，每次更新从该仓库 main 分支获取。
+        private static void EnsureDshHub()
+        {
+            try
+            {
+                string latest = GetLatestDshHubVersion();
+                string installed = GetInstalledDshHubVersion();
+                if (!string.IsNullOrEmpty(latest) && installed == latest) return;
+                RunDshPluginCli("add \"https://codeload.github.com/ARFCON/dsh-hub-DSH/tar.gz/refs/heads/main\"");
+            }
+            catch { /* 有意吞掉：内置 dsh-hub 安装失败不阻塞启动，插件管理页可手动更新 */ }
+        }
+
+        private static string GetLatestDshHubVersion()
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(_cachedDshHubLatest)) return _cachedDshHubLatest;
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/ARFCON/dsh-hub-DSH/contents/package.json");
+                request.Method = "GET";
+                request.UserAgent = "DSH-Hotplug-Hub";
+                request.Accept = "application/vnd.github+json";
+                string githubToken = GetGithubToken();
+                if (!string.IsNullOrEmpty(githubToken)) request.Headers.Add("Authorization", "Bearer " + githubToken);
+                request.Timeout = 15000;
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                {
+                    JavaScriptSerializer ser = new JavaScriptSerializer();
+                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+                    if (root != null && root.ContainsKey("content"))
+                    {
+                        string base64 = Convert.ToString(root["content"]).Replace("\n", "").Replace("\r", "");
+                        byte[] data = Convert.FromBase64String(base64);
+                        Dictionary<string, object> pkg = ser.Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(data));
+                        if (pkg != null && pkg.ContainsKey("version")) { _cachedDshHubLatest = Convert.ToString(pkg["version"]); return _cachedDshHubLatest; }
+                    }
+                }
+            }
+            catch { /* 有意吞掉：离线时不做 dsh-hub 更新 */ }
+            return null;
+        }
+
+        private static string GetInstalledDshHubVersion()
+        {
+            try
+            {
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                List<string> candidates = new List<string>();
+                string profilesDir = Path.Combine(home, ".dsh", "profiles");
+                if (Directory.Exists(profilesDir))
+                {
+                    foreach (string profileDir in Directory.GetDirectories(profilesDir))
+                    {
+                        candidates.Add(Path.Combine(profileDir, "node_modules", "dsh-hub", "package.json"));
+                    }
+                }
+                candidates.Add(Path.Combine(home, ".dsh", "plugin-src", "dsh-hub", "package.json"));
+                foreach (string pkgFile in candidates)
+                {
+                    if (!File.Exists(pkgFile)) continue;
+                    JavaScriptSerializer ser = new JavaScriptSerializer();
+                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
+                    if (root != null && root.ContainsKey("version")) return Convert.ToString(root["version"]);
+                }
+            }
+            catch { /* 有意吞掉：读不到版本则下次重试 */ }
+            return null;
+        }
+
+        private static string GetProfileDir()
+        {
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string dir = Path.Combine(home, ".dsh", "profiles", "web");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        private static List<string> GetBundleList(Dictionary<string, object> root)
+        {
+            List<string> list = new List<string>();
+            if (root == null || !root.ContainsKey("dsh")) return list;
+            Dictionary<string, object> dsh = root["dsh"] as Dictionary<string, object>;
+            if (dsh == null || !dsh.ContainsKey("profile")) return list;
+            Dictionary<string, object> profile = dsh["profile"] as Dictionary<string, object>;
+            if (profile == null || !profile.ContainsKey("bundles")) return list;
+            object[] arr = profile["bundles"] as object[];
+            if (arr != null)
+            {
+                foreach (object obj in arr)
+                {
+                    string bundle = Convert.ToString(obj);
+                    if (!string.IsNullOrEmpty(bundle) && !list.Contains(bundle)) list.Add(bundle);
+                }
+            }
+            return list;
+        }
+
+        private static string GetInstalledPackageVersion(string name)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(name)) return null;
+                string pkgFile = Path.Combine(Path.Combine(GetProfileDir(), "node_modules"), name.Replace("/", Path.DirectorySeparatorChar.ToString()), "package.json");
+                if (!File.Exists(pkgFile)) return null;
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
+                if (root != null && root.ContainsKey("version")) return Convert.ToString(root["version"]);
+            }
+            catch { /* 有意吞掉：版本读取失败则显示未知 */ }
+            return null;
+        }
+
+        private static string GetKnownLatestVersion(string name)
+        {
+            if (name == "dsh-hub") return GetLatestDshHubVersion();
+            if (name == "dsh-memory-hub")
+            {
+                Dictionary<string, string> info = GetMemoryHubReleaseInfo();
+                if (info != null && info.ContainsKey("latest")) return info["latest"];
+                return "0.8.0-pre";
+            }
+            if (name == "dseam-skillmcp") return "0.8.0-pre";
+            return null;
+        }
+
+        private static string GetKnownRepo(string name)
+        {
+            if (name == "dsh-hub") return "https://github.com/ARFCON/dsh-hub-DSH";
+            if (name == "dsh-memory-hub") return "https://github.com/ARFCON/dsh-hotplug-hub";
+            if (name == "dseam-skillmcp") return "https://github.com/ARFCON/dsh-hotplug-hub";
+            return null;
+        }
+
+        private static bool IsBundlePackage(string name)
+        {
+            try
+            {
+                string pkgFile = Path.Combine(Path.Combine(GetProfileDir(), "node_modules"), name.Replace("/", Path.DirectorySeparatorChar.ToString()), "package.json");
+                if (!File.Exists(pkgFile)) return false;
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
+                if (root == null || !root.ContainsKey("dsh")) return false;
+                Dictionary<string, object> dsh = root["dsh"] as Dictionary<string, object>;
+                if (dsh == null || !dsh.ContainsKey("bundle")) return false;
+                Dictionary<string, object> bundle = dsh["bundle"] as Dictionary<string, object>;
+                return bundle != null && bundle.ContainsKey("patch");
+            }
+            catch { return false; }
+        }
+
+        private static string ProfilePatchPath()
+        {
+            return Path.Combine(GetProfileDir(), "cordis.patch.yml");
+        }
+
+        private static string SanitizePluginInsertId(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "plugin";
+            string id = name.Contains("/") ? name.Substring(name.IndexOf('/') + 1) : name;
+            id = System.Text.RegularExpressions.Regex.Replace(id, "[^A-Za-z0-9_-]+", "-").Trim('-');
+            if (id.Length == 0) id = "plugin-" + Environment.TickCount.ToString();
+            if (id.Length > 64) id = id.Substring(0, 64);
+            return id;
+        }
+
+        private static bool PatchHasInsertFor(string name)
+        {
+            try
+            {
+                string patchFile = ProfilePatchPath();
+                if (!File.Exists(patchFile) || string.IsNullOrEmpty(name)) return false;
+                string text = File.ReadAllText(patchFile);
+                string id = SanitizePluginInsertId(name);
+                return text.Contains("id: " + id) || text.Contains("id: " + name) || text.Contains("name: '" + name + "'") || text.Contains("name: \"" + name + "\"");
+            }
+            catch { return false; }
+        }
+
+        private static void AddPatchInsertBlock(string name)
+        {
+            try
+            {
+                if (PatchHasInsertFor(name)) return;
+                string patchFile = ProfilePatchPath();
+                string text = File.Exists(patchFile) ? File.ReadAllText(patchFile) : "";
+                string id = SanitizePluginInsertId(name);
+                if (text.Length > 0 && !text.EndsWith("\n")) text += "\n";
+                text += "- insert:\n    - id: " + id + "\n      name: '" + name + "'\n      config: {}\n";
+                File.WriteAllText(patchFile, text);
+            }
+            catch { /* 有意吞掉：写入失败不阻塞 UI */ }
+        }
+
+        private static void RemovePatchInsertBlock(string name)
+        {
+            try
+            {
+                string patchFile = ProfilePatchPath();
+                if (!File.Exists(patchFile)) return;
+                string text = File.ReadAllText(patchFile);
+                string id = SanitizePluginInsertId(name);
+                int idx = 0;
+                while ((idx = text.IndexOf("- insert:", idx, StringComparison.Ordinal)) >= 0)
+                {
+                    int end = text.IndexOf("\n- ", idx + 2, StringComparison.Ordinal);
+                    if (end < 0) end = text.Length;
+                    string block = text.Substring(idx, end - idx);
+                    if (block.Contains("id: " + id) || block.Contains("id: " + name) || block.Contains("name: '" + name + "'") || block.Contains("name: \"" + name + "\""))
+                    {
+                        text = text.Remove(idx, end - idx).TrimEnd() + "\n";
+                        File.WriteAllText(patchFile, text);
+                        return;
+                    }
+                    idx = end;
+                }
+            }
+            catch { /* 有意吞掉：移除失败不阻塞 UI */ }
+        }
+
+        private static string CheckPluginUpdates()
+        {
+            _cachedDshHubLatest = null;
+            return GetPluginsJson();
+        }
+
+        private static string GetPluginsJson()
+        {
+            try
+            {
+                string pkgFile = Path.Combine(GetProfileDir(), "package.json");
+                if (!File.Exists(pkgFile)) return "[]";
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
+                if (root == null) return "[]";
+                List<string> bundles = GetBundleList(root);
+                List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
+                Dictionary<string, object> deps = null;
+                if (root.ContainsKey("dependencies")) deps = root["dependencies"] as Dictionary<string, object>;
+                if (deps == null) return "[]";
+                foreach (string name in deps.Keys)
+                {
+                    Dictionary<string, object> item = new Dictionary<string, object>();
+                    item["id"] = name;
+                    item["name"] = name;
+                    item["spec"] = Convert.ToString(deps[name]);
+                    string version = GetInstalledPackageVersion(name);
+                    string latest = GetKnownLatestVersion(name);
+                    item["version"] = version;
+                    item["enabled"] = IsBundlePackage(name) ? bundles.Contains(name) : PatchHasInsertFor(name);
+                    item["latest"] = latest;
+                    item["repo"] = GetKnownRepo(name);
+                    item["hasUpdate"] = !string.IsNullOrEmpty(version) && !string.IsNullOrEmpty(latest) && version != latest;
+                    list.Add(item);
+                }
+                return ser.Serialize(list);
+            }
+            catch { return "[]"; }
+        }
+
+        private static void SetPluginEnabled(string id, bool enabled)
+        {
+            try
+            {
+                string pkgFile = Path.Combine(GetProfileDir(), "package.json");
+                if (!File.Exists(pkgFile)) return;
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
+                if (root == null) return;
+                Dictionary<string, object> dsh;
+                if (root.ContainsKey("dsh") && root["dsh"] is Dictionary<string, object>) dsh = (Dictionary<string, object>)root["dsh"];
+                else { dsh = new Dictionary<string, object>(); root["dsh"] = dsh; }
+                Dictionary<string, object> profile;
+                if (dsh.ContainsKey("profile") && dsh["profile"] is Dictionary<string, object>) profile = (Dictionary<string, object>)dsh["profile"];
+                else { profile = new Dictionary<string, object>(); dsh["profile"] = profile; }
+                if (IsBundlePackage(id))
+                {
+                    List<string> bundles = GetBundleList(root);
+                    if (enabled) { if (!bundles.Contains(id)) bundles.Add(id); }
+                    else { if (bundles.Contains(id)) bundles.Remove(id); }
+                    profile["bundles"] = bundles.ToArray();
+                    File.WriteAllText(pkgFile, ser.Serialize(root));
+                }
+                else
+                {
+                    if (enabled) AddPatchInsertBlock(id);
+                    else RemovePatchInsertBlock(id);
+                }
+            }
+            catch { /* 有意吞掉：切换插件失败不阻塞 UI，用户可重试 */ }
+        }
+
+        private static string RunDshPluginCli(string arguments)
+        {
+            string[] cmd = FindDshCommand();
+            if (cmd == null) return null;
+            return RunCliLong(cmd[0], cmd[1] + " plugin --profile web " + arguments);
+        }
+
+        private static void AddPlugin(string payload)
+        {
+            try
+            {
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> data = ser.Deserialize<Dictionary<string, object>>(payload);
+                string name = data != null && data.ContainsKey("name") ? Convert.ToString(data["name"]) : "";
+                string source = data != null && data.ContainsKey("source") ? Convert.ToString(data["source"]) : "";
+                string spec = !string.IsNullOrEmpty(source) ? source : name;
+                if (string.IsNullOrEmpty(spec)) return;
+                RunDshPluginCli("add \"" + spec.Replace("\"", "\\\"") + "\"");
+            }
+            catch { /* 有意吞掉：添加失败不阻塞 UI */ }
+        }
+
+        private static void DeletePlugin(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            RunDshPluginCli("remove \"" + id.Replace("\"", "\\\"") + "\"");
+        }
+
+        private static void UpdatePlugin(string id)
+        {
+            if (id == "dsh-hub")
+            {
+                RunDshPluginCli("add \"https://codeload.github.com/ARFCON/dsh-hub-DSH/tar.gz/refs/heads/main\"");
+                return;
+            }
+            if (id == "dsh-memory-hub")
+            {
+                Dictionary<string, string> info = GetMemoryHubReleaseInfo();
+                if (info != null && info.ContainsKey("url"))
+                {
+                    RunDshPluginCli("add \"" + info["url"] + "\"");
+                    return;
+                }
+            }
+            if (id == "dseam-skillmcp")
+            {
+                InstallEmbeddedSkillMcp();
+                return;
+            }
+            if (string.IsNullOrEmpty(id)) return;
+            RunDshPluginCli("update \"" + id.Replace("\"", "\\\"") + "\"");
+        }
+
         private static string GetMemoryJson()
         {
             try
