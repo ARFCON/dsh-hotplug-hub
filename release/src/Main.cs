@@ -46,7 +46,10 @@ namespace DSHHotplugHub
         private readonly WebView2 webView = new WebView2();
         private const string APP_VERSION = "0.9.3";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
-        private static string _cachedDshHubLatest = null;
+        private const string PANEL_VERSION = "0.8.0-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
+        // GitHub API 结果的会话级缓存：避免每次插件列表刷新都同步打 API、离线时反复等 15s 超时
+        private static readonly Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>> _githubCache =
+            new Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>>();
         private const string PANEL_REPO = "Fishquito7/dsh-skill-mcp-panel";
         // GitHub Token 不再硬编码进源码（仓库会触发 secret scanning）。
         // 有速率限制时可设置环境变量 DSH_HUB_GITHUB_TOKEN，或写入 ~/.dsh/github-token.txt。
@@ -160,7 +163,7 @@ namespace DSHHotplugHub
                         }
                         else if (message == "recheck")
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                            await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                         }
                         else if (message == "openApiConfig")
                         {
@@ -171,7 +174,7 @@ namespace DSHHotplugHub
                             string chosen = ChooseHarnessManually();
                             if (chosen != null)
                             {
-                                await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                                await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                             }
                         }
                         else if (message == "downloadHarness")
@@ -180,7 +183,7 @@ namespace DSHHotplugHub
                         }
                         else if (message == "checkUpdate")
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                            await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                         }
                         else if (message == "downloadProject")
                         {
@@ -191,7 +194,7 @@ namespace DSHHotplugHub
                             await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在安装/更新官方 Skill/MCP 面板插件，请稍候…');");
                             string panelResult = await Task.Run(() => InstallOrUpdatePanel());
                             await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(panelResult) + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                            await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                         }
                         else if (message == "openPanelPage")
                         {
@@ -225,13 +228,11 @@ namespace DSHHotplugHub
                         {
                             SaveSkillFile(message.Substring("addSkill:".Length));
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                         }
                         else if (message != null && message.StartsWith("deleteSkill:"))
                         {
                             DeleteSkillFile(message.Substring("deleteSkill:".Length));
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                         }
                         else if (message == "listSkillSource")
                         {
@@ -239,58 +240,68 @@ namespace DSHHotplugHub
                         }
                         else if (message != null && message.StartsWith("addSkillSource:"))
                         {
-                            AddSkillsFromSource(message.Substring("addSkillSource:".Length));
+                            await Task.Run(() => AddSkillsFromSource(message.Substring("addSkillSource:".Length)));
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkillSource(" + GetSkillSourceJson() + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                         }
                         else if (message != null && message.StartsWith("enableSkill:"))
                         {
-                            RunDshPanelCli("skill enable \"" + SanitizeServerName(message.Substring("enableSkill:".Length)) + "\"");
+                            await Task.Run(() => RunDshPanelCli("skill enable \"" + SanitizeServerName(message.Substring("enableSkill:".Length)) + "\""));
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
                         }
                         else if (message != null && message.StartsWith("disableSkill:"))
                         {
-                            RunDshPanelCli("skill disable \"" + SanitizeServerName(message.Substring("disableSkill:".Length)) + "\"");
+                            await Task.Run(() => RunDshPanelCli("skill disable \"" + SanitizeServerName(message.Substring("disableSkill:".Length)) + "\""));
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
                         }
                         else if (message == "checkPlugins")
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + CheckPluginUpdates() + ");");
+                            string checkJson = await Task.Run(() => CheckPluginUpdates());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + checkJson + ");");
                         }
                         else if (message == "listPlugins")
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
+                            string listJson = await Task.Run(() => GetPluginsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + listJson + ");");
                         }
                         else if (message != null && message.StartsWith("addPlugin:"))
                         {
-                            AddPlugin(message.Substring("addPlugin:".Length));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                            string pluginPayload = message.Substring("addPlugin:".Length);
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在安装插件，可能需要一分钟…');");
+                            string addResult = await Task.Run(() => AddPlugin(pluginPayload));
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(addResult) + ");");
+                            string addJson = await Task.Run(() => GetPluginsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + addJson + ");");
                         }
                         else if (message != null && message.StartsWith("deletePlugin:"))
                         {
-                            DeletePlugin(message.Substring("deletePlugin:".Length));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                            string delResult = await Task.Run(() => DeletePlugin(message.Substring("deletePlugin:".Length)));
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(delResult) + ");");
+                            string delJson = await Task.Run(() => GetPluginsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + delJson + ");");
                         }
                         else if (message != null && message.StartsWith("enablePlugin:"))
                         {
-                            SetPluginEnabled(message.Substring("enablePlugin:".Length), true);
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                            string enResult = await Task.Run(() => SetPluginEnabled(message.Substring("enablePlugin:".Length), true));
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(enResult) + ");");
+                            string enJson = await Task.Run(() => GetPluginsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + enJson + ");");
                         }
                         else if (message != null && message.StartsWith("disablePlugin:"))
                         {
-                            SetPluginEnabled(message.Substring("disablePlugin:".Length), false);
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                            string disResult = await Task.Run(() => SetPluginEnabled(message.Substring("disablePlugin:".Length), false));
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(disResult) + ");");
+                            string disJson = await Task.Run(() => GetPluginsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + disJson + ");");
                         }
                         else if (message != null && message.StartsWith("updatePlugin:"))
                         {
-                            UpdatePlugin(message.Substring("updatePlugin:".Length));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + GetPluginsJson() + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                            string upId = message.Substring("updatePlugin:".Length);
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在更新插件 " + upId + " …');");
+                            string upResult = await Task.Run(() => UpdatePlugin(upId));
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(upResult) + ");");
+                            string upJson = await Task.Run(() => GetPluginsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setPlugins(" + upJson + ");");
                         }
                         else if (message == "listMcp")
                         {
@@ -298,19 +309,17 @@ namespace DSHHotplugHub
                         }
                         else if (message != null && message.StartsWith("addMcp:"))
                         {
-                            SaveMcpFile(message.Substring("addMcp:".Length));
+                            await Task.Run(() => SaveMcpFile(message.Substring("addMcp:".Length)));
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                         }
                         else if (message != null && message.StartsWith("deleteMcp:"))
                         {
-                            DeleteMcpFile(message.Substring("deleteMcp:".Length));
+                            await Task.Run(() => DeleteMcpFile(message.Substring("deleteMcp:".Length)));
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                         }
                         else if (message != null && message.StartsWith("startMcp:"))
                         {
-                            string testResult = StartMcpProcess(message.Substring("startMcp:".Length));
+                            string testResult = await Task.Run(() => StartMcpProcess(message.Substring("startMcp:".Length)));
                             await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(testResult) + ");");
                         }
                         else if (message != null && message.StartsWith("enableMcp:"))
@@ -339,18 +348,23 @@ namespace DSHHotplugHub
                     {
                         if (e.IsSuccess)
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                            await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildApiIntegrationScript());
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory=function(d){window.__memoryData=d||[];if(typeof renderMemory==='function')renderMemory();if(typeof renderShell==='function')renderShell();};window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setSkillSource=function(d){window.__skillSourceData=d||null;if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.__setPlugins=function(d){window.__pluginsData=d||[];if(typeof renderPlugins==='function')renderPlugins();};window.chrome.webview.postMessage('listMemory');window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listSkillSource');window.chrome.webview.postMessage('listMcp');window.chrome.webview.postMessage('listPlugins');");
-                            string latestCheck = GetLatestReleaseVersion();
-                            if (!_updateNotified && !string.IsNullOrEmpty(latestCheck) && latestCheck != APP_VERSION)
+                            string latestCheck = null;
+                            string panelInstalledCheck = null;
+                            await Task.Run(delegate
+                            {
+                                latestCheck = GetLatestReleaseVersion();
+                                panelInstalledCheck = GetInstalledPanelVersion();
+                            });
+                            if (!_updateNotified && !string.IsNullOrEmpty(latestCheck) && NormalizeVersion(latestCheck) != NormalizeVersion(APP_VERSION))
                             {
                                 _updateNotified = true;
                                 await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('发现新版本 v" + latestCheck + "，请到 自检更新 下载');");
                             }
-                            string panelLatestCheck = "0.8.0-pre";
-                            string panelInstalledCheck = GetInstalledPanelVersion();
-                            if (!_panelUpdateNotified && !string.IsNullOrEmpty(panelLatestCheck) && panelLatestCheck != panelInstalledCheck)
+                            string panelLatestCheck = PANEL_VERSION;
+                            if (!_panelUpdateNotified && !string.IsNullOrEmpty(panelLatestCheck) && NormalizeVersion(panelInstalledCheck) != NormalizeVersion(panelLatestCheck))
                             {
                                 _panelUpdateNotified = true;
                                 await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('内置 Skill/MCP 管理器可更新到 v" + panelLatestCheck + "，请到 自检更新 安装');");
@@ -435,7 +449,7 @@ namespace DSHHotplugHub
             string profiles = DetectProfiles();
             string latest = GetLatestReleaseVersion();
             string panelInstalled = GetInstalledPanelVersion();
-            string panelLatest = "0.8.0-pre";
+            string panelLatest = PANEL_VERSION;
 
             string js =
                 "window.__nativeSelfCheck={" +
@@ -474,6 +488,12 @@ namespace DSHHotplugHub
             return js;
         }
 
+        // 自检探测会 spawn 多个进程并访问 GitHub，放到后台线程执行，避免冻结 UI
+        private static Task<string> BuildNativeSelfCheckScriptAsync()
+        {
+            return Task.Run(() => BuildNativeSelfCheckScript());
+        }
+
         private static string JsString(string s)
         {
             if (string.IsNullOrEmpty(s)) return "null";
@@ -491,9 +511,15 @@ namespace DSHHotplugHub
                 psi.CreateNoWindow = true;
                 using (Process p = Process.Start(psi))
                 {
-                    string output = p.StandardOutput.ReadToEnd().Trim();
-                    p.WaitForExit(5000);
-                    return output;
+                    // 先异步接管输出再等退出：ReadToEnd() 是无限阻塞的，进程挂起时必须靠超时 + Kill 脱身
+                    Task<string> stdout = p.StandardOutput.ReadToEndAsync();
+                    Task<string> stderr = p.StandardError.ReadToEndAsync();
+                    if (!p.WaitForExit(5000))
+                    {
+                        try { p.Kill(); } catch { /* 有意吞掉：尽力而为的清理 */ }
+                        try { p.WaitForExit(2000); } catch { /* 有意吞掉：尽力而为的清理 */ }
+                    }
+                    return stdout.Status == TaskStatus.RanToCompletion ? stdout.Result.Trim() : "";
                 }
             }
             catch
@@ -636,11 +662,12 @@ namespace DSHHotplugHub
             }
         }
 
-        private static string GetLatestReleaseVersion()
+        // 统一的 GitHub API GET（带 Token、UA、15s 超时）；失败返回 null，由调用方按离线处理
+        private static Dictionary<string, object> GitHubGetJson(string url)
         {
             try
             {
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/" + PROJECT_REPO + "/releases/tags/v" + APP_VERSION);
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
                 request.Method = "GET";
                 request.UserAgent = "DSH-Hotplug-Hub";
                 request.Accept = "application/vnd.github+json";
@@ -650,18 +677,51 @@ namespace DSHHotplugHub
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
                 {
-                    string json = reader.ReadToEnd();
-                    JavaScriptSerializer ser = new JavaScriptSerializer();
-                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(json);
-                    if (root != null && root.ContainsKey("tag_name"))
-                    {
-                        string tag = Convert.ToString(root["tag_name"]);
-                        return tag.TrimStart('v');
-                    }
+                    return new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
                 }
             }
-            catch
+            catch { /* 有意吞掉：网络失败返回 null，失败结果也进缓存，避免离线时反复超时 */ }
+            return null;
+        }
+
+        private static Dictionary<string, object> GitHubGetJsonCached(string url, int ttlMinutes)
+        {
+            lock (_githubCache)
             {
+                KeyValuePair<DateTime, Dictionary<string, object>> hit;
+                if (_githubCache.TryGetValue(url, out hit) && DateTime.UtcNow.Subtract(hit.Key).TotalMinutes < ttlMinutes)
+                {
+                    return hit.Value;
+                }
+            }
+            Dictionary<string, object> fresh = GitHubGetJson(url);
+            lock (_githubCache)
+            {
+                _githubCache[url] = new KeyValuePair<DateTime, Dictionary<string, object>>(DateTime.UtcNow, fresh);
+            }
+            return fresh;
+        }
+
+        private static void ClearGitHubCache()
+        {
+            lock (_githubCache) { _githubCache.Clear(); }
+        }
+
+        // 版本号规范化：去掉空白与前导 v/V，"v0.8.0-pre" 与 "0.8.0-pre" 视为相同
+        private static string NormalizeVersion(string v)
+        {
+            if (string.IsNullOrEmpty(v)) return null;
+            string s = v.Trim();
+            return s.Length > 0 && (s[0] == 'v' || s[0] == 'V') ? s.Substring(1) : s;
+        }
+
+        // 必须请求 releases/latest：请求 releases/tags/v{当前版本} 拿到的永远是自身 tag，更新提示永远不会触发
+        private static string GetLatestReleaseVersion()
+        {
+            Dictionary<string, object> root = GitHubGetJsonCached("https://api.github.com/repos/" + PROJECT_REPO + "/releases/latest", 10);
+            if (root != null && root.ContainsKey("tag_name"))
+            {
+                return Convert.ToString(root["tag_name"]).TrimStart('v');
             }
             return null;
         }
@@ -671,53 +731,32 @@ namespace DSHHotplugHub
 
         private static Dictionary<string, string> GetPanelReleaseInfo()
         {
-            try
+            Dictionary<string, object> root = GitHubGetJsonCached("https://api.github.com/repos/" + PANEL_REPO + "/releases/latest", 10);
+            if (root == null) return null;
+            Dictionary<string, string> info = new Dictionary<string, string>();
+            if (root.ContainsKey("tag_name"))
             {
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/" + PANEL_REPO + "/releases/latest");
-                request.Method = "GET";
-                request.UserAgent = "DSH-Hotplug-Hub";
-                request.Accept = "application/vnd.github+json";
-                string githubToken = GetGithubToken();
-                if (!string.IsNullOrEmpty(githubToken)) request.Headers.Add("Authorization", "Bearer " + githubToken);
-                request.Timeout = 15000;
-                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                info["latest"] = Convert.ToString(root["tag_name"]).TrimStart('v');
+            }
+            if (root.ContainsKey("assets"))
+            {
+                object[] assets = root["assets"] as object[];
+                if (assets != null)
                 {
-                    string json = reader.ReadToEnd();
-                    JavaScriptSerializer ser = new JavaScriptSerializer();
-                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(json);
-                    if (root == null) return null;
-                    Dictionary<string, string> info = new Dictionary<string, string>();
-                    if (root.ContainsKey("tag_name"))
+                    foreach (object assetObj in assets)
                     {
-                        string tag = Convert.ToString(root["tag_name"]).TrimStart('v');
-                        info["latest"] = tag;
-                    }
-                    if (root.ContainsKey("assets"))
-                    {
-                        object[] assets = root["assets"] as object[];
-                        if (assets != null)
+                        Dictionary<string, object> asset = assetObj as Dictionary<string, object>;
+                        if (asset == null) continue;
+                        string name = Convert.ToString(asset.ContainsKey("name") ? asset["name"] : "");
+                        if (name.EndsWith(".tgz") && asset.ContainsKey("browser_download_url"))
                         {
-                            foreach (object assetObj in assets)
-                            {
-                                Dictionary<string, object> asset = assetObj as Dictionary<string, object>;
-                                if (asset == null) continue;
-                                string name = Convert.ToString(asset.ContainsKey("name") ? asset["name"] : "");
-                                if (name.EndsWith(".tgz") && asset.ContainsKey("browser_download_url"))
-                                {
-                                    info["url"] = Convert.ToString(asset["browser_download_url"]);
-                                    break;
-                                }
-                            }
+                            info["url"] = Convert.ToString(asset["browser_download_url"]);
+                            break;
                         }
                     }
-                    return info.Count > 0 ? info : null;
                 }
             }
-            catch
-            {
-            }
-            return null;
+            return info.Count > 0 ? info : null;
         }
 
         private static string GetInstalledPanelVersion()
@@ -823,33 +862,75 @@ namespace DSHHotplugHub
             {
             }
         }
-        private static string RunDshPluginAdd(string tarballUrl)
+        private static string RunDshPluginAdd(string tarballUrl, IDictionary<string, string> extraEnv)
         {
             string[] cmd = FindDshCommand();
             if (cmd == null) return null;
-            string args = cmd[1] + " plugin --profile web add " + tarballUrl;
-            return RunCliLong(cmd[0], args);
+            // URL 必须整体加引号（路径/查询里一旦出现空格或 & 会把参数拆坏），引号字符本身直接剔除
+            string args = cmd[1] + " plugin --profile web add \"" + (tarballUrl ?? "").Replace("\"", "") + "\"";
+            return RunCliLong(cmd[0], args, 180000, extraEnv);
+        }
+
+        // 安装插件包：部分 Windows 环境访问 GitHub Release 报 UNABLE_TO_VERIFY_LEAF_SIGNATURE，
+        // 此时先用进程级环境变量降级重试，仍失败才写 profile .npmrc（旧兜底）——
+        // 避免默认对整个 profile 关闭 strict-ssl，削弱所有后续安装的证书校验。
+        private static string InstallPluginPackage(string tarballUrl)
+        {
+            string output = RunDshPluginAdd(tarballUrl, null);
+            if (output != null && output.Contains("UNABLE_TO_VERIFY_LEAF_SIGNATURE"))
+            {
+                Dictionary<string, string> env = new Dictionary<string, string>();
+                env["npm_config_strict_ssl"] = "false";
+                output = RunDshPluginAdd(tarballUrl, env);
+                if (output != null && output.Contains("UNABLE_TO_VERIFY_LEAF_SIGNATURE"))
+                {
+                    EnsureProfileNpmrc();
+                    output = RunDshPluginAdd(tarballUrl, null);
+                }
+            }
+            return output;
         }
 
         private static string RunDshPanelInstall(string tarballUrl)
         {
-            return RunDshPluginAdd(tarballUrl);
+            return InstallPluginPackage(tarballUrl);
         }
 
         private static string RunCliLong(string fileName, string arguments)
+        {
+            return RunCliLong(fileName, arguments, 180000, null);
+        }
+
+        // extraEnv 用于进程级注入 npm 配置（如证书降级重试），不污染全局 .npmrc
+        private static string RunCliLong(string fileName, string arguments, int timeoutMs, IDictionary<string, string> extraEnv)
         {
             try
             {
                 ProcessStartInfo psi = new ProcessStartInfo(fileName, arguments);
                 psi.UseShellExecute = false;
                 psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = false;
+                psi.RedirectStandardError = true;
                 psi.CreateNoWindow = true;
+                if (extraEnv != null)
+                {
+                    foreach (KeyValuePair<string, string> kv in extraEnv)
+                    {
+                        psi.EnvironmentVariables[kv.Key] = kv.Value;
+                    }
+                }
                 using (Process p = Process.Start(psi))
                 {
-                    string output = p.StandardOutput.ReadToEnd();
-                    p.WaitForExit(180000);
-                    return output.Trim();
+                    Task<string> stdout = p.StandardOutput.ReadToEndAsync();
+                    Task<string> stderr = p.StandardError.ReadToEndAsync();
+                    if (!p.WaitForExit(timeoutMs))
+                    {
+                        try { p.Kill(); } catch { /* 有意吞掉：尽力而为的清理 */ }
+                        try { p.WaitForExit(2000); } catch { /* 有意吞掉：尽力而为的清理 */ }
+                    }
+                    string outText = stdout.Status == TaskStatus.RanToCompletion ? stdout.Result.Trim() : "";
+                    // pnpm 的报错大多走 stderr，合并进来上层的错误关键字（ERR_PNPM 等）才能命中
+                    string errText = stderr.Status == TaskStatus.RanToCompletion ? stderr.Result.Trim() : "";
+                    return errText.Length > 0 ? outText + Environment.NewLine + errText : outText;
                 }
             }
             catch (Exception ex)
@@ -869,11 +950,10 @@ namespace DSHHotplugHub
                 }
                 string latest = info.ContainsKey("latest") ? info["latest"] : "?";
                 string installed = GetInstalledPanelVersion();
-                if (!string.IsNullOrEmpty(installed) && installed == latest)
+                if (!string.IsNullOrEmpty(installed) && NormalizeVersion(installed) == NormalizeVersion(latest))
                 {
                     return "官方面板插件已是最新 v" + installed;
                 }
-                EnsureProfileNpmrc();
                 string output = RunDshPanelInstall(info["url"]);
                 if (output == null)
                 {
@@ -1491,6 +1571,7 @@ namespace DSHHotplugHub
 
         private async Task HandleAiRequestAsync(string payload)
         {
+            string errorMsg = null;
             try
             {
                 JavaScriptSerializer ser = new JavaScriptSerializer();
@@ -1517,7 +1598,11 @@ namespace DSHHotplugHub
             }
             catch (Exception ex)
             {
-                var aiErrorTask = webView.CoreWebView2.ExecuteScriptAsync("window.__onAiError(" + JsString("AI 调用异常：" + ex.Message) + ");");
+                errorMsg = "AI 调用异常：" + ex.Message;
+            }
+            if (errorMsg != null)
+            {
+                await webView.CoreWebView2.ExecuteScriptAsync("window.__onAiError(" + JsString(errorMsg) + ");");
             }
         }
 
@@ -1540,16 +1625,18 @@ namespace DSHHotplugHub
         {
             try
             {
-                EnsureProfileNpmrc();
                 Dictionary<string, string> info = GetMemoryHubReleaseInfo();
                 string url = info != null && info.ContainsKey("url")
                     ? info["url"]
                     : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.3/dsh-memory-hub-0.8.0-pre.tgz";
                 string latest = info != null && info.ContainsKey("latest") ? info["latest"] : null;
                 string installed = GetInstalledMemoryHubVersion();
-                if (string.IsNullOrEmpty(installed) || string.IsNullOrEmpty(latest) || installed != latest)
+                // 离线（latest 拿不到）且已安装时跳过：避免每次启动都白发一次注定失败的安装
+                bool needInstall = string.IsNullOrEmpty(installed)
+                    || (!string.IsNullOrEmpty(latest) && NormalizeVersion(installed) != NormalizeVersion(latest));
+                if (needInstall)
                 {
-                    string output = RunDshPluginAdd(url);
+                    string output = InstallPluginPackage(url);
                     if (output != null && (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:")))
                     {
                         try
@@ -1572,41 +1659,24 @@ namespace DSHHotplugHub
 
         private static Dictionary<string, string> GetMemoryHubReleaseInfo()
         {
-            try
+            Dictionary<string, object> root = GitHubGetJsonCached("https://api.github.com/repos/" + PROJECT_REPO + "/releases/tags/v" + APP_VERSION, 10);
+            if (root == null || !root.ContainsKey("assets")) return null;
+            object[] assets = root["assets"] as object[];
+            if (assets == null) return null;
+            foreach (object assetObj in assets)
             {
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/" + PROJECT_REPO + "/releases/tags/v" + APP_VERSION);
-                request.Method = "GET";
-                request.UserAgent = "DSH-Hotplug-Hub";
-                request.Accept = "application/vnd.github+json";
-                string githubToken = GetGithubToken();
-                if (!string.IsNullOrEmpty(githubToken)) request.Headers.Add("Authorization", "Bearer " + githubToken);
-                request.Timeout = 15000;
-                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
-                {
-                    string json = reader.ReadToEnd();
-                    JavaScriptSerializer ser = new JavaScriptSerializer();
-                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(json);
-                    if (root == null || !root.ContainsKey("assets")) return null;
-                    object[] assets = root["assets"] as object[];
-                    if (assets == null) return null;
-                    foreach (object assetObj in assets)
-                    {
-                        Dictionary<string, object> asset = assetObj as Dictionary<string, object>;
-                        if (asset == null) continue;
-                        string name = Convert.ToString(asset.ContainsKey("name") ? asset["name"] : "");
-                        if (!name.StartsWith("dsh-memory-hub-") || !name.EndsWith(".tgz")) continue;
-                        if (!asset.ContainsKey("browser_download_url")) continue;
-                        Dictionary<string, string> info = new Dictionary<string, string>();
-                        info["url"] = Convert.ToString(asset["browser_download_url"]);
-                        string ver = name.Substring("dsh-memory-hub-".Length);
-                        if (ver.EndsWith(".tgz")) ver = ver.Substring(0, ver.Length - ".tgz".Length);
-                        info["latest"] = ver;
-                        return info;
-                    }
-                }
+                Dictionary<string, object> asset = assetObj as Dictionary<string, object>;
+                if (asset == null) continue;
+                string name = Convert.ToString(asset.ContainsKey("name") ? asset["name"] : "");
+                if (!name.StartsWith("dsh-memory-hub-") || !name.EndsWith(".tgz")) continue;
+                if (!asset.ContainsKey("browser_download_url")) continue;
+                Dictionary<string, string> info = new Dictionary<string, string>();
+                info["url"] = Convert.ToString(asset["browser_download_url"]);
+                string ver = name.Substring("dsh-memory-hub-".Length);
+                if (ver.EndsWith(".tgz")) ver = ver.Substring(0, ver.Length - ".tgz".Length);
+                info["latest"] = ver;
+                return info;
             }
-            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             return null;
         }
 
@@ -1616,18 +1686,18 @@ namespace DSHHotplugHub
             try
             {
                 string installed = GetInstalledPanelVersion();
-                if (installed == "0.8.0-pre") return;
+                if (NormalizeVersion(installed) == PANEL_VERSION) return;
                 using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("DSHHotplugHub.Resources.dseam_skillmcp.tgz"))
                 {
                     if (stream == null) return;
                     string dir = Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embedded");
                     Directory.CreateDirectory(dir);
-                    string tgz = Path.Combine(dir, "dseam-skillmcp-0.8.0-pre.tgz");
+                    string tgz = Path.Combine(dir, "dseam-skillmcp-" + PANEL_VERSION + ".tgz");
                     using (FileStream fs = new FileStream(tgz, FileMode.Create, FileAccess.Write))
                     {
                         stream.CopyTo(fs);
                     }
-                    RunDshPluginAdd(tgz);
+                    InstallPluginPackage(tgz);
                 }
             }
             catch { /* 有意吞掉：内置管理器安装失败不阻塞启动，下次启动重试 */ }
@@ -1669,9 +1739,11 @@ namespace DSHHotplugHub
             try
             {
                 string latest = GetLatestDshHubVersion();
+                // 离线/接口失败（latest 为空）时跳过：旧逻辑此时会每次启动都重新下载 main 分支 tarball
+                if (string.IsNullOrEmpty(latest)) return;
                 string installed = GetInstalledDshHubVersion();
-                if (!string.IsNullOrEmpty(latest) && installed == latest) return;
-                RunDshPluginCli("add \"https://codeload.github.com/ARFCON/dsh-hub-DSH/tar.gz/refs/heads/main\"");
+                if (NormalizeVersion(installed) == NormalizeVersion(latest)) return;
+                InstallPluginPackage("https://codeload.github.com/ARFCON/dsh-hub-DSH/tar.gz/refs/heads/main");
             }
             catch { /* 有意吞掉：内置 dsh-hub 安装失败不阻塞启动，插件管理页可手动更新 */ }
         }
@@ -1680,26 +1752,13 @@ namespace DSHHotplugHub
         {
             try
             {
-                if (!string.IsNullOrEmpty(_cachedDshHubLatest)) return _cachedDshHubLatest;
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/ARFCON/dsh-hub-DSH/contents/package.json");
-                request.Method = "GET";
-                request.UserAgent = "DSH-Hotplug-Hub";
-                request.Accept = "application/vnd.github+json";
-                string githubToken = GetGithubToken();
-                if (!string.IsNullOrEmpty(githubToken)) request.Headers.Add("Authorization", "Bearer " + githubToken);
-                request.Timeout = 15000;
-                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                Dictionary<string, object> root = GitHubGetJsonCached("https://api.github.com/repos/ARFCON/dsh-hub-DSH/contents/package.json", 10);
+                if (root != null && root.ContainsKey("content"))
                 {
-                    JavaScriptSerializer ser = new JavaScriptSerializer();
-                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
-                    if (root != null && root.ContainsKey("content"))
-                    {
-                        string base64 = Convert.ToString(root["content"]).Replace("\n", "").Replace("\r", "");
-                        byte[] data = Convert.FromBase64String(base64);
-                        Dictionary<string, object> pkg = ser.Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(data));
-                        if (pkg != null && pkg.ContainsKey("version")) { _cachedDshHubLatest = Convert.ToString(pkg["version"]); return _cachedDshHubLatest; }
-                    }
+                    string base64 = Convert.ToString(root["content"]).Replace("\n", "").Replace("\r", "");
+                    byte[] data = Convert.FromBase64String(base64);
+                    Dictionary<string, object> pkg = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(data));
+                    if (pkg != null && pkg.ContainsKey("version")) return Convert.ToString(pkg["version"]);
                 }
             }
             catch { /* 有意吞掉：离线时不做 dsh-hub 更新 */ }
@@ -1761,19 +1820,25 @@ namespace DSHHotplugHub
             return list;
         }
 
-        private static string GetInstalledPackageVersion(string name)
+        // 一次读取 node_modules/<name>/package.json，版本与 bundle 判断共用，避免同一文件重复读
+        private static Dictionary<string, object> ReadInstalledPackageJson(string name)
         {
             try
             {
                 if (string.IsNullOrEmpty(name)) return null;
                 string pkgFile = Path.Combine(Path.Combine(GetProfileDir(), "node_modules"), name.Replace("/", Path.DirectorySeparatorChar.ToString()), "package.json");
                 if (!File.Exists(pkgFile)) return null;
-                JavaScriptSerializer ser = new JavaScriptSerializer();
-                Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
-                if (root != null && root.ContainsKey("version")) return Convert.ToString(root["version"]);
+                return new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
             }
-            catch { /* 有意吞掉：版本读取失败则显示未知 */ }
+            catch { /* 有意吞掉：读不到按未安装处理 */ }
             return null;
+        }
+
+        private static bool HasBundlePatch(Dictionary<string, object> pkgRoot)
+        {
+            Dictionary<string, object> dsh = pkgRoot != null && pkgRoot.ContainsKey("dsh") ? pkgRoot["dsh"] as Dictionary<string, object> : null;
+            Dictionary<string, object> bundle = dsh != null && dsh.ContainsKey("bundle") ? dsh["bundle"] as Dictionary<string, object> : null;
+            return bundle != null && bundle.ContainsKey("patch");
         }
 
         private static string GetKnownLatestVersion(string name)
@@ -1785,7 +1850,7 @@ namespace DSHHotplugHub
                 if (info != null && info.ContainsKey("latest")) return info["latest"];
                 return "0.8.0-pre";
             }
-            if (name == "dseam-skillmcp") return "0.8.0-pre";
+            if (name == "dseam-skillmcp") return PANEL_VERSION;
             return null;
         }
 
@@ -1797,26 +1862,85 @@ namespace DSHHotplugHub
             return null;
         }
 
-        private static bool IsBundlePackage(string name)
-        {
-            try
-            {
-                string pkgFile = Path.Combine(Path.Combine(GetProfileDir(), "node_modules"), name.Replace("/", Path.DirectorySeparatorChar.ToString()), "package.json");
-                if (!File.Exists(pkgFile)) return false;
-                JavaScriptSerializer ser = new JavaScriptSerializer();
-                Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
-                if (root == null || !root.ContainsKey("dsh")) return false;
-                Dictionary<string, object> dsh = root["dsh"] as Dictionary<string, object>;
-                if (dsh == null || !dsh.ContainsKey("bundle")) return false;
-                Dictionary<string, object> bundle = dsh["bundle"] as Dictionary<string, object>;
-                return bundle != null && bundle.ContainsKey("patch");
-            }
-            catch { return false; }
-        }
+        // ---- 插件启停（与 DSH Desktop 设置页「插件」栏同一套 cordis.patch.yml 手术） ----
+        // 官方壳并不是通过增删 dsh.profile.bundles 来启停插件，而是在 profile 的
+        // cordis.patch.yml 顶层写/删 - id: <loaderId> + disabled: true 覆盖条目。
+        // 本区域完整移植 scripts/plugin-manager-patch.js 的 togglePluginInPatch 语义，
+        // 保证与官方设置页双向兼容（官方页能识别我们写的条目，我们也能识别官方写的）。
 
         private static string ProfilePatchPath()
         {
             return Path.Combine(GetProfileDir(), "cordis.patch.yml");
+        }
+
+        // loader id 白名单：与 DSH Desktop ID_RE 一致，防止非法字符被拼进 YAML / 正则
+        private static bool ValidPluginLoaderId(string id)
+        {
+            return !string.IsNullOrEmpty(id) && System.Text.RegularExpressions.Regex.IsMatch(id, "^[A-Za-z0-9_.-]+$");
+        }
+
+        private static string RegexEscapeForPatch(string s)
+        {
+            return System.Text.RegularExpressions.Regex.Escape(s ?? "");
+        }
+
+        private static string YamlSingleQuote(string s)
+        {
+            return "'" + (s ?? "").Replace("'", "''") + "'";
+        }
+
+        // 从安装包自己的 cordis.patch.yml（bundle patch）读取 loader id：
+        // dshmarket→dsh-market、dsh-memory-hub→memory-hub、dsh-ui-guard→ui-guard、
+        // @deepseek-ai/dsh-bridge-browser→bridge-browser、@liustack/modlens→modlens 等。
+        private static string GetBundlePatchLoaderId(string name)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(name)) return null;
+                string dir = Path.Combine(Path.Combine(GetProfileDir(), "node_modules"), name.Replace("/", Path.DirectorySeparatorChar.ToString()));
+                string patch = Path.Combine(dir, "cordis.patch.yml");
+                if (!File.Exists(patch)) return null;
+                return GetFirstInsertIdFromPatch(File.ReadAllText(patch));
+            }
+            catch { return null; }
+        }
+
+        private static string GetFirstInsertIdFromPatch(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(text, @"- insert:\s*\r?\n[ \t]+- id:\s*([A-Za-z0-9_.-]+)");
+            if (m.Success && m.Groups.Count > 1) return m.Groups[1].Value;
+            return null;
+        }
+
+        // 非 bundle 插件（如 dsh-hub）的 loader id 登记在 profile patch 的 insert 块里，按包名反查。
+        private static string GetProfilePatchInsertId(string name)
+        {
+            try
+            {
+                string patchFile = ProfilePatchPath();
+                if (!File.Exists(patchFile) || string.IsNullOrEmpty(name)) return null;
+                string text = File.ReadAllText(patchFile).Replace("\r\n", "\n");
+                string[] lines = text.Split('\n');
+                for (int k = 0; k + 1 < lines.Length; k++)
+                {
+                    string t = lines[k].Trim();
+                    if (t != "- insert:") continue;
+                    string blockId = null;
+                    string blockName = null;
+                    for (int n = k + 1; n < lines.Length; n++)
+                    {
+                        string lt = lines[n].Trim();
+                        if (lt.StartsWith("- id:")) blockId = lt.Substring(5).Trim().Trim('\'', '"');
+                        else if (lt.StartsWith("name:")) blockName = lt.Substring(5).Trim().Trim('\'', '"');
+                        else if (lt.StartsWith("- ")) break;
+                        if (blockId != null && blockName != null) break;
+                    }
+                    if (blockId != null && blockName == name) return blockId;
+                }
+            }
+            catch { /* 有意吞掉：反查不到时走净化名兜底 */ }
+            return null;
         }
 
         private static string SanitizePluginInsertId(string name)
@@ -1829,63 +1953,84 @@ namespace DSHHotplugHub
             return id;
         }
 
-        private static bool PatchHasInsertFor(string name)
+        private static string GetLoaderIdForPackage(string name)
+        {
+            string loaderId = GetBundlePatchLoaderId(name);
+            if (string.IsNullOrEmpty(loaderId)) loaderId = GetProfilePatchInsertId(name);
+            if (string.IsNullOrEmpty(loaderId)) loaderId = SanitizePluginInsertId(name);
+            return loaderId;
+        }
+
+        // 顶层用户层条目是否带 disabled: true（官方插件管理页与我们的启停共用这一判定）
+        private static bool HasUserDisabledEntry(string id)
         {
             try
             {
+                if (!ValidPluginLoaderId(id)) return false;
                 string patchFile = ProfilePatchPath();
-                if (!File.Exists(patchFile) || string.IsNullOrEmpty(name)) return false;
-                string text = File.ReadAllText(patchFile);
-                string id = SanitizePluginInsertId(name);
-                return text.Contains("id: " + id) || text.Contains("id: " + name) || text.Contains("name: '" + name + "'") || text.Contains("name: \"" + name + "\"");
+                if (!File.Exists(patchFile)) return false;
+                string text = File.ReadAllText(patchFile).Replace("\r\n", "\n");
+                string pattern = @"(?:^|\n)([ \t]{0,2})- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|(?:\n#)|\s*$)";
+                foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text, pattern))
+                {
+                    if (System.Text.RegularExpressions.Regex.IsMatch(m.Value, @"(?:^|\n)[ \t]{0,2}disabled\s*:\s*true\b")) return true;
+                }
+                return false;
             }
             catch { return false; }
         }
 
-        private static void AddPatchInsertBlock(string name)
+        // 把 profile cordis.patch.yml 的某插件启停条目与 DSH Desktop 保持一致：
+        // 关闭 = 从 insert 块移除内层条目 + 顶层写 disabled: true；启用 = 移除 disabled 行。
+        private static string TogglePluginInPatch(string text, string id, bool enabled, string name)
         {
-            try
-            {
-                if (PatchHasInsertFor(name)) return;
-                string patchFile = ProfilePatchPath();
-                string text = File.Exists(patchFile) ? File.ReadAllText(patchFile) : "";
-                string id = SanitizePluginInsertId(name);
-                if (text.Length > 0 && !text.EndsWith("\n")) text += "\n";
-                text += "- insert:\n    - id: " + id + "\n      name: '" + name + "'\n      config: {}\n";
-                File.WriteAllText(patchFile, text);
-            }
-            catch { /* 有意吞掉：写入失败不阻塞 UI */ }
-        }
+            if (text == null) text = "";
+            if (!ValidPluginLoaderId(id)) throw new ArgumentException("id 含非法字符（仅允许字母/数字/下划线/点/连字符）: " + id);
+            string outText = text;
+            string pkgName = string.IsNullOrEmpty(name) ? id : name;
 
-        private static void RemovePatchInsertBlock(string name)
-        {
-            try
+            if (!enabled)
             {
-                string patchFile = ProfilePatchPath();
-                if (!File.Exists(patchFile)) return;
-                string text = File.ReadAllText(patchFile);
-                string id = SanitizePluginInsertId(name);
-                int idx = 0;
-                while ((idx = text.IndexOf("- insert:", idx, StringComparison.Ordinal)) >= 0)
+                string innerPattern = @"(?:^|\n)[ \t]+- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]+- id:)|(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|\s*$)";
+                outText = System.Text.RegularExpressions.Regex.Replace(outText, innerPattern, delegate(System.Text.RegularExpressions.Match m) { return m.Value.StartsWith("\n") ? "\n" : ""; });
+                string emptyInsert = @"(?:^|\n)- insert:\s*\n(?![ \t]+-)";
+                outText = System.Text.RegularExpressions.Regex.Replace(outText, emptyInsert, delegate(System.Text.RegularExpressions.Match m) { return m.Value.StartsWith("\n") ? "\n" : ""; });
+                string topPattern = @"(?:^|\n)([ \t]{0,2})- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|(?:\n#)|\s*$)";
+                if (System.Text.RegularExpressions.Regex.IsMatch(outText, topPattern))
                 {
-                    int end = text.IndexOf("\n- ", idx + 2, StringComparison.Ordinal);
-                    if (end < 0) end = text.Length;
-                    string block = text.Substring(idx, end - idx);
-                    if (block.Contains("id: " + id) || block.Contains("id: " + name) || block.Contains("name: '" + name + "'") || block.Contains("name: \"" + name + "\""))
+                    outText = System.Text.RegularExpressions.Regex.Replace(outText, topPattern, delegate(System.Text.RegularExpressions.Match m)
                     {
-                        text = text.Remove(idx, end - idx).TrimEnd() + "\n";
-                        File.WriteAllText(patchFile, text);
-                        return;
-                    }
-                    idx = end;
+                        string block = m.Value;
+                        if (System.Text.RegularExpressions.Regex.IsMatch(block, @"(?:^|\n)[ \t]{0,2}disabled\s*:")) return block;
+                        System.Text.RegularExpressions.Match nameMatch = System.Text.RegularExpressions.Regex.Match(block, @"(?:\n[ \t]{0,2}name\s*:[^\n]*)");
+                        if (nameMatch.Success) return block.Replace(nameMatch.Value, nameMatch.Value + "\n  disabled: true");
+                        return block.TrimEnd('\n') + "\n  disabled: true\n";
+                    });
                 }
+                else
+                {
+                    string markerPattern = @"(?:^|(?<=\n))# [^\n]*关闭 " + RegexEscapeForPatch(id) + @"[^\n]*(?:\n|$)";
+                    outText = System.Text.RegularExpressions.Regex.Replace(outText, markerPattern, "");
+                    string block = "\n# 插件管理（设置页「插件」栏）：关闭 " + id + "\n- id: " + id + "\n  name: " + YamlSingleQuote(pkgName) + "\n  disabled: true\n";
+                    outText = System.Text.RegularExpressions.Regex.Replace(outText, @"\s*$", "") + block;
+                }
+                return outText;
             }
-            catch { /* 有意吞掉：移除失败不阻塞 UI */ }
-        }
 
+            string topPatternE = @"(?:^|\n)([ \t]{0,2})- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|(?:\n#)|\s*$)";
+            outText = System.Text.RegularExpressions.Regex.Replace(outText, topPatternE, delegate(System.Text.RegularExpressions.Match m)
+            {
+                string withoutDisabled = System.Text.RegularExpressions.Regex.Replace(m.Value, @"\n[ \t]{0,2}disabled\s*:\s*(?:true|false)[^\n]*", "");
+                if (System.Text.RegularExpressions.Regex.IsMatch(withoutDisabled, @"(?:^|\n)[ \t]{0,2}config\s*:")) return withoutDisabled;
+                return m.Value.StartsWith("\n") ? "\n" : "";
+            });
+            string markerPatternE = @"(?:^|(?<=\n))# [^\n]*关闭 " + RegexEscapeForPatch(id) + @"[^\n]*(?:\n|$)";
+            outText = System.Text.RegularExpressions.Regex.Replace(outText, markerPatternE, "");
+            return outText;
+        }
         private static string CheckPluginUpdates()
         {
-            _cachedDshHubLatest = null;
+            ClearGitHubCache(); // 用户显式点击“检查更新”时强制刷新远端版本
             return GetPluginsJson();
         }
 
@@ -1898,7 +2043,6 @@ namespace DSHHotplugHub
                 JavaScriptSerializer ser = new JavaScriptSerializer();
                 Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
                 if (root == null) return "[]";
-                List<string> bundles = GetBundleList(root);
                 List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
                 Dictionary<string, object> deps = null;
                 if (root.ContainsKey("dependencies")) deps = root["dependencies"] as Dictionary<string, object>;
@@ -1908,14 +2052,28 @@ namespace DSHHotplugHub
                     Dictionary<string, object> item = new Dictionary<string, object>();
                     item["id"] = name;
                     item["name"] = name;
-                    item["spec"] = Convert.ToString(deps[name]);
-                    string version = GetInstalledPackageVersion(name);
+                    string spec = Convert.ToString(deps[name]);
+                    item["spec"] = spec;
+                    Dictionary<string, object> pkgRoot = ReadInstalledPackageJson(name);
+                    string version = pkgRoot != null && pkgRoot.ContainsKey("version") ? Convert.ToString(pkgRoot["version"]) : null;
                     string latest = GetKnownLatestVersion(name);
                     item["version"] = version;
-                    item["enabled"] = IsBundlePackage(name) ? bundles.Contains(name) : PatchHasInsertFor(name);
+                    item["enabled"] = !HasUserDisabledEntry(GetLoaderIdForPackage(name));
                     item["latest"] = latest;
                     item["repo"] = GetKnownRepo(name);
-                    item["hasUpdate"] = !string.IsNullOrEmpty(version) && !string.IsNullOrEmpty(latest) && version != latest;
+                    string versionN = NormalizeVersion(version);
+                    string latestN = NormalizeVersion(latest);
+                    bool hasUpdate = false;
+                    if (!string.IsNullOrEmpty(versionN) && !string.IsNullOrEmpty(latestN))
+                    {
+                        hasUpdate = versionN != latestN;
+                    }
+                    else if (!string.IsNullOrEmpty(versionN) && !string.IsNullOrEmpty(spec))
+                    {
+                        // 第三方插件：用 profile package.json 里的 semver range 与已装版本比对
+                        hasUpdate = !SpecSatisfiedBy(spec, versionN);
+                    }
+                    item["hasUpdate"] = hasUpdate;
                     list.Add(item);
                 }
                 return ser.Serialize(list);
@@ -1923,36 +2081,75 @@ namespace DSHHotplugHub
             catch { return "[]"; }
         }
 
-        private static void SetPluginEnabled(string id, bool enabled)
+        // 宽松的 semver range 判断（^ ~ >= 精确值 */latest）；URL/git/file 形式的 spec 无法判断，一律视为满足以免误报
+        private static bool SpecSatisfiedBy(string spec, string version)
+        {
+            string s = (spec ?? "").Trim();
+            if (s.Length == 0 || s == "*" || s == "x" || s == "latest") return true;
+            if (s.Contains("/") || s.Contains(":")) return true; // URL / git / file: 形式
+            bool caret = s.StartsWith("^");
+            bool tilde = s.StartsWith("~");
+            bool gte = s.StartsWith(">=");
+            string body = NormalizeVersion(s.TrimStart('^', '~', '>', '='));
+            int[] specParts = ParseVersionParts(body);
+            int[] verParts = ParseVersionParts(NormalizeVersion(version));
+            if (specParts == null || verParts == null) return true;
+            int cmp = CompareVersionParts(verParts, specParts);
+            if (caret)
+            {
+                if (specParts[0] > 0) return verParts[0] == specParts[0] && cmp >= 0;
+                return verParts[0] == 0 && verParts[1] == specParts[1] && cmp >= 0; // ^0.x.y 锁定 minor
+            }
+            if (tilde) return verParts[0] == specParts[0] && verParts[1] == specParts[1] && cmp >= 0;
+            if (gte) return cmp >= 0;
+            return cmp == 0;
+        }
+
+        private static int[] ParseVersionParts(string v)
+        {
+            if (string.IsNullOrEmpty(v)) return null;
+            string core = v.Split('-', '+')[0];
+            string[] raw = core.Split('.');
+            if (raw.Length == 0) return null;
+            int[] parts = new int[3];
+            int seen = 0;
+            for (int i = 0; i < raw.Length && i < 3; i++)
+            {
+                int n;
+                if (!int.TryParse(raw[i], out n)) return null;
+                parts[i] = n;
+                seen++;
+            }
+            return seen > 0 ? parts : null;
+        }
+
+        private static int CompareVersionParts(int[] a, int[] b)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                if (a[i] != b[i]) return a[i] > b[i] ? 1 : -1;
+            }
+            return 0;
+        }
+
+        private static string SetPluginEnabled(string id, bool enabled)
         {
             try
             {
-                string pkgFile = Path.Combine(GetProfileDir(), "package.json");
-                if (!File.Exists(pkgFile)) return;
-                JavaScriptSerializer ser = new JavaScriptSerializer();
-                Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgFile));
-                if (root == null) return;
-                Dictionary<string, object> dsh;
-                if (root.ContainsKey("dsh") && root["dsh"] is Dictionary<string, object>) dsh = (Dictionary<string, object>)root["dsh"];
-                else { dsh = new Dictionary<string, object>(); root["dsh"] = dsh; }
-                Dictionary<string, object> profile;
-                if (dsh.ContainsKey("profile") && dsh["profile"] is Dictionary<string, object>) profile = (Dictionary<string, object>)dsh["profile"];
-                else { profile = new Dictionary<string, object>(); dsh["profile"] = profile; }
-                if (IsBundlePackage(id))
-                {
-                    List<string> bundles = GetBundleList(root);
-                    if (enabled) { if (!bundles.Contains(id)) bundles.Add(id); }
-                    else { if (bundles.Contains(id)) bundles.Remove(id); }
-                    profile["bundles"] = bundles.ToArray();
-                    File.WriteAllText(pkgFile, ser.Serialize(root));
-                }
-                else
-                {
-                    if (enabled) AddPatchInsertBlock(id);
-                    else RemovePatchInsertBlock(id);
-                }
+                if (string.IsNullOrEmpty(id)) return "插件 ID 为空";
+                string loaderId = GetLoaderIdForPackage(id);
+                if (!ValidPluginLoaderId(loaderId)) return "无法解析插件 loader id：" + id;
+                string patchFile = ProfilePatchPath();
+                string text = File.Exists(patchFile) ? File.ReadAllText(patchFile).Replace("\r\n", "\n") : "";
+                if (text.Trim().Length == 0) text = "# dsh web profile patch（由 DSH Desktop 维护）\n";
+                string patched = TogglePluginInPatch(text, loaderId, enabled, id);
+                if (patched != text) File.WriteAllText(patchFile, patched, new UTF8Encoding(false));
+                return (enabled ? "已启用插件 " : "已停用插件 ") + id + "（重启 DSH 后生效）";
             }
-            catch { /* 有意吞掉：切换插件失败不阻塞 UI，用户可重试 */ }
+            catch (Exception ex)
+            {
+                return "切换失败：" + ex.Message;
+            }
         }
 
         private static string RunDshPluginCli(string arguments)
@@ -1962,7 +2159,31 @@ namespace DSHHotplugHub
             return RunCliLong(cmd[0], cmd[1] + " plugin --profile web " + arguments);
         }
 
-        private static void AddPlugin(string payload)
+        // 把 dsh CLI 输出转成给用户看的结果文案；null（找不到 dsh）与常见错误关键字单独提示
+        private static string FormatCliResult(string output, string successMessage)
+        {
+            if (output == null) return "未找到 dsh 命令，请先安装官方 DSH Desktop 或把 dsh 加入 PATH";
+            if (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:"))
+            {
+                string brief = output.Substring(0, Math.Min(output.Length, 160)).Replace("\r", " ").Replace("\n", " ");
+                return "操作失败：" + brief;
+            }
+            return successMessage;
+        }
+
+        // 插件源/ID 白名单：字母数字与 npm 包名、semver range、GitHub URL 常见字符。
+        // 引号/&/|/^/%/反引号等 shell 元字符一律拒绝，防止经 cmd.exe 的回退路径被拼接注入
+        private static bool IsSafePluginSpec(string spec)
+        {
+            if (string.IsNullOrEmpty(spec)) return false;
+            foreach (char c in spec)
+            {
+                if (!(char.IsLetterOrDigit(c) || "/:@._~#+,=-".IndexOf(c) >= 0)) return false;
+            }
+            return true;
+        }
+
+        private static string AddPlugin(string payload)
         {
             try
             {
@@ -1971,41 +2192,47 @@ namespace DSHHotplugHub
                 string name = data != null && data.ContainsKey("name") ? Convert.ToString(data["name"]) : "";
                 string source = data != null && data.ContainsKey("source") ? Convert.ToString(data["source"]) : "";
                 string spec = !string.IsNullOrEmpty(source) ? source : name;
-                if (string.IsNullOrEmpty(spec)) return;
-                RunDshPluginCli("add \"" + spec.Replace("\"", "\\\"") + "\"");
+                if (string.IsNullOrEmpty(spec)) return "插件名或来源不能为空";
+                if (!IsSafePluginSpec(spec)) return "插件来源包含不支持的字符，已拒绝执行";
+                string output = RunDshPluginCli("add \"" + spec + "\"");
+                return FormatCliResult(output, "插件 " + spec + " 已提交安装，重启 DSH 后生效");
             }
-            catch { /* 有意吞掉：添加失败不阻塞 UI */ }
+            catch (Exception ex)
+            {
+                return "安装异常：" + ex.Message;
+            }
         }
 
-        private static void DeletePlugin(string id)
+        private static string DeletePlugin(string id)
         {
-            if (string.IsNullOrEmpty(id)) return;
-            RunDshPluginCli("remove \"" + id.Replace("\"", "\\\"") + "\"");
+            if (string.IsNullOrEmpty(id)) return "插件 ID 为空";
+            if (!IsSafePluginSpec(id)) return "插件 ID 非法，已拒绝执行";
+            return FormatCliResult(RunDshPluginCli("remove \"" + id + "\""), "插件 " + id + " 已卸载");
         }
 
-        private static void UpdatePlugin(string id)
+        private static string UpdatePlugin(string id)
         {
             if (id == "dsh-hub")
             {
-                RunDshPluginCli("add \"https://codeload.github.com/ARFCON/dsh-hub-DSH/tar.gz/refs/heads/main\"");
-                return;
+                return FormatCliResult(InstallPluginPackage("https://codeload.github.com/ARFCON/dsh-hub-DSH/tar.gz/refs/heads/main"), "dsh-hub 更新已提交，重启 DSH 后生效");
             }
             if (id == "dsh-memory-hub")
             {
                 Dictionary<string, string> info = GetMemoryHubReleaseInfo();
                 if (info != null && info.ContainsKey("url"))
                 {
-                    RunDshPluginCli("add \"" + info["url"] + "\"");
-                    return;
+                    return FormatCliResult(InstallPluginPackage(info["url"]), "dsh-memory-hub 更新已提交，重启 DSH 后生效");
                 }
+                return "未获取到 dsh-memory-hub 发布信息，请检查网络";
             }
             if (id == "dseam-skillmcp")
             {
                 InstallEmbeddedSkillMcp();
-                return;
+                return "内置 Skill/MCP 管理器已重新安装";
             }
-            if (string.IsNullOrEmpty(id)) return;
-            RunDshPluginCli("update \"" + id.Replace("\"", "\\\"") + "\"");
+            if (string.IsNullOrEmpty(id)) return "插件 ID 为空";
+            if (!IsSafePluginSpec(id)) return "插件 ID 非法，已拒绝执行";
+            return FormatCliResult(RunDshPluginCli("update \"" + id + "\""), "插件 " + id + " 更新已提交，重启 DSH 后生效");
         }
 
         private static string GetMemoryJson()
