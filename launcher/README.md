@@ -17,7 +17,7 @@ contracts/                # errors（32 错误码）· schemas（5 JSON Schema�
 ports/                    # 端口接口：fs/proc/registry/dsh/now（未注入抛"端口未注入"）
 infra/                    # 副作用实现：atomic/lock/store/snapshot/runlog/install/profile/
                           # harness/launch/monitor/heal/heal-steps/heal-verify/dsh-cli/tree-util
-test/                     # vitest 测试（34 文件 283 用例）
+test/                     # vitest 测试（40 文件 359 用例）
 scripts/                  # lint/depcheck/测试启动器/QA e2e（三平台可跑）
 ```
 
@@ -34,6 +34,14 @@ npm ci
 npm test                # 备选（更稳）：node scripts/run-tests.js run
 npm run lint
 npm run depcheck
+
+# 进程级 QA（隔离 HOME + DSH_HOTPLUG_ROOT；假工具链真实子进程，无需外网）
+node scripts/qa3-cli-e2e.js             # CLI 全链路 27 项
+node scripts/qa3-cli-e2e-crashloop.js   # CRASH_LOOP 闭环 16 项
+node scripts/qa3-concurrency.js         # 并发锁 / 无孤儿 13 项
+node scripts/qa3-fuzz.js                # 模糊测试 3342 断言
+node scripts/qa3-fs-fault-injection.js  # 故障注入 15 项
+node scripts/qa4-real-env.js            # 真实环境（假 npm / git / .cmd harness）13 项
 
 # CLI（根目录语义与旧版一致：assembly/sandbox 位于仓库根；
 # 可用 DSH_HOTPLUG_ROOT 显式指定根目录做隔离运行）

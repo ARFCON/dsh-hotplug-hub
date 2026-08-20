@@ -6,6 +6,7 @@
 const path = require('path');
 const { GITHUB_MIRRORS } = require('../contracts/constants');
 const { makeError } = require('../contracts/errors');
+const { CMD_SPECIAL_RE } = require('./dsh-cli');
 
 /**
  * 安装 npm 插件：优先 dsh plugin add 通道，降级 npm install。
@@ -154,6 +155,20 @@ async function installGithubPluginWithMirror(core, plugin, profile, explicitMirr
   const repo = plugin.source && plugin.source.repo;
   const ref = plugin.ref || 'main';
   const target = path.join(profile, 'node_modules', plugin.name);
+  const isWin = core.config.platform === 'win32';
+  // C6 修复（QA4 实证）：与 npm 降级通道对称——win32 下 git 可能以 git.cmd/.bat
+  // 形态存在（shim 安装），spawnSync('git') 直接执行返回 ENOENT，须经 cmd.exe /c
+  // 包装。参数中的 cmd 特殊字符显式拒绝（libuv 会把内嵌引号转义为 \" 导致 cmd
+  // 无法解析——防命令注入/引号破坏，宁可报错也不静默注入）。
+  if (isWin) {
+    for (const part of [repo, ref, target]) {
+      if (CMD_SPECIAL_RE.test(String(part))) {
+        return { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', `git 参数含 cmd 特殊字符，拒绝经 cmd 执行：${part}`) };
+      }
+    }
+  }
+  const gitBin = isWin ? 'cmd.exe' : 'git';
+  const gitBaseArgs = ['clone', '--depth', '1', '--branch', ref];
   const directUrl = `https://github.com/${repo}.git`;
   const urls = explicitMirror
     ? [`${explicitMirror}${directUrl}`]
@@ -170,7 +185,7 @@ async function installGithubPluginWithMirror(core, plugin, profile, explicitMirr
     }
     let gr;
     try {
-      gr = procPort.spawnSync('git', ['clone', '--depth', '1', '--branch', ref, url, target], {
+      gr = procPort.spawnSync(gitBin, isWin ? ['/c', 'git', ...gitBaseArgs, url, target] : [...gitBaseArgs, url, target], {
         stdio: 'pipe',
         encoding: 'utf8'
       });

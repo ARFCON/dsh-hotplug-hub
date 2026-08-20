@@ -14,8 +14,8 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const INDEX = path.join(ROOT, 'index.js');
 const ID = 'qa3-e2e-cl';
-const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-e2e-cl-home-'));
-const QA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-e2e-cl-root-'));
+const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-e2e-cl-home-')));
+const QA_ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-e2e-cl-root-')));
 const ASSEMBLY_DIR = path.join(QA_ROOT, 'assembly', ID);
 const SANDBOX_DIR = path.join(QA_ROOT, 'sandbox', '.sandbox', ID);
 

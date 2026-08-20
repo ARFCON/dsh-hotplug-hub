@@ -57,6 +57,10 @@ jobs:
         working-directory: launcher
         run: node scripts/qa3-fs-fault-injection.js
 
+      - name: Real-env（假 npm/git/.cmd harness 真实子进程链路）
+        working-directory: launcher
+        run: node scripts/qa4-real-env.js
+
       - name: 'Smoke: assemble example'
         run: node launcher/index.js assemble example
 
