@@ -1655,43 +1655,82 @@ namespace DSHHotplugHub
                 string dir = SkillsDir();
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
                 List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
+                List<string> seen = new List<string>();
                 foreach (string file in Directory.GetFiles(dir, "*.md"))
                 {
                     string id = Path.GetFileNameWithoutExtension(file);
-                    string name = id;
-                    string desc = "本地 Skill";
-                    try
-                    {
-                        string text = File.ReadAllText(file);
-                        if (text.StartsWith("---"))
-                        {
-                            int end = text.IndexOf("\n---", 3);
-                            if (end > 0)
-                            {
-                                string fm = text.Substring(3, end - 3);
-                                foreach (string line in fm.Split('\n'))
-                                {
-                                    if (line.StartsWith("name:")) name = line.Substring("name:".Length).Trim();
-                                    if (line.StartsWith("description:")) desc = line.Substring("description:".Length).Trim();
-                                }
-                            }
-                        }
-                        else
-                        {
-                            name = text.TrimStart('#', ' ', '\t', '\r', '\n').Split('\n')[0].Trim();
-                        }
-                    }
-                    catch { }
+                    Dictionary<string, string> fm = ReadSkillFrontmatter(file);
                     Dictionary<string, object> item = new Dictionary<string, object>();
                     item["id"] = id;
-                    item["name"] = string.IsNullOrEmpty(name) ? id : name;
+                    item["name"] = string.IsNullOrEmpty(fm["name"]) ? id : fm["name"];
                     item["enabled"] = true;
-                    item["desc"] = desc;
+                    item["desc"] = fm["desc"];
                     list.Add(item);
+                    seen.Add(id);
+                }
+                foreach (string sub in Directory.GetDirectories(dir))
+                {
+                    string skillMd = Path.Combine(sub, "SKILL.md");
+                    if (!File.Exists(skillMd)) continue;
+                    string id = Path.GetFileName(sub);
+                    if (seen.Contains(id)) continue;
+                    Dictionary<string, string> fm = ReadSkillFrontmatter(skillMd);
+                    Dictionary<string, object> item = new Dictionary<string, object>();
+                    item["id"] = id;
+                    item["name"] = string.IsNullOrEmpty(fm["name"]) ? id : fm["name"];
+                    item["enabled"] = true;
+                    item["desc"] = fm["desc"];
+                    list.Add(item);
+                    seen.Add(id);
                 }
                 return new JavaScriptSerializer().Serialize(list);
             }
             catch { return "[]"; }
+        }
+
+        private static Dictionary<string, string> ReadSkillFrontmatter(string file)
+        {
+            Dictionary<string, string> m = new Dictionary<string, string>();
+            m["name"] = Path.GetFileNameWithoutExtension(file);
+            m["desc"] = "本地 Skill";
+            try
+            {
+                string text = File.ReadAllText(file);
+                if (text.StartsWith("---"))
+                {
+                    int end = text.IndexOf("\n---", 3);
+                    if (end > 0)
+                    {
+                        string fm = text.Substring(3, end - 3);
+                        foreach (string line in fm.Split('\n'))
+                        {
+                            string t = line.TrimEnd('\r');
+                            if (t.StartsWith("name:"))
+                            {
+                                string v = t.Substring("name:".Length).Trim().Trim('\'', '"');
+                                if (v.Length > 0) m["name"] = v;
+                            }
+                            else if (t.StartsWith("description:"))
+                            {
+                                string v = t.Substring("description:".Length).Trim().Trim('\'', '"');
+                                if (v.Length > 0) m["desc"] = v;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    string first = text.TrimStart('#', ' ', '\t', '\r', '\n');
+                    if (first.Length > 0)
+                    {
+                        int nl = first.IndexOf('\n');
+                        string n = (nl > 0 ? first.Substring(0, nl) : first).Trim();
+                        if (n.Length > 0) m["name"] = n;
+                    }
+                }
+            }
+            catch { }
+            return m;
         }
 
         private static void SaveSkillFile(string payload)
@@ -1702,25 +1741,42 @@ namespace DSHHotplugHub
                 Dictionary<string, object> data = ser.Deserialize<Dictionary<string, object>>(payload);
                 string name = data != null && data.ContainsKey("name") ? Convert.ToString(data["name"]) : "skill";
                 string desc = data != null && data.ContainsKey("desc") ? Convert.ToString(data["desc"]) : "";
-                string id = "skill-" + DateTime.Now.Ticks.ToString("x");
-                string dir = SkillsDir();
+                string id = SanitizeSkillName(name);
+                if (id.Length == 0) id = "skill-" + DateTime.Now.Ticks.ToString("x");
+                string dir = Path.Combine(SkillsDir(), id);
+                if (Directory.Exists(dir)) id = id + "-" + DateTime.Now.Ticks.ToString("x");
+                dir = Path.Combine(SkillsDir(), id);
                 Directory.CreateDirectory(dir);
                 string frontmatter =
                     "---\n" +
-                    "name: " + name + "\n" +
+                    "name: " + id + "\n" +
                     "description: " + desc + "\n" +
                     "disable-model-invocation: false\n" +
                     "---\n\n" +
                     desc + "\n";
-                File.WriteAllText(Path.Combine(dir, id + ".md"), frontmatter);
+                File.WriteAllText(Path.Combine(dir, "SKILL.md"), frontmatter);
             }
             catch { }
+        }
+
+        private static string SanitizeSkillName(string name)
+        {
+            string s = System.Text.RegularExpressions.Regex.Replace((name ?? "").ToLowerInvariant(), "[^a-z0-9]+", "-");
+            s = s.Trim('-');
+            if (s.Length > 64) s = s.Substring(0, 64);
+            return s;
         }
 
         private static void DeleteSkillFile(string id)
         {
             try
             {
+                string dir = Path.Combine(SkillsDir(), id);
+                if (Directory.Exists(dir))
+                {
+                    Directory.Delete(dir, true);
+                    return;
+                }
                 string file = Path.Combine(SkillsDir(), id + ".md");
                 if (File.Exists(file)) File.Delete(file);
             }
