@@ -4,7 +4,7 @@
 // dependencies 与 dsh.profile.bundles），不再复制目录或手写 cordis.patch.yml。
 //
 // 可选环境变量：
-//   DSH_MEMORY_HUB_URL  自定义 tgz 下载地址（缺省使用 GitHub Release v0.9.3 资产）
+//   DSH_MEMORY_HUB_URL  自定义 tgz 下载地址（缺省使用 GitHub Release v0.9.4 资产）
 //   DSH_PROFILE          目标 profile（缺省 web）
 import fs from 'node:fs'
 import os from 'node:os'
@@ -16,7 +16,7 @@ const profile = process.env.DSH_PROFILE || 'web'
 const profileRoot = path.join(home, '.dsh', 'profiles', profile)
 const pkgFile = path.join(profileRoot, 'node_modules', 'dsh-memory-hub', 'package.json')
 const tarballUrl = process.env.DSH_MEMORY_HUB_URL ||
-  'https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.3/dsh-memory-hub-0.8.0-pre.tgz'
+  'https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.4/dsh-memory-hub-0.8.0-pre.tgz'
 
 function installedVersion() {
   try {
