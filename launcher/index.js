@@ -1,82 +1,79 @@
 #!/usr/bin/env node
-// launcher/index.js — DSH-Hotplug-Hub 独立启动器 CLI
-// 文本输出风格遵循 开发文档/DSH-统一UI开发标准.md §4.4：
-//   状态行 = 大写动词徽标（ASSEMBLE OK / CHECK OK / HEAL OK / LAUNCH OK ...）
-//   失败走 console.error；详情子项统一缩进；不引入 ANSI。
-// 用法:
-//   node launcher/index.js assemble <id>
-//   node launcher/index.js check <id>
-//   node launcher/index.js launch <id>
-//   node launcher/index.js heal <id> [--yes]
-//   node launcher/index.js status <id>
 'use strict';
-const core = require('./core');
+// index.js — CLI 入口接线（只做解析 → 分发 → 格式化 → 退出码）
+const path = require('path');
+const { parseArgs } = require('./cli/parser');
+const { formatResult, exitCodeForResult } = require('./cli/format');
+const { createCore } = require('./app/create-core');
+const { dispatch } = require('./app/commands');
 
-function usage() {
-  console.log(`DSH-Hotplug-Hub Launcher
-用法:
-  node launcher/index.js assemble <id>     组装 sandbox profile
-  node launcher/index.js check <id>        冲突预检
-  node launcher/index.js launch <id>       同步 profile 并拉起 DSH
-  node launcher/index.js heal <id> [--yes] 自愈（默认预览）
-  node launcher/index.js status <id>       查看状态`);
+async function main() {
+  const parsed = parseArgs(process.argv.slice(2));
+  if (!parsed.ok) {
+    const result = {
+      ok: false,
+      code: parsed.error.code,
+      message: parsed.error.message,
+      data: null,
+      exitCode: parsed.error.exitCode
+    };
+    // C1 修复：--json 模式失败结果也走 stdout（机器可读契约），文本模式走 stderr
+    writeResult(result, parsed.options);
+    setExit(result.exitCode);
+    return;
+  }
+
+  // 根目录解析（上游适配）：
+  //   - DSH_HOTPLUG_ROOT 显式指定（CI/QA 脚本隔离用，assembly/sandbox 全部落在该根下）；
+  //   - 缺省 = launcher 模块的上一级目录：仓库内为仓库根（与旧版 launcher 的
+  //     assembly/sandbox 布局一致），独立部署时即模块所在目录（自包含）。
+  const baseDir = process.env.DSH_HOTPLUG_ROOT
+    ? path.resolve(process.env.DSH_HOTPLUG_ROOT)
+    : path.resolve(__dirname, '..');
+  const core = createCore({ baseDir });
+  // FIX-12：SIGINT/SIGTERM 优雅退出——释放活动锁（若有），输出友好提示
+  // C1 修复：信号路径用 fs.writeSync 同步写（此时可能处于锁等待的阻塞轮询中，
+  // 事件循环不可用，process.stderr.write 可能不落盘）。
+  const onSignal = (code) => {
+    try {
+      if (core._activeLock) {
+        core.infra.lock.releaseLock(core.ports.fs, core._activeLock, { owner: `pid-${process.pid}` });
+      }
+    } catch (_) { /* 释放失败不影响退出 */ }
+    try {
+      require('fs').writeSync(2, `\n收到中断信号，退出（exit ${code}）\n`);
+    } catch (_) { /* 忽略 */ }
+    process.exit(code);
+  };
+  process.on('SIGINT', () => onSignal(130));
+  process.on('SIGTERM', () => onSignal(143));
+
+  const result = await dispatch(core, parsed);
+  writeResult(result, { json: parsed.options.json, command: parsed.command });
+  setExit(exitCodeForResult(result));
 }
 
-function runAssemble(id) {
-  const r = core.assemble(id);
-  if (!r.ok) { console.error('ASSEMBLE FAIL:', r.error); process.exit(1); }
-  console.log('ASSEMBLE OK');
-  console.log('sandbox:', r.sandbox);
-  r.steps.forEach((s) => console.log('  -', s.id, s.name));
-}
-
-function runCheck(id) {
-  const r = core.resolveAssembly(id);
-  if (!r.ok) { console.error('CHECK FAIL:', r.error); process.exit(1); }
-  const c = r.resolved.conflicts || [];
-  console.log(c.length ? 'CONFLICTS:' : 'CHECK OK: no conflicts');
-  c.forEach((x) => console.log(`  [${x.type}] ${x.plugin} — ${x.reason} -> ${x.suggest}`));
-}
-
-function runLaunch(id) {
-  const r = core.launchAndCapture(id);
-  if (!r.ok) { console.error('LAUNCH FAIL:', r.error); process.exit(1); }
-  console.log('LAUNCH OK pid=' + r.pid);
-  console.log('profile:', r.profile);
-  console.log('log:', r.logFile);
-}
-
-function runHeal(id, yes) {
-  const r = core.selfHeal(id, { yes });
-  if (!r.ok) { console.error('HEAL FAIL:', r.error); process.exit(1); }
-  console.log('HEAL OK');
-  console.log(r.note);
-  r.healed.forEach((h) => console.log(`  [${h.code}] ${h.suggest}`));
-}
-
-function runStatus(id) {
-  const fs = require('fs');
-  const path = require('path');
-  const sandbox = path.join(core.SANDBOX_ROOT, id);
-  const assembly = path.join(core.ASSEMBLY_DIR, id, 'assembly.json');
-  console.log('id:', id);
-  console.log('assembly:', fs.existsSync(assembly) ? 'yes' : 'no');
-  console.log('sandbox:', fs.existsSync(sandbox) ? 'yes' : 'no');
-  console.log('harness:', core.findOfficialHarness() || 'not found');
-}
-
-function main() {
-  const [cmd, id, ...rest] = process.argv.slice(2);
-  const yes = rest.includes('--yes');
-  if (!cmd || !id) { usage(); process.exit(1); }
-  switch (cmd) {
-    case 'assemble': runAssemble(id); break;
-    case 'check': runCheck(id); break;
-    case 'launch': runLaunch(id); break;
-    case 'heal': runHeal(id, yes); break;
-    case 'status': runStatus(id); break;
-    default: usage(); process.exit(1);
+/**
+ * 输出结果：--json 模式一律 stdout（jq/CI 消费）；文本模式成功走 stdout、失败走 stderr。
+ * C1 修复：不使用 process.exit() 立即终止（管道下 stdout 异步缓冲可能被截断），
+ * 改为设置 process.exitCode 后自然退出，让事件循环排空输出。
+ */
+function writeResult(result, opts) {
+  const out = formatResult(result, opts) + '\n';
+  if (opts && opts.json) {
+    process.stdout.write(out);
+  } else if (result.ok) {
+    process.stdout.write(out);
+  } else {
+    process.stderr.write(out);
   }
 }
 
-main();
+function setExit(code) {
+  process.exitCode = code;
+}
+
+main().catch((err) => {
+  process.stderr.write(`FATAL ${err && err.stack ? err.stack : String(err)}\n`);
+  process.exit(1);
+});

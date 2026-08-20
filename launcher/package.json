@@ -1,0 +1,27 @@
+{
+  "name": "dsh-hotplug-launcher",
+  "version": "0.3.0",
+  "description": "DSH-Hotplug-Hub launcher 模块重构参考实现（分层 + 端口适配器 / Hexagonal）",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node scripts/run-tests.js run",
+    "test:watch": "node scripts/run-tests.js",
+    "lint": "node scripts/check-files.js",
+    "depcheck": "node scripts/depcheck.js",
+    "check": "npm run lint && npm run depcheck && npm test"
+  },
+  "dependencies": {
+    "semver": "^7.6.3",
+    "yaml": "^2.5.1"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "^16.5.0",
+    "eslint-plugin-import": "^2.31.0",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,11 @@
+# Node
+node_modules/
+*.log
+
+# 运行时产物（上游：CLI 默认根为仓库根，assembly/sandbox 均在仓库根；本目录下的仅为测试残留）
+assembly/
+sandbox/.sandbox/
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
