@@ -601,7 +601,7 @@ namespace DSHHotplugHub
         {
             try
             {
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/" + PROJECT_REPO + "/releases/latest");
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/" + PROJECT_REPO + "/releases/tags/v" + APP_VERSION);
                 request.Method = "GET";
                 request.UserAgent = "DSH-Hotplug-Hub";
                 request.Accept = "application/vnd.github+json";
@@ -1505,7 +1505,7 @@ namespace DSHHotplugHub
                 Dictionary<string, string> info = GetMemoryHubReleaseInfo();
                 string url = info != null && info.ContainsKey("url")
                     ? info["url"]
-                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.8.0-pre/dsh-memory-hub-0.8.0-pre.tgz";
+                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.0-pre/dsh-memory-hub-0.8.0-pre.tgz";
                 string latest = info != null && info.ContainsKey("latest") ? info["latest"] : null;
                 string installed = GetInstalledMemoryHubVersion();
                 if (!string.IsNullOrEmpty(installed) && !string.IsNullOrEmpty(latest) && installed == latest)
@@ -1535,7 +1535,7 @@ namespace DSHHotplugHub
         {
             try
             {
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/" + PROJECT_REPO + "/releases/latest");
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/" + PROJECT_REPO + "/releases/tags/v" + APP_VERSION);
                 request.Method = "GET";
                 request.UserAgent = "DSH-Hotplug-Hub";
                 request.Accept = "application/vnd.github+json";
