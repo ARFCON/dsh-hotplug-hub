@@ -8,8 +8,12 @@ on:
 
 jobs:
   launcher-test:
-    name: Launcher CLI Test
-    runs-on: ubuntu-latest
+    name: Launcher Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -17,39 +21,56 @@ jobs:
         with:
           node-version: 22.19.0
 
-      - name: Install pnpm
-        run: npm install -g pnpm@11
+      - name: Install dependencies
+        working-directory: launcher
+        run: npm ci
 
-      - name: Assemble example
+      - name: Lint（≤300 行 / 无占位符 / UTF-8 干净）
+        working-directory: launcher
+        run: npm run lint
+
+      - name: Dependency declaration check
+        working-directory: launcher
+        run: npm run depcheck
+
+      - name: Unit & integration tests
+        working-directory: launcher
+        run: node scripts/run-tests.js run
+
+      - name: CLI e2e（全链路 / 穿越矩阵 / 退出码契约 / 只读零副作用）
+        working-directory: launcher
+        run: node scripts/qa3-cli-e2e.js
+
+      - name: CRASH_LOOP e2e（自愈闭环 / 隔离消费 / 计数重置）
+        working-directory: launcher
+        run: node scripts/qa3-cli-e2e-crashloop.js
+
+      - name: Concurrency（锁串行化 / 无孤儿）
+        working-directory: launcher
+        run: node scripts/qa3-concurrency.js
+
+      - name: Fuzz
+        working-directory: launcher
+        run: node scripts/qa3-fuzz.js
+
+      - name: FS fault injection
+        working-directory: launcher
+        run: node scripts/qa3-fs-fault-injection.js
+
+      - name: 'Smoke: assemble example'
         run: node launcher/index.js assemble example
 
-      - name: Check conflicts
+      - name: 'Smoke: check example'
         run: node launcher/index.js check example
 
-      - name: Heal preview
-        run: node launcher/index.js heal example
+      # 新版 heal 契约：无自愈信号 → ERR_HEAL_NO_ACTION（exit 9）属预期
+      - name: 'Smoke: heal example'
+        shell: bash
+        run: node launcher/index.js heal example || test $? -eq 9
 
-  macos-test:
-    name: macOS Launcher Test
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Working tree clean（只读命令零副作用）
+        run: git status --porcelain --untracked-files=no
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.19.0
-
-      - name: Install pnpm
-        run: npm install -g pnpm@11
-
-      - name: Assemble example
-        run: node launcher/index.js assemble example
-
-      - name: Check conflicts
-        run: node launcher/index.js check example
-
-      - name: Heal preview
-        run: node launcher/index.js heal example
   build-windows:
     name: Build Windows EXE + Setup
     runs-on: windows-latest

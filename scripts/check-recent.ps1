@@ -1,5 +1,5 @@
-﻿# check-recent.ps1 — 检查目标文件最近是否被修改过
-# 用法: pwsh -File scripts/check-recent.ps1 -Path launcher/core.js
+# check-recent.ps1 — 检查目标文件最近是否被修改过
+# 用法: pwsh -File scripts/check-recent.ps1 -Path launcher/index.js
 param(
   [Parameter(Mandatory=$true)][string]$Path
 )
