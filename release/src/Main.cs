@@ -44,7 +44,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.8.0-pre";
+        private const string APP_VERSION = "0.9.0-pre";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_REPO = "Fishquito7/dsh-skill-mcp-panel";
         // GitHub Token 不再硬编码进源码（仓库会触发 secret scanning）。
@@ -232,6 +232,27 @@ namespace DSHHotplugHub
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                         }
+                        else if (message == "listSkillSource")
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkillSource(" + GetSkillSourceJson() + ");");
+                        }
+                        else if (message != null && message.StartsWith("addSkillSource:"))
+                        {
+                            AddSkillsFromSource(message.Substring("addSkillSource:".Length));
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkillSource(" + GetSkillSourceJson() + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
+                        }
+                        else if (message != null && message.StartsWith("enableSkill:"))
+                        {
+                            RunDshPanelCli("skill enable \"" + SanitizeServerName(message.Substring("enableSkill:".Length)) + "\"");
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                        }
+                        else if (message != null && message.StartsWith("disableSkill:"))
+                        {
+                            RunDshPanelCli("skill disable \"" + SanitizeServerName(message.Substring("disableSkill:".Length)) + "\"");
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                        }
                         else if (message == "listMcp")
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
@@ -281,7 +302,7 @@ namespace DSHHotplugHub
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildNativeSelfCheckScript());
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildApiIntegrationScript());
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory=function(d){window.__memoryData=d||[];if(typeof renderMemory==='function')renderMemory();if(typeof renderShell==='function')renderShell();};window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.chrome.webview.postMessage('listMemory');window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listMcp');");
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory=function(d){window.__memoryData=d||[];if(typeof renderMemory==='function')renderMemory();if(typeof renderShell==='function')renderShell();};window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setSkillSource=function(d){window.__skillSourceData=d||null;if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.chrome.webview.postMessage('listMemory');window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listSkillSource');window.chrome.webview.postMessage('listMcp');");
                             string latestCheck = GetLatestReleaseVersion();
                             if (!_updateNotified && !string.IsNullOrEmpty(latestCheck) && latestCheck != APP_VERSION)
                             {
@@ -1840,36 +1861,141 @@ namespace DSHHotplugHub
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
                 List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
                 List<string> seen = new List<string>();
-                foreach (string file in Directory.GetFiles(dir, "*.md"))
+                string[] files = Directory.GetFiles(dir, "*.md");
+                foreach (string file in files)
                 {
                     string id = Path.GetFileNameWithoutExtension(file);
                     Dictionary<string, string> fm = ReadSkillFrontmatter(file);
-                    Dictionary<string, object> item = new Dictionary<string, object>();
-                    item["id"] = id;
-                    item["name"] = string.IsNullOrEmpty(fm["name"]) ? id : fm["name"];
-                    item["enabled"] = true;
-                    item["desc"] = fm["desc"];
-                    list.Add(item);
-                    seen.Add(id);
+                    AddSkillItem(list, seen, id, fm, true);
+                }
+                string[] disabled = Directory.GetFiles(dir, "*.md.disabled");
+                foreach (string file in disabled)
+                {
+                    string name = Path.GetFileName(file);
+                    string id = name.Substring(0, name.Length - ".md.disabled".Length);
+                    Dictionary<string, string> fm = ReadSkillFrontmatter(file);
+                    AddSkillItem(list, seen, id, fm, false);
                 }
                 foreach (string sub in Directory.GetDirectories(dir))
                 {
                     string skillMd = Path.Combine(sub, "SKILL.md");
-                    if (!File.Exists(skillMd)) continue;
+                    string disabledMd = skillMd + ".disabled";
                     string id = Path.GetFileName(sub);
                     if (seen.Contains(id)) continue;
-                    Dictionary<string, string> fm = ReadSkillFrontmatter(skillMd);
-                    Dictionary<string, object> item = new Dictionary<string, object>();
-                    item["id"] = id;
-                    item["name"] = string.IsNullOrEmpty(fm["name"]) ? id : fm["name"];
-                    item["enabled"] = true;
-                    item["desc"] = fm["desc"];
-                    list.Add(item);
-                    seen.Add(id);
+                    if (File.Exists(skillMd))
+                    {
+                        Dictionary<string, string> fm = ReadSkillFrontmatter(skillMd);
+                        AddSkillItem(list, seen, id, fm, true);
+                    }
+                    else if (File.Exists(disabledMd))
+                    {
+                        Dictionary<string, string> fm = ReadSkillFrontmatter(disabledMd);
+                        AddSkillItem(list, seen, id, fm, false);
+                    }
                 }
                 return new JavaScriptSerializer().Serialize(list);
             }
             catch { return "[]"; }
+        }
+
+        private static void AddSkillItem(List<Dictionary<string, object>> list, List<string> seen, string id, Dictionary<string, string> fm, bool enabled)
+        {
+            Dictionary<string, object> item = new Dictionary<string, object>();
+            item["id"] = id;
+            item["name"] = string.IsNullOrEmpty(fm["name"]) ? id : fm["name"];
+            item["enabled"] = enabled;
+            item["desc"] = fm["desc"];
+            list.Add(item);
+            seen.Add(id);
+        }
+
+        private static string SkillSourceDir()
+        {
+            string env = Environment.GetEnvironmentVariable("DSH_SKILL_SOURCE_DIR");
+            if (!string.IsNullOrEmpty(env)) return env;
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "reasonix", "skills");
+        }
+
+        private static string GetSkillSourceJson()
+        {
+            try
+            {
+                string root = SkillSourceDir();
+                List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
+                if (Directory.Exists(root))
+                {
+                    string[] mds = Directory.GetFiles(root, "SKILL.md", SearchOption.AllDirectories);
+                    foreach (string md in mds)
+                    {
+                        string full = Path.GetFullPath(md);
+                        string id = Path.GetFileName(Path.GetDirectoryName(full));
+                        Dictionary<string, string> fm = ReadSkillFrontmatter(full);
+                        bool installed = SkillInstalled(id);
+                        Dictionary<string, object> item = new Dictionary<string, object>();
+                        item["id"] = id;
+                        item["name"] = string.IsNullOrEmpty(fm["name"]) ? id : fm["name"];
+                        item["desc"] = fm["desc"];
+                        item["path"] = Path.GetDirectoryName(full);
+                        item["installed"] = installed;
+                        list.Add(item);
+                    }
+                }
+                return new JavaScriptSerializer().Serialize(new Dictionary<string, object>() { { "dir", root }, { "skills", list } });
+            }
+            catch { return "{\"dir\":\"\",\"skills\":[]}"; }
+        }
+
+        private static bool SkillInstalled(string id)
+        {
+            string dir = SkillsDir();
+            return Directory.Exists(Path.Combine(dir, id)) || File.Exists(Path.Combine(dir, id + ".md")) || File.Exists(Path.Combine(dir, id + ".md.disabled"));
+        }
+
+        private static void AddSkillsFromSource(string payload)
+        {
+            try
+            {
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> data = ser.Deserialize<Dictionary<string, object>>(payload);
+                object[] paths = data != null && data.ContainsKey("paths") ? (object[])data["paths"] : null;
+                if (paths == null) return;
+                string cli = PanelCliPath();
+                foreach (object p in paths)
+                {
+                    string path = Convert.ToString(p);
+                    if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) continue;
+                    if (cli != null)
+                    {
+                        RunCli("node", "\"" + cli + "\" skill add \"" + path.Replace("\"", "\\\"") + "\"");
+                    }
+                    else
+                    {
+                        CopySkillBundleToInstalled(path);
+                    }
+                }
+            }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
+        }
+
+        private static void CopySkillBundleToInstalled(string sourceDir)
+        {
+            try
+            {
+                string id = SanitizeSkillName(Path.GetFileName(Path.GetFullPath(sourceDir)));
+                if (id.Length == 0) return;
+                string target = Path.Combine(SkillsDir(), id);
+                if (Directory.Exists(target) || File.Exists(target + ".md")) return;
+                Directory.CreateDirectory(target);
+                string src = Path.Combine(sourceDir, "SKILL.md");
+                if (File.Exists(src)) File.Copy(src, Path.Combine(target, "SKILL.md"));
+                foreach (string file in Directory.GetFiles(sourceDir))
+                {
+                    string name = Path.GetFileName(file);
+                    if (name == "SKILL.md") continue;
+                    File.Copy(file, Path.Combine(target, name));
+                }
+            }
+            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
 
         private static Dictionary<string, string> ReadSkillFrontmatter(string file)

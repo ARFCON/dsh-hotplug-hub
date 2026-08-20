@@ -348,7 +348,7 @@ button { font: inherit; color: inherit; }
       </div>
       <div>
         <div class="brand-name">Dseam世界</div>
-        <div class="brand-sub">Dseam v0.8.0-pre</div>
+        <div class="brand-sub">Dseam v0.9.0-pre</div>
       </div>
     </div>
     <nav class="nav" id="nav"></nav>
@@ -472,13 +472,6 @@ const CATALOG = [
     ],
     memory: ['global.knowledge'], accent: '#237a57'
   }
-];
-
-const SKILL_CATALOG = [
-  { id: 'skill-anthropic', name: 'Anthropic Skills', repo: 'anthropics/skills', desc: '官方 Claude Skills 合集', tags: ['官方','技能'] },
-  { id: 'skill-superpowers', name: 'Superpowers', repo: 'obra/superpowers', desc: 'Claude Code 技能增强', tags: ['增强'] },
-  { id: 'skill-awesome', name: 'Awesome Claude Skills', repo: 'hesreallyhim/awesome-claude-code', desc: '社区技能合集', tags: ['社区','技能'] },
-  { id: 'skill-deep-research', name: 'DeepSeek 深度研究', desc: '多轮推理与资料整理', tags: ['研究','推理'] }
 ];
 
 const MCP_CATALOG = [
@@ -1583,18 +1576,21 @@ function removeMcp(id) {
   save(); renderMcp();
 }
 function renderSkills() {
-  const rows = (window.chrome && window.chrome.webview && window.__skillsData) || state.skills || [];
-  const market = SKILL_CATALOG || [];
-  const installedIds = new Set(rows.map((s) => s.id));
+  const isWebView = !!(window.chrome && window.chrome.webview);
+  const rows = isWebView ? (window.__skillsData || []) : (state.skills || []);
+  const source = isWebView ? (window.__skillSourceData || null) : null;
+  const sourceRows = source && source.skills ? source.skills : [];
+  const sourceDir = source ? (source.dir || '') : '';
+  const picks = window.__skillPicks || [];
   $('view-skills').innerHTML = `
     <div class="section-head">
-      <div><h2>Skill 管理</h2><div class="sub">AI 技能开关、新增与市场</div></div>
+      <div><h2>Skill 管理</h2><div class="sub">AI 技能开关 · 从固定文件夹选择安装</div></div>
     </div>
     <div class="pack-list">
       ${rows.length ? rows.map((s) => `
         <div class="pack">
           <div class="pack-top">
-            <div class="pack-icon" style="background:#0e7c6b">${esc(s.name.slice(0, 1))}</div>
+            <div class="pack-icon" style="background:#0e7c6b">${esc((s.name || 'S').slice(0, 1))}</div>
             <div class="pack-title"><h3>${esc(s.name)}</h3><div class="meta">${esc(s.desc || '')}</div></div>
             <span class="badge ${s.enabled ? 'ok' : 'neutral'}">${s.enabled ? '已启用' : '已停用'}</span>
           </div>
@@ -1602,44 +1598,39 @@ function renderSkills() {
             <div class="spacer"></div>
             <button class="btn sm danger" onclick="removeSkill('${esc(s.id)}')">${ICONS.trash} 删除</button><button class="switch" role="switch" aria-checked="${s.enabled}" data-skill="${esc(s.id)}"></button>
           </div>
-        </div>`).join('') : '<div class="empty">还没有 Skill</div>'}
+        </div>`).join('') : '<div class="empty">还没有 Skill，请从下方固定文件夹选择安装</div>'}
     </div>
-    <div class="toolbar">
-      <input class="search" id="newSkillName" placeholder="技能名称">
-      <button class="btn primary" id="addSkillBtn">＋ 新增 Skill</button>
+    <div class="section-head" style="margin-top:18px">
+      <div><h2>固定 Skill 文件夹</h2><div class="sub">${isWebView ? '扫描 ' + esc(sourceDir || '') : 'DSH Desktop 内扫描 %APPDATA%\\reasonix\\skills（可用环境变量 DSH_SKILL_SOURCE_DIR 覆盖）'}</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" id="skillSourceRefresh">${ICONS.refresh} 重新扫描</button>
+        <button class="btn primary" id="skillSourceInstall">＋ 安装所选</button>
+      </div>
     </div>
-    <div class="section-head" style="margin-top:18px"><div><h2>Skill 市场</h2><div class="sub">一键添加到本地</div></div></div>
-    <div class="pack-grid">
-      ${market.map((m) => `
+    <div class="pack-list">
+      ${isWebView ? (sourceRows.length ? sourceRows.map((s) => `
         <div class="pack">
           <div class="pack-top">
-            <div class="pack-icon" style="background:#0e7c6b">${esc(m.name.slice(0, 1))}</div>
-            <div class="pack-title"><h3>${esc(m.name)}</h3><div class="meta">${esc(m.desc || '')}</div></div>
+            <label class="pack-icon" style="background:#6a5acd;cursor:pointer"><input type="checkbox" data-pick-skill="${esc(s.id)}" ${s.installed ? 'disabled' : (picks.includes(s.id) ? 'checked' : '')}></label>
+            <div class="pack-title"><h3>${esc(s.name)}</h3><div class="meta">${esc(s.id)} · ${esc(s.path || '')}</div><div class="meta">${esc(s.desc || '')}</div></div>
+            ${s.installed ? '<span class="badge ok">已安装</span>' : '<span class="badge neutral">未安装</span>'}
           </div>
-          <div class="tags">${(m.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
-          <div class="pack-foot">
-            <div class="spacer"></div>
-            ${installedIds.has(m.id) ? '<span class="badge ok">已安装</span>' : `<button class="btn sm primary" data-add-skill="${esc(m.id)}">＋ 添加</button>`}
-          </div>
-        </div>`).join('')}
+        </div>`).join('') : '<div class="empty">固定文件夹中没有找到 SKILL.md</div>') : '<div class="empty">请到 DSH Desktop 中打开 Skill 管理进行固定文件夹扫描安装</div>'}
     </div>`;
-  const add = $('addSkillBtn');
-  if (add) add.addEventListener('click', () => {
-    const name = $('newSkillName').value.trim();
-    if (!name) return;
-    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('addSkill:' + JSON.stringify({ name, desc: '新增技能' })); return; }
-    state.skills = state.skills || [];
-    state.skills.push({ id: 'skill-' + Date.now().toString(36), name, enabled: true, desc: '新增技能' });
-    save(); renderSkills();
-  });
-  document.querySelectorAll('[data-add-skill]').forEach((b) => b.addEventListener('click', () => {
-    const item = market.find((x) => x.id === b.dataset.addSkill);
-    if (!item) return;
-    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('addSkill:' + JSON.stringify({ name: item.name, desc: item.desc })); return; }
-    state.skills = state.skills || [];
-    if (!state.skills.some((s) => s.id === item.id)) state.skills.push({ id: item.id, name: item.name, enabled: true, desc: item.desc });
-    save(); renderSkills();
-  }));
+  if (isWebView) {
+    const refresh = $('skillSourceRefresh');
+    if (refresh) refresh.addEventListener('click', () => { window.chrome.webview.postMessage('listSkillSource'); });
+    const install = $('skillSourceInstall');
+    if (install) install.addEventListener('click', () => {
+      const boxes = document.querySelectorAll('[data-pick-skill]:checked');
+      const paths = Array.from(boxes).map((b) => { const row = sourceRows.find((s) => s.id === b.dataset.pickSkill); return row ? row.path : null; }).filter(Boolean);
+      if (!paths.length) { toast('请先勾选要安装的 Skill'); return; }
+      window.chrome.webview.postMessage('addSkillSource:' + JSON.stringify({ paths }));
+    });
+    document.querySelectorAll('[data-pick-skill]').forEach((cb) => cb.addEventListener('change', () => {
+      window.__skillPicks = Array.from(document.querySelectorAll('[data-pick-skill]:checked')).map((b) => b.dataset.pickSkill);
+    }));
+  }
 }
 
 function mcpRowHtml(m) {
@@ -1722,13 +1713,7 @@ function renderMcp() {
     if (!state.mcps.some((m) => m.id === item.id)) state.mcps.push({ id: item.id, name: item.name, enabled: false, transport: 'stdio', command: item.command, args: payload.args });
     save(); renderMcp();
   }));
-  document.querySelectorAll('[data-mcp]').forEach((sw) => sw.addEventListener('click', () => {
-    const id = sw.dataset.mcp;
-    const on = sw.getAttribute('aria-checked') === 'true';
-    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage((on ? 'disableMcp:' : 'enableMcp:') + id); return; }
-    const row = (state.mcps || []).find((m) => m.id === id);
-    if (row) { row.enabled = !on; save(); renderMcp(); }
-  }));
+
   document.querySelectorAll('[data-test-mcp]').forEach((b) => b.addEventListener('click', () => {
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('startMcp:' + b.dataset.testMcp); return; }
     alert('测试需在 DSH Desktop 的 WebView 中运行');
@@ -1795,7 +1780,7 @@ function renderCheck() {
   const panelPage = $('panelPageBtn');
   if (panelPage) panelPage.addEventListener('click', () => {
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('openPanelPage'); return; }
-    window.open('https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.8.0-pre', '_blank');
+    window.open('https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.9.0-pre', '_blank');
   });
   const up = $('updateDsh');
   if (up) up.addEventListener('click', () => {
@@ -1854,10 +1839,32 @@ function bindGlobal() {
     if (un) { uninstallPack(un.dataset.uninstall); return; }
     const mem = e.target.closest('[data-mem]');
     if (mem) { toast('记忆包保持全局激活'); return; }
-      const sk = e.target.closest('[data-skill]');
-      if (sk) { const row = (state.skills||[]).find((s) => s.id === sk.dataset.skill); if (row) { row.enabled = !row.enabled; save(); renderSkills(); } return; }
-      const mc = e.target.closest('[data-mcp]');
-      if (mc) { const row = (state.mcps||[]).find((m) => m.id === mc.dataset.mcp); if (row) { row.enabled = !row.enabled; save(); renderMcp(); } return; }
+    const sk = e.target.closest('[data-skill]');
+    if (sk) {
+      const id = sk.dataset.skill;
+      if (window.chrome && window.chrome.webview) {
+        const row = (window.__skillsData || []).find((s) => s.id === id);
+        const on = row ? !!row.enabled : false;
+        window.chrome.webview.postMessage((on ? 'disableSkill:' : 'enableSkill:') + id);
+      } else {
+        const row = (state.skills || []).find((s) => s.id === id);
+        if (row) { row.enabled = !row.enabled; save(); renderSkills(); }
+      }
+      return;
+    }
+    const mc = e.target.closest('[data-mcp]');
+    if (mc) {
+      const id = mc.dataset.mcp;
+      if (window.chrome && window.chrome.webview) {
+        const row = (window.__mcpsData || []).find((m) => m.id === id);
+        const on = row ? !!row.enabled : false;
+        window.chrome.webview.postMessage((on ? 'disableMcp:' : 'enableMcp:') + id);
+      } else {
+        const row = (state.mcps || []).find((m) => m.id === id);
+        if (row) { row.enabled = !row.enabled; save(); renderMcp(); }
+      }
+      return;
+    }
   });
   $('importFile').addEventListener('change', (e) => {
     const file = e.target.files && e.target.files[0];
