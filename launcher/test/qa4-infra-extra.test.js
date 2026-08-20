@@ -104,10 +104,12 @@ describe('QA4 mergeState（空补丁与字段白名单）', () => {
 describe('QA4 defaultRoots / createCore（根与隔离 home 推导）', () => {
   it('defaultRoots 按 baseDir/home 推导四根', () => {
     const r = defaultRoots('C:/base', 'C:/home');
-    expect(r.assemblyDir).toBe('C:\\base\\assembly');
-    expect(r.sandboxRoot).toBe('C:\\base\\sandbox\\.sandbox');
-    expect(r.profilesRoot).toBe('C:\\home\\.dsh\\profiles');
-    expect(r.storeRoot).toBe('C:\\home\\.dsh\\hotplug-store');
+    // 期望值按当前平台 path.join 构造（win32 反斜杠 / POSIX 正斜杠），
+    // 断言的是"推导结构"而非平台分隔符
+    expect(r.assemblyDir).toBe(path.join('C:/base', 'assembly'));
+    expect(r.sandboxRoot).toBe(path.join('C:/base', 'sandbox', '.sandbox'));
+    expect(r.profilesRoot).toBe(path.join('C:/home', '.dsh', 'profiles'));
+    expect(r.storeRoot).toBe(path.join('C:/home', '.dsh', 'hotplug-store'));
   });
 
   it('只注入 roots 时 home 从 storeRoot 反推（A2 隔离红线：绝不静默回退真实 homedir）', () => {
@@ -136,10 +138,14 @@ describe('QA4 candidatePaths（三平台候选）', () => {
   });
 
   it('win32 候选含 LOCALAPPDATA/ProgramFiles 回退', () => {
+    // env={} → 全部走默认推导；期望值按与 candidatePaths 相同的 path.join 构造
+    // （跨平台：win32 全反斜杠 / POSIX 下含盘符输入产生混合分隔符——断言推导结构而非分隔符）
     const list = candidatePaths('win32', {}, 'C:\\Users\\u');
-    expect(list[0]).toBe('C:\\Users\\u\\AppData\\Local\\Programs\\DSH Desktop\\DSH Desktop.exe');
-    expect(list).toContain('C:\\Program Files\\DSH Desktop\\DSH Desktop.exe');
-    expect(list).toContain('C:\\Program Files (x86)\\DSH Desktop\\DSH Desktop.exe');
+    const local = path.join('C:\\Users\\u', 'AppData', 'Local');
+    expect(list[0]).toBe(path.join(local, 'Programs', 'DSH Desktop', 'DSH Desktop.exe'));
+    expect(list[1]).toBe(path.join('C:\\Program Files', 'DSH Desktop', 'DSH Desktop.exe'));
+    expect(list[2]).toBe(path.join('C:\\Program Files (x86)', 'DSH Desktop', 'DSH Desktop.exe'));
+    expect(list[3]).toBe(path.join('C:\\Users\\u', 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe'));
   });
 });
 
