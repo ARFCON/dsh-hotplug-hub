@@ -7,6 +7,7 @@ using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -20,11 +21,20 @@ namespace DSHHotplugHub
         [STAThread]
         private static void Main()
         {
-            SetProcessDPIAware();
-            try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
+            bool createdNew;
+            using (Mutex mutex = new Mutex(true, @"LocalDseamWorld-DSH-Hotplug-Hub", out createdNew))
+            {
+                if (!createdNew)
+                {
+                    MessageBox.Show("Dseam世界已经在运行（托盘或后台进程）。", "Dseam世界", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                SetProcessDPIAware();
+                try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new MainForm());
+            }
         }
 
         [DllImport("user32.dll")]
@@ -864,8 +874,7 @@ namespace DSHHotplugHub
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "DSH Desktop", "DSH Desktop.exe"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "DSH Desktop", "DSH Desktop.exe"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "DeepSeek Harness", "DSH Desktop.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "DeepSeek Harness", "DSH Desktop.exe"),
-                @"C:\Users\OwO\AppData\Local\Programs\DSH Desktop\DSH Desktop.exe"
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "DeepSeek Harness", "DSH Desktop.exe")
             };
             foreach (string candidate in candidates)
             {
