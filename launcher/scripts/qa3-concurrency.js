@@ -13,8 +13,8 @@ const ROOT = path.join(__dirname, '..');
 const INDEX = path.join(ROOT, 'index.js');
 const ID = 'qa3-conc';
 const N = 10;
-const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-conc-home-'));
-const QA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-conc-root-'));
+const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-conc-home-')));
+const QA_ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-conc-root-')));
 const ASSEMBLY_DIR = path.join(QA_ROOT, 'assembly', ID);
 const SANDBOX_DIR = path.join(QA_ROOT, 'sandbox', '.sandbox', ID);
 // POSIX 孤儿检查标记：harness 内联代码含唯一标记，ps 可按命令行匹配

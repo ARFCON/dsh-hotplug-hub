@@ -16,8 +16,11 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const INDEX = path.join(ROOT, 'index.js');
 const ID = 'qa3-e2e';
-const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-e2e-home-'));
-const QA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-e2e-root-'));
+// macOS 的 /var 是 /private/var 符号链接：mkdtemp 返回逻辑路径（/var/folders/...），
+// 而 harness 进程的 process.cwd() 是物理路径（/private/var/folders/...）——
+// DoD-2 cwd 字符串比较会失败。创建后立即 realpathSync 归一化为物理路径（QA4 CI 实证）。
+const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-e2e-home-')));
+const QA_ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-e2e-root-')));
 const ASSEMBLY_DIR = path.join(QA_ROOT, 'assembly', ID);
 const SANDBOX_DIR = path.join(QA_ROOT, 'sandbox', '.sandbox', ID);
 

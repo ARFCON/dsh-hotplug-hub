@@ -17,8 +17,10 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const INDEX = path.join(ROOT, 'index.js');
 const ID = 'qa4-real';
-const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'qa4-home-'));
-const QA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'qa4-root-'));
+// macOS /var → /private/var 符号链接：mkdtemp 返回逻辑路径而子进程 cwd 是物理路径，
+// 统一 realpathSync 归一化（与 qa3-cli-e2e 同源防护）
+const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa4-home-')));
+const QA_ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa4-root-')));
 const BIN = path.join(QA_ROOT, 'bin');
 const ASSEMBLY_DIR = path.join(QA_ROOT, 'assembly', ID);
 
