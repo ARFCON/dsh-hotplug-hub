@@ -1565,7 +1565,7 @@ function getChecks() {
     { name: 'Profile 清单', desc: 'dsh.profile.bundles 可解析', val: 'desktop', status: 'ok', text: StateOk() ? '完好' : '需检查' },
     { name: '插件健康', desc: '已装包自检', val: conflicts.length + ' 冲突', status: conflicts.length ? 'warn' : 'ok', text: conflicts.length ? '见冲突矩阵' : '健康' },
     { name: '记忆中枢', desc: '全局记忆包状态', val: (window.__memoryData || state.memories || []).length + ' 条', status: 'ok', text: (window.__memoryData || state.memories || []).length ? '在线' : '暂无真实记忆' },
-    { name: '官方 Skill/extension 面板', desc: 'dsh-skill-extension-panel 插件', val: state.panelInstalled || '未安装', status: state.panelInstalled ? (state.panelLatest && state.panelInstalled !== state.panelLatest ? 'update' : 'ok') : 'warn', text: state.panelInstalled ? (state.panelInstalled === state.panelLatest ? '已最新' : '可更新至 v' + (state.panelLatest || '?')) : '可安装 v' + (state.panelLatest || '?') }
+    { name: '内置 Skill/MCP 管理器', desc: 'dseam-skillmcp（内置于 Dseam世界 EXE）', val: state.panelInstalled || '未安装', status: state.panelInstalled ? (state.panelLatest && state.panelInstalled !== state.panelLatest ? 'update' : 'ok') : 'warn', text: state.panelInstalled ? (state.panelInstalled === state.panelLatest ? '已最新' : '可更新至 v' + (state.panelLatest || '?')) : '可安装 v' + (state.panelLatest || '?') }
   ];
 }
 function StateOk() { return true; }
@@ -1756,15 +1756,15 @@ function renderCheck() {
           <div style="font-size:12px;color:var(--muted);min-width:110px;text-align:right">${esc(c.text)}</div>
         </div>`).join('')}
     </div>
-    <div class="section-head"><div><h2>官方 Skill/extension 面板</h2><div class="sub">Fishquito7/dsh-skill-extension-panel · 安装到 DSH 设置页</div></div></div>
+    <div class="section-head"><div><h2>内置 Skill/MCP 管理器</h2><div class="sub">dseam-skillmcp（原 dsh-skill-mcp-panel 开源改名适配，MIT） · 随 EXE 自动安装</div></div></div>
     <div class="check-list">
       <div class="check-row">
         <span class="badge ${state.panelInstalled ? 'ok' : 'warn'}">${state.panelInstalled ? ICONS.check : ICONS.download}</span>
-        <div><div class="name">dsh-skill-extension-panel</div><div class="desc">本地：${esc(state.panelInstalled || '未安装')} · 最新：${esc(state.panelLatest || '检测中')}</div></div>
-        <div class="val">${esc(state.panelInstalled && state.panelInstalled === state.panelLatest ? '已最新' : '可安装')}</div>
+        <div><div class="name">dseam-skillmcp</div><div class="desc">本地：${esc(state.panelInstalled || '未安装')} · 内置：${esc(state.panelLatest || '0.8.0-pre')}</div></div>
+        <div class="val">${esc(state.panelInstalled && state.panelInstalled === state.panelLatest ? '已内置' : '可安装')}</div>
         <div style="display:flex;gap:8px;margin-left:auto">
-          <button class="btn sm primary" id="panelInstallBtn">${state.panelInstalled ? '重装/更新' : '安装插件'}</button>
-          <button class="btn sm" id="panelPageBtn">打开页面</button>
+          <button class="btn sm primary" id="panelInstallBtn">${state.panelInstalled ? '重装内置管理器' : '安装内置管理器'}</button>
+          <button class="btn sm" id="panelPageBtn">发布页</button>
         </div>
       </div>
     </div>
@@ -1795,7 +1795,7 @@ function renderCheck() {
   const panelPage = $('panelPageBtn');
   if (panelPage) panelPage.addEventListener('click', () => {
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('openPanelPage'); return; }
-    window.open('https://github.com/Fishquito7/dsh-skill-extension-panel/releases/latest', '_blank');
+    window.open('https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.8.0-pre', '_blank');
   });
   const up = $('updateDsh');
   if (up) up.addEventListener('click', () => {

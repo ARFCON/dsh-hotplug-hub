@@ -1,0 +1,7 @@
+# dseam-skillmcp bundle patch.
+# When this package is installed with `dsh plugin --profile web add ...`,
+# the profile auto-appends it to dsh.profile.bundles and applies this layer,
+# so the plugin mounts without any manual cordis.patch.yml editing.
+- insert:
+    - id: dseam-skillmcp
+      name: dseam-skillmcp

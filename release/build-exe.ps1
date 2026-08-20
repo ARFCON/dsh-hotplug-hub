@@ -7,6 +7,7 @@ $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $csc)) { throw "找不到 csc.exe: $csc" }
 
 $protoHtml = Join-Path $root '..\dsh-hotplug-hub\dsh-pack-hub\prototype.html'
+$embeddedSkillmcpTgz = Join-Path $root 'embedded/dseam-skillmcp-0.8.0-pre.tgz'
 $main = Join-Path $srcDir 'Main.cs'
 $out = Join-Path $root 'DSH-Hotplug-Hub.exe'
 
@@ -27,12 +28,14 @@ foreach ($pair in @(@($coreDllSrc,$coreDll), @($winFormsDllSrc,$winFormsDll), @(
 }
 
 if (-not (Test-Path $protoHtml)) { throw "找不到 prototype.html: $protoHtml" }
+if (-not (Test-Path $embeddedSkillmcpTgz)) { throw "找不到内置 Skill/MCP 管理器包: $embeddedSkillmcpTgz" }
 
 $args = @(
   '/nologo', '/target:winexe', '/optimize+',
   "/out:$out",
   "/win32icon:$srcDir\app.ico",
   "/resource:$protoHtml,DSHHotplugHub.Resources.prototype.html",
+  "/resource:$embeddedSkillmcpTgz,DSHHotplugHub.Resources.dseam_skillmcp.tgz"
   "/reference:$winFormsDll",
   "/reference:$coreDll",
   '/reference:System.Windows.Forms.dll',

@@ -1,0 +1,46 @@
+{
+  "name": "dseam-skillmcp",
+  "version": "0.8.0-pre",
+  "description": "dseam-skillmcp: Dseam 内置 Skill/MCP 管理器（由 dsh-skill-mcp-panel 开源项目适配改名，MIT License）。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.0-rc.6",
+    "fflate": "^0.8.3",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-subprocess": "^0.1.0-rc.6",
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  },
+  "bin": {
+    "dseam-skillmcp": "./lib/cli.js"
+  },
+  "files": [
+    "lib",
+    "assets",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    "cordis.patch.yml"
+  ],
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2",
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/strip-client-export.mjs"
+  }
+}

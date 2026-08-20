@@ -186,7 +186,7 @@ namespace DSHHotplugHub
                         {
                             try
                             {
-                                Process.Start("https://github.com/" + PANEL_REPO + "/releases/latest");
+                                Process.Start("https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v" + APP_VERSION);
                             }
                             catch
                             {
@@ -278,20 +278,12 @@ namespace DSHHotplugHub
                                 _updateNotified = true;
                                 await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('发现新版本 v" + latestCheck + "，请到 自检更新 下载');");
                             }
-                            string panelLatestCheck = null;
-                            try
-                            {
-                                Dictionary<string, string> panelRelease = GetPanelReleaseInfo();
-                                if (panelRelease != null && panelRelease.ContainsKey("latest")) panelLatestCheck = panelRelease["latest"];
-                            }
-                            catch
-                            {
-                            }
+                            string panelLatestCheck = "0.8.0-pre";
                             string panelInstalledCheck = GetInstalledPanelVersion();
                             if (!_panelUpdateNotified && !string.IsNullOrEmpty(panelLatestCheck) && panelLatestCheck != panelInstalledCheck)
                             {
                                 _panelUpdateNotified = true;
-                                await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('官方 Skill/MCP 面板插件可更新到 v" + panelLatestCheck + "，请到 自检更新 安装');");
+                                await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('内置 Skill/MCP 管理器可更新到 v" + panelLatestCheck + "，请到 自检更新 安装');");
                             }
                         }
                     }
@@ -373,15 +365,7 @@ namespace DSHHotplugHub
             string profiles = DetectProfiles();
             string latest = GetLatestReleaseVersion();
             string panelInstalled = GetInstalledPanelVersion();
-            string panelLatest = null;
-            try
-            {
-                Dictionary<string, string> panelInfo = GetPanelReleaseInfo();
-                if (panelInfo != null && panelInfo.ContainsKey("latest")) panelLatest = panelInfo["latest"];
-            }
-            catch
-            {
-            }
+            string panelLatest = "0.8.0-pre";
 
             string js =
                 "window.__nativeSelfCheck={" +
@@ -677,9 +661,11 @@ namespace DSHHotplugHub
                 {
                     foreach (string profileDir in Directory.GetDirectories(profilesDir))
                     {
+                        candidates.Add(Path.Combine(profileDir, "node_modules", "dseam-skillmcp", "package.json"));
                         candidates.Add(Path.Combine(profileDir, "node_modules", "dsh-skill-mcp-panel", "package.json"));
                     }
                 }
+                candidates.Add(Path.Combine(home, ".dsh", "plugin-src", "dseam-skillmcp", "package.json"));
                 candidates.Add(Path.Combine(home, ".dsh", "plugin-src", "dsh-skill-mcp-panel", "package.json"));
                 foreach (string pkgFile in candidates)
                 {
@@ -1497,8 +1483,7 @@ namespace DSHHotplugHub
                     return;
                 }
                 string output = RunDshPluginAdd(url);
-                if (output == null) return;
-                if (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:"))
+                if (output != null && (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:")))
                 {
                     try
                     {
@@ -1511,6 +1496,7 @@ namespace DSHHotplugHub
                     }
                     catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
                 }
+                InstallEmbeddedSkillMcp();
             }
             catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
@@ -1553,6 +1539,29 @@ namespace DSHHotplugHub
             }
             catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             return null;
+        }
+
+        // 内置 dseam-skillmcp（原开源 dsh-skill-mcp-panel 改名适配，MIT）：从 EXE 资源释放 tgz 并安装到 profile。
+        private static void InstallEmbeddedSkillMcp()
+        {
+            try
+            {
+                string installed = GetInstalledPanelVersion();
+                if (installed == "0.8.0-pre") return;
+                using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("DSHHotplugHub.Resources.dseam_skillmcp.tgz"))
+                {
+                    if (stream == null) return;
+                    string dir = Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embedded");
+                    Directory.CreateDirectory(dir);
+                    string tgz = Path.Combine(dir, "dseam-skillmcp-0.8.0-pre.tgz");
+                    using (FileStream fs = new FileStream(tgz, FileMode.Create, FileAccess.Write))
+                    {
+                        stream.CopyTo(fs);
+                    }
+                    RunDshPluginAdd(tgz);
+                }
+            }
+            catch { /* 有意吞掉：内置管理器安装失败不阻塞启动，下次启动重试 */ }
         }
 
         private static string GetInstalledMemoryHubVersion()
@@ -1955,9 +1964,11 @@ namespace DSHHotplugHub
             try
             {
                 string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string cli = Path.Combine(home, ".dsh", "profiles", "web", "node_modules", "dsh-skill-mcp-panel", "lib", "cli.js");
+                string cli = Path.Combine(home, ".dsh", "profiles", "web", "node_modules", "dseam-skillmcp", "lib", "cli.js");
                 if (File.Exists(cli)) return cli;
-                cli = Path.Combine(home, ".dsh", "profiles", "desktop", "node_modules", "dsh-skill-mcp-panel", "lib", "cli.js");
+                cli = Path.Combine(home, ".dsh", "profiles", "desktop", "node_modules", "dseam-skillmcp", "lib", "cli.js");
+                if (File.Exists(cli)) return cli;
+                cli = Path.Combine(home, ".dsh", "profiles", "web", "node_modules", "dsh-skill-mcp-panel", "lib", "cli.js");
                 if (File.Exists(cli)) return cli;
             }
             catch { /* 有意吞掉：找不到面板 CLI 时 MCP 管理按失败处理 */ }
@@ -2017,14 +2028,21 @@ namespace DSHHotplugHub
                 if (File.Exists(patch))
                 {
                     string text = File.ReadAllText(patch);
-                    string begin = "# >>> dsh-skill-mcp-panel:mcp:begin";
-                    string end = "# <<< dsh-skill-mcp-panel:mcp:end";
+                    string begin = "# >>> dseam-skillmcp:mcp:begin";
+                    string end = "# <<< dseam-skillmcp:mcp:end";
                     int b = text.IndexOf(begin);
                     int e = text.IndexOf(end);
+                    if (b < 0 || e <= b)
+                    {
+                        begin = "# >>> dsh-skill-mcp-panel:mcp:begin";
+                        end = "# <<< dsh-skill-mcp-panel:mcp:end";
+                        b = text.IndexOf(begin);
+                        e = text.IndexOf(end);
+                    }
                     if (b >= 0 && e > b)
                     {
                         string block = text.Substring(b + begin.Length, e - b - begin.Length);
-                        System.Text.RegularExpressions.MatchCollection rows = System.Text.RegularExpressions.Regex.Matches(block, @"- id:\s*(panel-mcp-[A-Za-z0-9_-]+)[\s\S]*?(?=\n\s*- id:|\z)");
+                        System.Text.RegularExpressions.MatchCollection rows = System.Text.RegularExpressions.Regex.Matches(block, @"- id:\s*((?:dseam-mcp|panel-mcp)-[A-Za-z0-9_-]+)[\s\S]*?(?=\n\s*- id:|\z)");
                         foreach (System.Text.RegularExpressions.Match rowMatch in rows)
                         {
                             string rowText = rowMatch.Value;
