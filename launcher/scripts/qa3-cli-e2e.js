@@ -97,7 +97,7 @@ function writeFakeHarness() {
     fs.writeFileSync(t, '#!/bin/sh\nexec "' + process.execPath + '"\n');
     fs.chmodSync(t, 0o755);
   }
-  return targets[0];
+  return targets; // 全部路径：调用方写坏/恢复需覆盖所有候选（POSIX 下 findHarness 用 QA_ROOT）
 }
 function cleanup() {
   try { fs.rmSync(ASSEMBLY_DIR, { recursive: true, force: true }); } catch (_) { /* ok */ }
@@ -120,7 +120,7 @@ function main() {
   const fakePlugin = path.join(HOME, 'fake-plugins', 'pkg-p');
   fs.mkdirSync(fakePlugin, { recursive: true });
   fs.writeFileSync(path.join(fakePlugin, 'package.json'), JSON.stringify({ name: 'pkg-p', version: '1.0.0' }));
-  const harnessPath = writeFakeHarness();
+  const harnessPaths = writeFakeHarness();
 
   writeAssembly([
     { id: 'p', name: 'pkg-p', source: { type: 'path', path: fakePlugin }, config: { 'dsh.bundle.patch': true } }
@@ -226,8 +226,8 @@ function main() {
   // ---- 4. 退出码传播：launch 崩溃/spawn 失败 → exit=8 ----
   // 先确保 phase=INSTALLED（前面 assemble --json 已把 phase 置回 CHECKED）
   cli(['install', ID]);
-  // 把假 harness 换成损坏 exe（存在、size>0、非符号链接 → 过 verifyHarness，spawn 抛 UNKNOWN → ERR_LAUNCH_SPAWN exit=8）
-  fs.writeFileSync(harnessPath, 'this is not a PE file');
+  // 把假 harness 全部换成损坏 exe（存在、size>0、非符号链接 → 过 verifyHarness，spawn 抛 UNKNOWN → ERR_LAUNCH_SPAWN exit=8）
+  for (const hp of harnessPaths) fs.writeFileSync(hp, 'this is not a PE file');
   const rl = cli(['launch', ID, '--wait']);
   check('launch 损坏 exe → exit=8（ERR_LAUNCH_SPAWN 传播）', rl.code === 8, `code=${rl.code} stderr=${rl.stderr.slice(0, 150)}`);
   // 恢复
