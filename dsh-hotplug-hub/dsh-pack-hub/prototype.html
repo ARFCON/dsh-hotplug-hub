@@ -2038,7 +2038,7 @@ function buildAiSystem(persona, mode) {
   const base = P[persona] || P.assistant;
   const rules = '你的职责是把用户需求装配成 hotpack 1.0 插件包清单。结构必须是：{"hotpack":"1.0","id":"pack.ai.<英文短id>","name":"<中文包名>","version":"0.1.0","description":"<一句话说明>","tags":["<标签>"],"plugins":[{"id":"<英文插件id>","name":"<npm包名>","version":"<精确版本号 x.y.z>","source":{"type":"npm"},"config":{}}]}。plugins 必须是非空数组（1-5 个），插件 id 只含小写字母数字下划线连字符（首字符字母数字，最长 40），name 是合法 npm 包名，version 必须是精确版本号。插件要贴近需求场景且彼此互补，宁可少而真实，不要编造不存在的知名包。不要输出任何多余字段。';
   const modeRule = mode === 'chat'
-    ? '【对话模式】用户可能继续修改要求，也可能只是提问或闲聊：如果用户要求新增/移除/修改插件、调整配置或版本，输出【完整的新 hotpack 1.0 清单 JSON】（完整清单而非增量 diff），只输出 JSON；如果用户只是提问、确认或闲聊，正常对话回复即可，不要输出 JSON。'
+    ? '【对话模式】用户可能继续修改要求，也可能只是提问或闲聊：如果用户明确要求【新增/移除/修改/更换】插件、调整配置或版本，输出【完整的新 hotpack 1.0 清单 JSON】（完整清单而非增量 diff，只输出 JSON）；其他任何情况（提问、确认、闲聊、总结、感谢等）正常对话回复即可，严禁输出任何 JSON 清单（包括"举例说明"也不行——用户没要求改插件就绝不产出清单）。'
     : '【组装模式】本轮是首次装配：只输出一个 JSON 对象（结构见下），不要 markdown 代码围栏、不要任何解释文字。';
   return base + '\n\n' + rules + '\n' + modeRule;
 }

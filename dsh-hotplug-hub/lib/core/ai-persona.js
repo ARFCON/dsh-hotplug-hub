@@ -92,8 +92,8 @@ export function buildSystemPrompt(personaId, mode = 'assembly') {
   const p = resolvePersona(personaId)
   const modeRule = mode === 'chat'
     ? '【对话模式】用户可能继续修改要求，也可能只是提问或闲聊：\n' +
-      '- 如果用户要求新增/移除/修改插件、调整配置或版本：输出【完整的新 hotpack 1.0 清单 JSON】（完整清单而非增量 diff），只输出 JSON；\n' +
-      '- 如果用户只是提问、确认或闲聊：正常对话回复即可，不要输出 JSON。\n'
+      '- 如果用户明确要求【新增/移除/修改/更换】插件、调整配置或版本：输出【完整的新 hotpack 1.0 清单 JSON】（完整清单而非增量 diff），只输出 JSON；\n' +
+      '- 其他任何情况（提问、确认、闲聊、总结、感谢等）：正常对话回复即可，**严禁输出任何 JSON 清单**（包括"举例说明"也不行——用户没要求改插件就绝不产出清单）。\n'
     : '【组装模式】本轮是首次装配：只输出一个 JSON 对象（结构见下），不要任何解释文字。\n'
   return [
     p.systemPrompt,
