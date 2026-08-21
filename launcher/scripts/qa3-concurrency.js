@@ -46,7 +46,7 @@ function cleanEnv(extra = {}, opts = {}) {
   env.LOCALAPPDATA = path.join(HOME, 'AppData', 'Local');
   env.ProgramFiles = HOME;
   env['ProgramFiles(x86)'] = HOME;
-  env.DSH_HOME = HOME;
+  env.DSH_HOME = path.join(QA_ROOT, '.dsh'); // H-1 语义：DSH_HOME = .dsh 域目录
   env.DSH_HOTPLUG_ROOT = QA_ROOT;
   if (!opts.keepPath) env.PATH = HOME;
   return env;
@@ -101,7 +101,7 @@ function writeAssembly(plugins) {
 function cleanup() {
   try { fs.rmSync(ASSEMBLY_DIR, { recursive: true, force: true }); } catch (_) { /* ok */ }
   try { fs.rmSync(SANDBOX_DIR, { recursive: true, force: true }); } catch (_) { /* ok */ }
-  try { fs.rmSync(path.join(HOME, '.dsh'), { recursive: true, force: true }); } catch (_) { /* ok */ }
+  try { fs.rmSync(path.join(QA_ROOT, '.dsh'), { recursive: true, force: true }); } catch (_) { /* ok */ }
   try { fs.rmSync(QA_ROOT, { recursive: true, force: true }); } catch (_) { /* ok */ }
 }
 
@@ -163,7 +163,7 @@ async function main() {
   if (errMsgs.length) console.log('  非零退出消息：', errMsgs);
 
   // state 完整性：单进程读回校验
-  const stateFile = path.join(HOME, '.dsh', 'hotplug-store', ID, 'state.json');
+  const stateFile = path.join(QA_ROOT, '.dsh', 'hotplug-store', ID, 'state.json');
   check('state.json 存在', fs.existsSync(stateFile), stateFile);
   // 隔离红线回归（A2）：CLI 子进程必须把 state 写到隔离 HOME，
   // 真实用户 HOME 的 ~/.dsh 不得出现本测试的任何条目

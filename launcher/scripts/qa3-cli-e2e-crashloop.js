@@ -30,7 +30,18 @@ function check(name, cond, detail) {
 function cleanEnv(extra = {}) {
   const env = { ...process.env };
   delete env.NODE_OPTIONS; // 先剥离沙箱 shim，再允许 extra 显式覆盖
-  return { ...env, HOME, USERPROFILE: HOME, LOCALAPPDATA: path.join(HOME, 'AppData', 'Local'), DSH_HOTPLUG_ROOT: QA_ROOT, ...extra };
+  return {
+    ...env,
+    HOME,
+    USERPROFILE: HOME,
+    LOCALAPPDATA: path.join(HOME, 'AppData', 'Local'),
+    ProgramFiles: path.join(HOME, 'pf'),
+    'ProgramFiles(x86)': path.join(HOME, 'pf86'),
+    PATH: path.join(HOME, 'bin'),
+    DSH_HOME: path.join(QA_ROOT, '.dsh'),
+    DSH_HOTPLUG_ROOT: QA_ROOT,
+    ...extra
+  };
 }
 
 function cli(args, envExtra = {}) {
@@ -109,7 +120,7 @@ function main() {
     const rr = cli(['launch', ID, '--wait'], { NODE_OPTIONS: `--require=${crashRec}` });
     check(`崩溃 launch #${i} → exit=8`, rr.code === 8, `code=${rr.code}`);
   }
-  const stateFile = path.join(HOME, '.dsh', 'hotplug-store', ID, 'state.json');
+  const stateFile = path.join(QA_ROOT, '.dsh', 'hotplug-store', ID, 'state.json');
   let st = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : null;
   check('3 次崩溃后 retries===3', st && st.launch.retries === 3, `retries=${st && st.launch.retries}`);
   check('lastExit 存真实子进程退出码 3', st && st.launch.lastExit === 3, `lastExit=${st && st.launch.lastExit}`);
@@ -125,10 +136,10 @@ function main() {
 
   // 隔离消费：再次 launch（recorder 仍崩溃，但同步阶段已排除 pkg-p）→ profile 产物不含 pkg-p
   cli(['launch', ID, '--wait'], { NODE_OPTIONS: `--require=${crashRec}` });
-  const profilePkg = path.join(HOME, '.dsh', 'profiles', ID, 'package.json');
+  const profilePkg = path.join(QA_ROOT, '.dsh', 'profiles', ID, 'package.json');
   const pkgJson = fs.existsSync(profilePkg) ? JSON.parse(fs.readFileSync(profilePkg, 'utf8')) : null;
   check('profile package.json 排除 pkg-p', pkgJson && !(pkgJson.dependencies || {}).hasOwnProperty('pkg-p'), JSON.stringify(pkgJson && pkgJson.dependencies));
-  const profilePatch = path.join(HOME, '.dsh', 'profiles', ID, 'cordis.patch.yml');
+  const profilePatch = path.join(QA_ROOT, '.dsh', 'profiles', ID, 'cordis.patch.yml');
   const patchText = fs.existsSync(profilePatch) ? fs.readFileSync(profilePatch, 'utf8') : '';
   check('profile cordis.patch.yml 排除 pkg-p', !patchText.includes('pkg-p'), patchText.slice(0, 200));
 

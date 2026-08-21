@@ -2,16 +2,21 @@
 // test/errors.test.js — 错误码→退出码契约全表（QA Bug #1 回归）
 const { ERROR_CODES, EXIT_CODE_BY_PREFIX, exitCodeForCode, makeError } = require('../contracts/errors');
 
-describe('contracts/errors 错误码→退出码契约（QA Bug #1 回归）', () => {
-  it('32 个错误码唯一且全部映射到退出码 2-12', () => {
+describe('contracts/errors 错误码→退出码契约（QA Bug #1 回归 + M-36/37）', () => {
+  it('33 个错误码唯一且全部映射到退出码 2-12（32 基线 + M-36 新增 ERR_ARG_BAD_STATE）', () => {
     const codes = Object.values(ERROR_CODES);
-    expect(codes.length).toBe(32);
-    expect(new Set(codes).size).toBe(32); // 无重复
+    expect(codes.length).toBe(33);
+    expect(new Set(codes).size).toBe(33); // 无重复
     for (const code of codes) {
       const prefix = Object.keys(EXIT_CODE_BY_PREFIX).find((p) => code.startsWith(p));
       expect(prefix, `code=${code} 无匹配前缀`).toBeTruthy();
       expect(exitCodeForCode(code), `code=${code}`).toBe(EXIT_CODE_BY_PREFIX[prefix]);
     }
+  });
+
+  it('M-36：ERR_ARG_BAD_STATE 属参数域（exit=2）', () => {
+    expect(ERROR_CODES.ERR_ARG_BAD_STATE).toBe('ERR_ARG_BAD_STATE');
+    expect(exitCodeForCode('ERR_ARG_BAD_STATE')).toBe(2);
   });
 
   it('各域退出码分布正确（2=参数 3=装配 4=冲突 5=YAML 6=安装 7=harness 8=启动 9=自愈 10=锁 11=日志 12=环境）', () => {

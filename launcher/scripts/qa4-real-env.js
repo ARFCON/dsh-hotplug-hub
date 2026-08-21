@@ -49,7 +49,7 @@ function cleanEnv(extra = {}) {
     ProgramFiles: path.join(HOME, 'pf'),
     'ProgramFiles(x86)': path.join(HOME, 'pf86'),
     PATH: BIN + path.delimiter + sysPath,
-    DSH_HOME: HOME,
+    DSH_HOME: path.join(QA_ROOT, '.dsh'), // H-1 语义：DSH_HOME = .dsh 域目录
     ...extra
   };
 }
@@ -173,7 +173,7 @@ function main() {
   // ---- 2. 假 npm 失败 → 真实退出码透传 ----
   r = cli(['install', ID], { FAKE_NPM_FAIL: '1' });
   check('假 npm 退出 7 → CLI exit=6（安装域）', r.code === 6, `code=${r.code} ${r.stderr.slice(0, 200)}`);
-  const stateFile = path.join(HOME, '.dsh', 'hotplug-store', ID, 'state.json');
+  const stateFile = path.join(QA_ROOT, '.dsh', 'hotplug-store', ID, 'state.json');
   let lastExit = null;
   if (fs.existsSync(stateFile)) {
     const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));

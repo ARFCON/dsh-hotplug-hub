@@ -121,7 +121,7 @@ describe('QA3 ids 穿越穷尽（D/N30/N31/N32/N43 强化）', () => {
     expect(r.error.exitCode).toBe(2);
   });
 
-  it('符号链接目录（junction）：isWithin 为路径语义，不解析 realpath（P3 已知边界，记录行为）', () => {
+  it('符号链接目录（junction）越界：isWithinRealpath 拒（C-1 修复），removePath 只删链接本身', () => {
     const root = tempDir('qa3-symlink-');
     const outside = tempDir('qa3-symlink-out-');
     const link = path.join(root, 'linkdir');
@@ -132,15 +132,25 @@ describe('QA3 ids 穿越穷尽（D/N30/N31/N32/N43 强化）', () => {
       console.log('SKIP symlink: ' + e.code);
       return;
     }
-    // 当前实现为纯路径比较：linkdir 字面位于 root 内 → isWithin 返回 true（不解析真实目标）
-    // 这是 README 已声明的 P3 强化点（fs.realpath 后校验），此处记录行为而非断言修复。
+    const fsPort = {
+      existsSync: fs.existsSync.bind(fs),
+      realpathSync: fs.realpathSync.bind(fs)
+    };
+    // C-1 修复：realpath 整路径比真根——junction 指向根外 → 拒绝
+    const { isWithinRealpath, assertWithinRealpath } = require('../domain/ids');
+    expect(isWithinRealpath(fsPort, root, link)).toBe(false);
+    expect(isWithinRealpath(fsPort, root, path.join(link, 'victim.txt'))).toBe(false);
+    const r = assertWithinRealpath(fsPort, root, path.join(link, 'victim.txt'), '测试目标');
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe('ERR_ARG_PATH_ESCAPE');
+    expect(r.error.exitCode).toBe(2);
+    // 词法语义（尚不存在的目标预检）仍保留
+    const { isWithin } = require('../domain/ids');
     expect(isWithin(root, link)).toBe(true);
-    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
-    // 越界写防护的现实风险：若攻击者用 junction 指向 root 外，当前 isWithin 无法察觉。
-    // 注意：cleanupResidue/restoreSnapshot 使用 lstat 语义的 removePath，不会跟随链接删除目标。
+    // 越界写防护的现实验证：cleanupResidue/restoreSnapshot 使用 lstat 语义的
+    // removePath，不会跟随链接删除目标
     const outsideFile = path.join(outside, 'victim.txt');
     fs.writeFileSync(outsideFile, 'safe');
-    // removePath 对符号链接只 unlink 链接本身，不删除目标
     const { removePath } = require('../infra/snapshot');
     removePath({ lstatSync: fs.lstatSync.bind(fs), readdirSync: fs.readdirSync.bind(fs), rmdirSync: fs.rmdirSync.bind(fs), unlinkSync: fs.unlinkSync.bind(fs) }, link);
     expect(fs.existsSync(outsideFile)).toBe(true); // 目标完好

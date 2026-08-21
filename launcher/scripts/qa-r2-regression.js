@@ -38,7 +38,6 @@ function makeCoreWithDsh(spawnFn, assemblyPlugins, pluginAddFn) {
     fsPort: createFsPort(fs),
     dshPort: { findHarness: () => ({ ok: true, harness: 'fake-dsh' }), verifyHarness: () => ({ ok: true }), pluginAdd: pluginAddFn, isInstalled: () => false }
   });
-  core.infra.harness.findHarness = () => ({ ok: true, harness: 'fake-dsh' });
   return { core, baseDir, home };
 }
 
@@ -125,6 +124,7 @@ function cleanupAll() {
     check('R3b 产物与保留项保留(设计:node_modules归零)', manifestExists && patchExists && logsExists && nodeModulesGone, `manifest=${manifestExists} patch=${patchExists} logs=${logsExists} nodeModulesGone=${nodeModulesGone}`);
     // 越界防护：cleanupResidue 不得触碰 sandbox 外（A2 修复：先放置哨兵文件再断言其仍在——
     // 原实现从不创建哨兵，`!outside` 恒真，属空断言）
+    fs.mkdirSync(home, { recursive: true });
     const sentinel = path.join(home, 'something.txt');
     fs.writeFileSync(sentinel, 'sentinel');
     const r3c = await runPipeline(core, 'assemble', { id: 'example' });

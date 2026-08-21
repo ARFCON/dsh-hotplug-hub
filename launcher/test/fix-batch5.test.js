@@ -41,13 +41,12 @@ function writeAssembly(roots, id, plugins) {
 }
 
 function coreWith(roots) {
-  const core = createCore({
+  // 注入式夹具（v5 阶段 2）：harness 探测经 dshPort 注入，不再 monkey-patch core.infra
+  return createCore({
     roots,
     procPort: createProcPort({ spawn: () => { throw new Error('no spawn'); }, spawnSync: () => ({ status: 0, error: null, stderr: '', stdout: '' }) }),
     dshPort: { findHarness: () => ({ ok: true, harness: 'fake-dsh' }), verifyHarness: () => ({ ok: true }), pluginAdd: async () => ({ ok: false }), isInstalled: () => false }
   });
-  core.infra.harness.findHarness = () => ({ ok: true, harness: 'fake-dsh' });
-  return core;
 }
 
 describe('FIX-19/25 缺参退出码 =2 确认', () => {

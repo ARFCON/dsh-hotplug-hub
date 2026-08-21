@@ -8,6 +8,7 @@
 const os = require('os');
 const path = require('path');
 const { makeError } = require('../contracts/errors');
+const { sanitizeChildEnv } = require('@dsh/shared-core/security/net');
 
 /**
  * 按平台生成候选路径。
@@ -108,9 +109,12 @@ function findHarness(core, opts = {}) {
   // 回退结果同样必须过 verifyHarness（A2 修复：N44 完整性校验缺口——此前
   // PATH 上的符号链接/零字节文件会被直接采纳为 harness 并执行）。
   if (opts.probe !== false && procPortAvailable(core)) {
+    // M-2（安全审计）：探测子进程同样净化 env（常量命令，无注入面；净化防
+    // NODE_OPTIONS 等经探测进程生效/被记录）
+    const probeEnv = sanitizeChildEnv(env);
     const probe = platform === 'win32'
-      ? core.ports.proc.spawnSync('where', ['dsh.cmd'], { stdio: 'pipe', encoding: 'utf8' })
-      : core.ports.proc.spawnSync('sh', ['-c', 'command -v dsh'], { stdio: 'pipe', encoding: 'utf8' });
+      ? core.ports.proc.spawnSync('where', ['dsh.cmd'], { stdio: 'pipe', encoding: 'utf8', env: probeEnv })
+      : core.ports.proc.spawnSync('sh', ['-c', 'command -v dsh'], { stdio: 'pipe', encoding: 'utf8', env: probeEnv });
     if (probe && !probe.error && probe.status === 0 && (probe.stdout || '').trim()) {
       const cliPath = (probe.stdout || '').trim().split(/\r?\n/)[0];
       if (cliPath) {

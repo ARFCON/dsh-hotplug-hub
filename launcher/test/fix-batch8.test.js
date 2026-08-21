@@ -27,7 +27,7 @@ function isolatedEnv(home) {
   env.ProgramFiles = path.join(home, 'pf');
   env['ProgramFiles(x86)'] = path.join(home, 'pf86');
   env.PATH = path.join(home, 'bin');
-  env.DSH_HOME = home;
+  env.DSH_HOME = path.join(home, '.dsh'); // H-1 语义：DSH_HOME = .dsh 域目录
   return env;
 }
 

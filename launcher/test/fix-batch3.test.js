@@ -15,41 +15,42 @@ const { createRunLog } = require('../infra/runlog');
 
 const fsPort = createFsPort(fs);
 
-describe('FIX-10 锁 TOCTOU 二次确认 + release owner 校验', () => {
-  it('release 他人锁被拒，释放自己锁成功', () => {
+describe('FIX-10 文件锁（H-4）：token pid 校验 + v1 目录锁迁移', () => {
+  it('release 他人（不同 pid）锁被拒，释放自己锁成功', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fix10-'));
     const lockPath = path.join(dir, '.lock');
     const a = acquireLock(fsPort, lockPath, { waitMs: 500, staleMs: 60000, owner: 'alice' });
     expect(a.ok).toBe(true);
-    const wrong = releaseLock(fsPort, lockPath, { owner: 'bob' });
-    expect(wrong.ok).toBe(false); // 拒绝释放他人锁
+    const wrong = releaseLock(fsPort, lockPath, { owner: 'bob', pid: process.pid + 1 });
+    expect(wrong.ok).toBe(false); // 拒绝释放他人（不同 pid）锁
     expect(fs.existsSync(lockPath)).toBe(true); // 锁仍在
-    const right = releaseLock(fsPort, lockPath, { owner: 'alice' });
+    const right = releaseLock(fsPort, lockPath, { owner: 'alice', pid: process.pid, fd: a.fd });
     expect(right.ok).toBe(true);
     expect(fs.existsSync(lockPath)).toBe(false);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('接管前二次确认：owner 被更新后放弃接管（等待而非抢锁）', () => {
+  it('v1 目录锁（存活持有者）→ 等待超时不抢锁；v1 目录锁（已死持有者）→ 迁移为文件锁', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fix10b-'));
     const lockPath = path.join(dir, '.lock');
+    // 情形 A：v1 目录 + 存活 pid + 新时间 → 等待超时
     fs.mkdirSync(lockPath, { recursive: false });
-    // 旧 owner 已过期
-    fs.writeFileSync(path.join(lockPath, 'owner'), JSON.stringify({ owner: 'pid-old', at: new Date(Date.now() - 60000).toISOString() }));
-    // 模拟另一进程在 stale 判定后、接管前更新了 owner（TOCTOU 窗口）
-    const r = acquireLock(fsPort, lockPath, {
-      waitMs: 200, staleMs: 1000, owner: 'newcomer',
-      now: () => Date.now()
-    });
-    // 由于 owner 已被"别人"在 recheck 时更新为未过期，应等待超时而非抢锁
-    // 此处构造：acquireLock 内部 recheck 读到的仍是旧 owner（无法注入中间更新），
-    // 因此该用例验证"recheck 存在且未过期则继续等待"的代码路径：直接构造新 owner 后调用
-    // —— 通过先手动更新 owner 文件再 acquire（未过期）验证等待超时
-    fs.writeFileSync(path.join(lockPath, 'owner'), JSON.stringify({ owner: 'pid-holder', at: new Date().toISOString() }));
+    fs.writeFileSync(path.join(lockPath, 'owner'), JSON.stringify({ owner: `pid-${process.pid}`, at: new Date().toISOString() }));
     const r2 = acquireLock(fsPort, lockPath, { waitMs: 150, staleMs: 60000, owner: 'newcomer' });
     expect(r2.ok).toBe(false); // 未过期锁 → 等待超时（不抢锁）
     expect(r2.error.code).toBe('ERR_LOCK_ACQUIRE');
-    releaseLock(fsPort, lockPath, { owner: 'pid-holder' });
+    // 清理后构造情形 B：v1 目录 + 已死 pid → 自动迁移为文件锁并获取
+    fs.rmSync(lockPath, { recursive: true, force: true });
+    fs.mkdirSync(lockPath, { recursive: false });
+    const gone = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+    fs.writeFileSync(path.join(lockPath, 'owner'), JSON.stringify({ owner: `pid-${gone.pid}`, at: new Date().toISOString() }));
+    const r3 = acquireLock(fsPort, lockPath, { waitMs: 500, staleMs: 60000, owner: 'newcomer' });
+    expect(r3.ok).toBe(true);
+    // 已迁移为文件锁（token 形态）
+    const { readToken } = require('../infra/lock');
+    const token = readToken(fsPort, lockPath);
+    expect(token.pid).toBe(process.pid);
+    releaseLock(fsPort, lockPath, { owner: 'newcomer', pid: process.pid, fd: r3.fd });
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -13,27 +13,34 @@ cli/                      # parser（--yes/--wait/--json 位置无关）· forma
 app/                      # create-core（依赖注入容器）· pipeline（状态机编排）
                           # stages（写阶段）· stages-readonly（只读阶段）· stages-heal（自愈）
 domain/                   # 纯函数零副作用：ids/assembly/resolve/conflicts/classify/patch/healplan/manifest
-contracts/                # errors（32 错误码）· schemas（5 JSON Schema）· state-machine · constants
+contracts/                # errors（33 错误码，由 @dsh/shared-core 单一真源再导出）
+                          # schemas（5 JSON Schema + ajv 校验器）· state-machine · constants
 ports/                    # 端口接口：fs/proc/registry/dsh/now（未注入抛"端口未注入"）
 infra/                    # 副作用实现：atomic/lock/store/snapshot/runlog/install/profile/
                           # harness/launch/monitor/heal/heal-steps/heal-verify/dsh-cli/tree-util
-test/                     # vitest 测试（40 文件 359 用例）
+test/                     # vitest 测试（49 文件 512 用例）
 scripts/                  # lint/depcheck/测试启动器/QA e2e（三平台可跑）
 ```
 
-关键契约：32 错误码（退出码 2-12）、`state.json` 唯一状态源、`cordis.patch.yml`
+关键契约：33 错误码（退出码 2-12）、`state.json` 唯一状态源、`cordis.patch.yml`
 （yaml 序列化 + 回读自校验）、`run.jsonl`（seq 连续 + 5MB 滚动）、命令 = 状态机子流水线。
+契约与纯逻辑的单一真源在 `packages/shared-core`（本包经 npm workspaces 直接引用；
+hotplug/memory/dseam 经字节一致的 `vendor-shared/` 副本消费，由
+`scripts/check-vendored-shared.mjs` 断言零漂移）。
 
 ## 运行方式
 
 ```bash
-# 安装依赖（yaml + semver 运行时；vitest 测试）
-npm ci
+# 安装依赖（单仓 npm workspaces：必须在仓库根执行；yaml + semver 运行时；vitest 测试）
+cd .. && npm ci
 
-# 测试 / lint / 依赖声明校验
+# 测试 / lint / 依赖声明校验（在本目录执行）
 npm test                # 备选（更稳）：node scripts/run-tests.js run
 npm run lint
 npm run depcheck
+
+# 覆盖率门槛（§8.5：行 ≥85%、分支 ≥80%，v8 provider；低于门槛退出非 0）
+node scripts/run-tests.js run --coverage
 
 # 进程级 QA（隔离 HOME + DSH_HOTPLUG_ROOT；假工具链真实子进程，无需外网）
 node scripts/qa3-cli-e2e.js             # CLI 全链路 27 项

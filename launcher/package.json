@@ -16,10 +16,12 @@
     "check": "npm run lint && npm run depcheck && npm test"
   },
   "dependencies": {
+    "@dsh/shared-core": "*",
     "semver": "^7.6.3",
     "yaml": "^2.5.1"
   },
   "devDependencies": {
+    "@vitest/coverage-istanbul": "^2.1.9",
     "dependency-cruiser": "^16.5.0",
     "eslint-plugin-import": "^2.31.0",
     "vitest": "^2.1.8"

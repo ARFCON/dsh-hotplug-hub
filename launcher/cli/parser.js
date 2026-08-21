@@ -42,7 +42,9 @@ function parseArgs(argv) {
       // 注：仅当下一 token 以 '--' 开头才判为"选项被吞"（'-1' 这类负数值仍按值处理）。
       const val = tokens[i + 1];
       if (val === undefined || (typeof val === 'string' && val.startsWith('--'))) {
-        return { ok: false, error: makeError('ERR_ARG_BAD_OPTION', `--timeout 缺少数值参数（后接 ${val === undefined ? '行尾' : JSON.stringify(val)}）`) };
+        // 错误返回同样携带已累积的 options：--json 已在错误 token 之前出现时，
+        // 失败结果仍走 stdout JSON（C1 机器可读契约，index.js 解析失败路径依赖）。
+        return { ok: false, error: makeError('ERR_ARG_BAD_OPTION', `--timeout 缺少数值参数（后接 ${val === undefined ? '行尾' : JSON.stringify(val)}）`), options };
       }
       options.timeoutMs = Number(val);
       i += 1;
@@ -51,7 +53,7 @@ function parseArgs(argv) {
     } else if (t === '--tail') {
       const val = tokens[i + 1];
       if (val === undefined || (typeof val === 'string' && val.startsWith('--'))) {
-        return { ok: false, error: makeError('ERR_ARG_BAD_OPTION', `--tail 缺少数值参数（后接 ${val === undefined ? '行尾' : JSON.stringify(val)}）`) };
+        return { ok: false, error: makeError('ERR_ARG_BAD_OPTION', `--tail 缺少数值参数（后接 ${val === undefined ? '行尾' : JSON.stringify(val)}）`), options };
       }
       options.tail = Number(val);
       i += 1;
@@ -59,13 +61,17 @@ function parseArgs(argv) {
       options.tail = Number(t.slice('--tail='.length));
     } else if (t.startsWith('-') && t !== '-') {
       const err = makeError('ERR_ARG_BAD_OPTION', `未知选项：${t}`);
-      return { ok: false, error: err };
+      return { ok: false, error: err, options };
     } else {
       positional.push(t);
     }
   }
 
-  if (Number.isNaN(options.timeoutMs) || options.timeoutMs <= 0) options.timeoutMs = null;
+  // M-27 修复（v5 阶段 2）：--timeout 非法值显式报错，不再静默回退默认——
+  // NaN（非数字）/负数 = ERR_ARG_BAD_OPTION；0 为合法显式值（立即超时语义），原样透传。
+  if (Number.isNaN(options.timeoutMs) || options.timeoutMs < 0) {
+    return { ok: false, error: makeError('ERR_ARG_BAD_OPTION', `--timeout 必须是非负整数（收到 ${JSON.stringify(options.timeoutMs)}）`), options };
+  }
   // P3：--tail 0 合法（表示全部），仅 NaN/负值回退默认 50
   if (Number.isNaN(options.tail) || options.tail < 0) options.tail = 50;
 

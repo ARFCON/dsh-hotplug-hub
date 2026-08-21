@@ -81,6 +81,12 @@ async function stageAssemble(core, state, args) {
   state.assemblySha256 = sha;
   state.resolved = resolved.resolved;
   state.resolved.conflicts = conflictCheck.conflicts;
+  // M-23 修复（v5 阶段 2）：reassemble 重置过期子状态——新装配的 install/launch/
+  // rollback 快照全部失效，残留的 retries/history 快照会误导后续阶段
+  // （heal 计数、rollback 恢复错误内容）；隔离列表（quarantined）保留（隔离跨重建生效）。
+  state.install = { status: 'missing', lastExit: null, nodeModules: false };
+  state.launch = { lastExit: null, lastStart: null, retries: 0, pid: null };
+  state.rollback = { snapshot: null, lastRollbackAt: null };
   state.phase = STATES.CHECKED;
   state.dirty = true;
   return okResult(`组装完成（id=${id}，sha256=${sha.slice(0, 12)}…）`, {

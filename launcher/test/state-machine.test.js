@@ -1,19 +1,19 @@
 'use strict';
-// test/state-machine.test.js — 命令级子流水线与转移表一致性（QA 观察 #5）
+// test/state-machine.test.js — 命令级子流水线与转移表一致性（QA 观察 #5 + v5 M-24/36/R-v5-20）
 const {
   STATES,
   COMMAND_PIPELINES,
   TRANSITIONS,
   assertCommandPipeline,
-  transitionInfo,
-  canTransition
+  transitionInfo
 } = require('../contracts/state-machine');
 
-describe('contracts/state-machine 命令级流水线（QA #5 回归）', () => {
-  it('assemble：IDLE 可入、落 CHECKED；可从任意状态重建', () => {
+describe('contracts/state-machine 命令级流水线（QA #5 回归 + v5 定向修复）', () => {
+  it('assemble：IDLE 可入；可从任意状态重建（*→ASSEMBLED 通配保留）', () => {
     const r = assertCommandPipeline(STATES.IDLE, 'assemble');
     expect(r.ok).toBe(true);
-    expect(r.info.landing).toBe(STATES.CHECKED);
+    // R-v5-20：不再返回 landing
+    expect(r.info.landing).toBeUndefined();
     for (const s of Object.values(STATES)) {
       const rr = assertCommandPipeline(s, 'assemble');
       expect(rr.ok, `assemble from=${s}`).toBe(true);
@@ -31,15 +31,28 @@ describe('contracts/state-machine 命令级流水线（QA #5 回归）', () => {
     expect(assertCommandPipeline(STATES.LAUNCHED, 'launch').ok).toBe(true); // 幂等
   });
 
-  it('heal/rollback：允许从任意状态进入（通配行）', () => {
-    for (const s of Object.values(STATES)) {
+  it('M-24：heal/rollback 只允许显式入口（IDLE 及组装期拒绝，专属码 ERR_ARG_BAD_STATE）', () => {
+    // 显式合法入口（已进入安装/同步/启动域）
+    for (const s of [STATES.INSTALLED, STATES.SYNCED, STATES.LAUNCHED, STATES.MONITORING, STATES.QUARANTINED, STATES.ROLLED_BACK, STATES.FAILED]) {
       expect(assertCommandPipeline(s, 'heal').ok, `heal from=${s}`).toBe(true);
+    }
+    for (const s of [STATES.INSTALLED, STATES.SYNCED, STATES.LAUNCHED, STATES.MONITORING, STATES.QUARANTINED, STATES.FAILED]) {
       expect(assertCommandPipeline(s, 'rollback').ok, `rollback from=${s}`).toBe(true);
+    }
+    // 非法入口（IDLE/ASSEMBLED/RESOLVED/CHECKED）→ ERR_ARG_BAD_STATE（exit=2）
+    for (const s of [STATES.IDLE, STATES.ASSEMBLED, STATES.RESOLVED, STATES.CHECKED]) {
+      const h = assertCommandPipeline(s, 'heal');
+      expect(h.ok, `heal from=${s}`).toBe(false);
+      expect(h.error.code).toBe('ERR_ARG_BAD_STATE');
+      expect(h.error.exitCode).toBe(2);
+      const rb = assertCommandPipeline(s, 'rollback');
+      expect(rb.ok, `rollback from=${s}`).toBe(false);
+      expect(rb.error.code).toBe('ERR_ARG_BAD_STATE');
     }
   });
 
-  it('COMMAND_PIPELINES 每条链的微转移都存在于转移表（落点与表一致）', () => {
-    const pre = { assemble: STATES.IDLE, install: STATES.CHECKED, launch: STATES.INSTALLED, heal: STATES.MONITORING, rollback: STATES.HEALING };
+  it('COMMAND_PIPELINES 每条链的微转移都存在于转移表（R-v5-20：无 landing）', () => {
+    const pre = { assemble: STATES.IDLE, install: STATES.CHECKED, launch: STATES.INSTALLED, heal: STATES.MONITORING, rollback: STATES.INSTALLED };
     for (const [cmd, pl] of Object.entries(COMMAND_PIPELINES)) {
       let from = pre[cmd];
       for (const to of pl.chain) {
@@ -48,16 +61,13 @@ describe('contracts/state-machine 命令级流水线（QA #5 回归）', () => {
         expect(info, `${cmd}: ${from} → ${to}`).not.toBeNull();
         from = to;
       }
-      expect(pl.landing).toBe(pl.chain[pl.chain.length - 1]);
+      expect(pl.landing).toBeUndefined();
     }
   });
 
-  it('canTransition 通配语义：任何状态可到 ASSEMBLED/HEALING/ROLLED_BACK/FAILED', () => {
-    for (const s of Object.values(STATES)) {
-      expect(canTransition(s, STATES.ASSEMBLED)).toBe(true);
-      expect(canTransition(s, STATES.HEALING)).toBe(true);
-      expect(canTransition(s, STATES.ROLLED_BACK)).toBe(true);
-    }
-    expect(TRANSITIONS.length).toBeGreaterThanOrEqual(15);
+  it('通配收敛：仅 *→ASSEMBLED 与 *→FAILED；heal/rollback 无通配（M-24）', () => {
+    const wilds = TRANSITIONS.filter((t) => t.from === '*').map((t) => t.to);
+    expect(wilds).toEqual([STATES.ASSEMBLED, STATES.FAILED]);
+    expect(TRANSITIONS.length).toBeGreaterThanOrEqual(20);
   });
 });

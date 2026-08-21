@@ -92,11 +92,20 @@ describe('QA3 CLI 契约（审计 N15/N27/N40 强化）', () => {
     expect(parseArgs(['logs', 'id', '--tail', '0']).options.tail).toBe(0);
   });
 
-  it('--timeout 非法值 → null（回退默认）', () => {
-    expect(parseArgs(['launch', 'id', '--timeout', 'abc']).options.timeoutMs).toBeNull();
-    expect(parseArgs(['launch', 'id', '--timeout', '-1']).options.timeoutMs).toBeNull();
+  it('--timeout 非法值显式报错（M-27：不再静默回退默认）；合法值透传；0 合法', () => {
+    // NaN（非数字）/ 负值 → ERR_ARG_BAD_OPTION（exit=2）
+    for (const bad of ['abc', '-1']) {
+      const r = parseArgs(['launch', 'id', '--timeout', bad]);
+      expect(r.ok, `--timeout ${bad}`).toBe(false);
+      expect(r.error.code).toBe('ERR_ARG_BAD_OPTION');
+      expect(r.error.exitCode).toBe(2);
+    }
     expect(parseArgs(['launch', 'id', '--timeout', '500']).options.timeoutMs).toBe(500);
     expect(parseArgs(['launch', 'id', '--timeout=700']).options.timeoutMs).toBe(700);
+    // M-27：0 为合法显式值（立即超时语义），原样透传
+    expect(parseArgs(['launch', 'id', '--timeout', '0']).options.timeoutMs).toBe(0);
+    // 缺省 null（默认超时由 launch 层决定）
+    expect(parseArgs(['launch', 'id']).options.timeoutMs).toBeNull();
   });
 
   it('未知选项 → ERR_ARG_BAD_OPTION（exit=2）', () => {
@@ -104,6 +113,34 @@ describe('QA3 CLI 契约（审计 N15/N27/N40 强化）', () => {
     expect(r.ok).toBe(false);
     expect(r.error.code).toBe('ERR_ARG_BAD_OPTION');
     expect(r.error.exitCode).toBe(2);
+  });
+
+  it('--tail 缺值/后接选项 → ERR_ARG_BAD_OPTION（exit=2）', () => {
+    const r = parseArgs(['logs', 'id', '--tail']);
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe('ERR_ARG_BAD_OPTION');
+    expect(r.error.exitCode).toBe(2);
+    const r2 = parseArgs(['logs', 'id', '--tail', '--json']);
+    expect(r2.ok).toBe(false);
+    expect(r2.error.code).toBe('ERR_ARG_BAD_OPTION');
+    // 错误返回携带已累积 options：--json 已在错误 token 前出现时透传（C1 契约）
+    const r3 = parseArgs(['--json', 'logs', 'id', '--tail']);
+    expect(r3.ok).toBe(false);
+    expect(r3.options).toBeDefined();
+    expect(r3.options.json).toBe(true);
+  });
+
+  it('解析失败仍携带已累积 options（C1：--json 先于错误 token 时失败结果走 stdout JSON）', () => {
+    const r = parseArgs(['--json', 'status', '--frob']);
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe('ERR_ARG_BAD_OPTION');
+    expect(r.options).toBeDefined();
+    expect(r.options.json).toBe(true);
+    // 缺值场景同理（--json 在前，--timeout 后接选项）
+    const r2 = parseArgs(['--json', 'launch', 'id', '--timeout', '--wait']);
+    expect(r2.ok).toBe(false);
+    expect(r2.options).toBeDefined();
+    expect(r2.options.json).toBe(true);
   });
 
   it('CommandResult schema：formatResult --json 输出可 JSON.parse 且 5 字段齐全', () => {

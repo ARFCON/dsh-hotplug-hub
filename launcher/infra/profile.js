@@ -38,8 +38,13 @@ function syncProfile(core, id, opts = {}) {
   if (!idCheck.ok) return { ok: false, error: idCheck.error };
 
   const sandboxDir = path.join(roots.sandboxRoot, id);
-  const sandboxPkg = path.join(sandboxDir, PROFILE_MANIFEST);
-  const sandboxPatch = path.join(sandboxDir, PATCH_FILE);
+  // m7（安全审计）：sandbox 目录同样 realpath 比真根——junction 预置于
+  // sandboxRoot/<id> 可把 copyFileSync 源重定向到任意目录；解析失败即拒绝。
+  const sandboxCheck = ids.assertWithinRealpath(fsPort, roots.sandboxRoot, sandboxDir, `sandbox(id=${id})`);
+  if (!sandboxCheck.ok) return { ok: false, error: sandboxCheck.error };
+  const sandboxResolved = sandboxCheck.resolvedPath;
+  const sandboxPkg = path.join(sandboxResolved, PROFILE_MANIFEST);
+  const sandboxPatch = path.join(sandboxResolved, PATCH_FILE);
   if (!fsPort.existsSync(sandboxPkg)) {
     return { ok: false, error: makeError('ERR_INSTALL_DEP', 'sandbox 不存在，请先执行 assemble') };
   }
@@ -49,9 +54,13 @@ function syncProfile(core, id, opts = {}) {
     if (!h.ok) return { ok: false, error: h.error };
   }
 
-  const profileDir = path.join(roots.profilesRoot, id);
-  const profileCheck = ids.assertWithin(roots.profilesRoot, profileDir, `profile(id=${id})`);
+  const profileDirLexical = path.join(roots.profilesRoot, id);
+  // C-1 修复（阶段 1）：realpath 整路径比真根——profile 目录不得经符号链接逃出
+  // profilesRoot；通过后对解析路径做后续 I/O（m7：此前忽略 resolvedPath 继续用
+  // 词法路径写，存在换链窗口；现全程用解析路径，无 TOCTOU）。
+  const profileCheck = ids.assertWithinRealpath(fsPort, roots.profilesRoot, profileDirLexical, `profile(id=${id})`);
   if (!profileCheck.ok) return { ok: false, error: profileCheck.error };
+  const profileDir = profileCheck.resolvedPath;
 
   // 2) 快照现有 profile（若有）
   let snapshot = null;
@@ -73,7 +82,7 @@ function syncProfile(core, id, opts = {}) {
 
     // FIX-1：install 产物打通 —— sandbox/node_modules → profile/node_modules junction
     // （方案 B，与 install-plugins.mjs 对齐：依赖真正落地到 profile 侧，DSH 可 require）
-    const sandboxNm = path.join(sandboxDir, 'node_modules');
+    const sandboxNm = path.join(sandboxResolved, 'node_modules');
     const profileNm = path.join(profileDir, 'node_modules');
     const note = refreshNodeModulesLink(fsPort, sandboxNm, profileNm);
     if (note) syncNote = note;

@@ -11,7 +11,7 @@ const { createCore } = require('../app/create-core');
 const { createFsPort } = require('../ports/fs');
 const { createProcPort } = require('../ports/proc');
 const { runPipeline } = require('../app/pipeline');
-const { readOwner } = require('../infra/lock');
+const { readToken } = require('../infra/lock');
 const { findDshCli } = require('../infra/dsh-cli');
 const { pipeChildToLog, createLineDecoder } = require('../infra/monitor');
 const { createRunLog } = require('../infra/runlog');
@@ -31,14 +31,14 @@ function isolatedRoots(home) {
 }
 
 describe('QA4 pipeline（锁失败路径）', () => {
-  it('acquireLock 失败（mkdir EACCES）→ ERR_LOCK_ACQUIRE 而非崩溃', async () => {
+  it('acquireLock 失败（openSync wx EACCES）→ ERR_LOCK_ACQUIRE 而非崩溃', async () => {
     const home = tempDir('qa4p1-');
     const realFs = createFsPort(fs);
     const failingFs = {
       ...realFs,
-      mkdirSync: (p, o) => {
+      openSync: (p, ...rest) => {
         if (String(p).endsWith('.lock')) { const e = new Error('EACCES: lock'); e.code = 'EACCES'; throw e; }
-        return fs.mkdirSync(p, o);
+        return fs.openSync(p, ...rest);
       }
     };
     const core = createCore({
@@ -65,14 +65,17 @@ describe('QA4 pipeline（锁失败路径）', () => {
   });
 });
 
-describe('QA4 lock（owner 损坏回退）', () => {
-  it('readOwner 对损坏/缺失文件返回 null', () => {
+describe('QA4 lock（token 损坏回退）', () => {
+  it('readToken 对损坏/缺失文件返回 null', () => {
     const dir = tempDir('qa4lk-');
     const lockPath = path.join(dir, '.lock');
-    fs.mkdirSync(lockPath, { recursive: true });
-    expect(readOwner(createFsPort(fs), lockPath)).toBeNull();
-    fs.writeFileSync(path.join(lockPath, 'owner'), '{broken', 'utf8');
-    expect(readOwner(createFsPort(fs), lockPath)).toBeNull();
+    expect(readToken(createFsPort(fs), lockPath)).toBeNull();
+    fs.writeFileSync(lockPath, 'garbage', 'utf8');
+    expect(readToken(createFsPort(fs), lockPath)).toBeNull();
+    fs.writeFileSync(lockPath, '123\nnot-a-number\n', 'utf8');
+    expect(readToken(createFsPort(fs), lockPath)).toBeNull();
+    fs.writeFileSync(lockPath, '123\n456\n', 'utf8');
+    expect(readToken(createFsPort(fs), lockPath)).toEqual({ pid: 123, at: 456 });
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

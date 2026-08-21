@@ -1,6 +1,6 @@
 'use strict';
 // test/assembly.test.js — hotpack 1.0 校验（K/N7/N21/N22/N35 回归）
-const { parseHotpack } = require('../domain/assembly');
+const { parseHotpack, validateAssembly, parseLegacy } = require('../domain/assembly');
 
 const valid = {
   hotpack: '1.0',
@@ -92,5 +92,32 @@ describe('domain/assembly hotpack 1.0 校验', () => {
       plugins: [{ id: 'd', name: 'pkg-d', source: { type: 'github', repo: 'org/repo\u0000x' }, config: {} }]
     });
     expect(r.ok).toBe(false);
+  });
+
+  it('validateAssembly 别名：成功/失败与 parseHotpack 语义一致', () => {
+    const ok = validateAssembly(valid);
+    expect(ok.ok).toBe(true);
+    expect(ok.pack.plugins).toHaveLength(3);
+    const bad = validateAssembly({ ...valid, hotpack: '9.9' });
+    expect(bad.ok).toBe(false);
+    expect(bad.error.code).toBe('ERR_ASSEMBLY_UNSUPPORTED');
+  });
+
+  it('parseLegacy：{packId, bundles} 形态兼容解析（成功/失败）', () => {
+    const raw = {
+      packId: 'legacy-pack',
+      name: '遗留组合',
+      version: '1.0.0',
+      bundles: [
+        { id: 'a', name: 'pkg-a', version: '1.0.0', source: { type: 'npm' }, config: {} }
+      ]
+    };
+    const ok = parseLegacy(raw);
+    expect(ok.ok).toBe(true);
+    expect(ok.pack.id).toBe('legacy-pack');
+    expect(ok.pack.plugins).toHaveLength(1);
+    const bad = parseLegacy({ packId: 'x', name: 'n', version: '1.0.0', bundles: 'not-array' });
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toBeDefined();
   });
 });

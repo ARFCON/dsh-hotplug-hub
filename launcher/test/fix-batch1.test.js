@@ -45,13 +45,12 @@ function fakeChild(pid = 4242) {
 }
 
 function coreWith(roots, extra = {}) {
-  const core = createCore({
+  // 注入式夹具（v5 阶段 2）：harness 探测经 dshPort 注入，不再 monkey-patch core.infra
+  return createCore({
     roots,
     procPort: createProcPort({ spawn: extra.spawn || (() => { throw new Error('no spawn'); }), spawnSync: () => ({ status: 0, error: null, stderr: '', stdout: '' }) }),
     dshPort: { findHarness: () => ({ ok: true, harness: 'fake-dsh' }), verifyHarness: () => ({ ok: true }), pluginAdd: async () => ({ ok: false }), isInstalled: () => false }
   });
-  core.infra.harness.findHarness = () => ({ ok: true, harness: 'fake-dsh' });
-  return core;
 }
 
 const PLUGIN_A = { id: 'a', name: 'pkg-a', version: '1.0.0', source: { type: 'npm' }, config: {} };
