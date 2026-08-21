@@ -257,17 +257,57 @@ body.ai-view-active .topbar { display: none; }
 .ai-chip-btn:hover { border-color: var(--teal); color: var(--teal); }
 .ai-chip-btn.active { border-color: var(--teal); background: rgba(16,124,107,.08); color: var(--teal); }
 .ai-turn-badge { font-size: 12px; color: var(--muted); white-space: nowrap; }
+/* 连接设置面板 v3：干净栅格 + 统一控件 + 明确分组（与 AI 装配间整体风格一致） */
 .ai-settings {
-  width: min(760px, calc(100% - 44px)); margin: 0 auto; padding: 12px 0 2px;
+  width: min(720px, calc(100% - 44px)); margin: 0 auto; padding: 12px 0 2px;
   display: grid; gap: 8px;
 }
 .ai-settings-panel {
   border: 1px solid var(--line); border-radius: 14px; background: #fff;
-  padding: 12px 14px; display: grid; gap: 8px;
+  padding: 14px 16px; display: grid; gap: 10px;
   box-shadow: 0 6px 24px rgba(15,23,42,.06);
 }
-.ai-settings-panel .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.ai-settings-panel input { flex: 1; min-width: 160px; }
+.ai-cfg-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 700; color: var(--ink);
+}
+.ai-cfg-title .k {
+  width: 20px; height: 20px; display: grid; place-items: center; align-self: center;
+  background: var(--teal-dark); color: #fff; border-radius: 6px;
+  font-size: 11px; font-weight: 800;
+}
+.ai-cfg-note { margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 400; }
+.ai-settings-panel .row {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; align-items: center;
+}
+.ai-settings-panel .row .ai-label { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; }
+.ai-settings-panel .row .ctl-line { display: flex; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.ai-ctl {
+  box-sizing: border-box; width: 100%; height: 34px; padding: 0 10px;
+  border: 1px solid #d8dee6; border-radius: 9px; background: #fff;
+  font: inherit; font-size: 13px; color: var(--ink); min-width: 0;
+  transition: border-color .15s, box-shadow .15s;
+}
+.ai-ctl::placeholder { color: #9aa6b5; }
+.ai-ctl:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(16,124,107,.12); }
+.ai-ctl:disabled { background: #f4f6f2; color: var(--muted); cursor: not-allowed; }
+select.ai-ctl { cursor: pointer; padding-right: 8px; }
+.ai-ctl-btn {
+  height: 34px; padding: 0 14px; border: 1px solid var(--line); border-radius: 9px;
+  background: #fff; color: var(--ink); font-size: 13px; cursor: pointer; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+}
+.ai-ctl-btn:hover { border-color: var(--teal); color: var(--teal); }
+.ai-ctl-btn:disabled { opacity: .55; cursor: default; }
+.ai-ctl-btn.primary { background: var(--teal); border-color: var(--teal); color: #fff; }
+.ai-ctl-btn.primary:hover { background: var(--teal-dark); }
+.ai-shell-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  background: #f6f8f3; border: 1px solid #e9ece4; border-radius: 9px;
+  font-size: 12px; color: var(--ink-dim); flex-wrap: wrap;
+}
+.ai-hint { font-size: 11.5px; color: var(--muted); line-height: 1.7; padding: 0 2px; }
+.ai-hint b { color: var(--teal-dark); font-weight: 600; }
 .ai-scroll { flex: 1; overflow-y: auto; scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
 .ai-scroll::-webkit-scrollbar { width: 8px; }
 .ai-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
@@ -1654,23 +1694,32 @@ function renderAi() {
         <select id="aiPersona" class="ai-chip-btn" title="切换装配女仆">
           ${personaOpts.map(([id, label]) => `<option value="${id}"${id === curPersona ? ' selected' : ''}>${label}</option>`).join('')}
         </select>
-        <button class="ai-chip-btn" id="aiSettingsBtn">⚙️ 连接设置</button>
+        <button class="ai-chip-btn${aiSettingsOpen ? ' active' : ''}" id="aiSettingsBtn">⚙ 模型</button>
         <span class="ai-turn-badge" id="aiTurnBadge">${aiSession ? `第 ${aiMessages.filter((m) => m.role === 'user').length} 轮` : ''}</span>
         <button class="ai-chip-btn" id="aiNewSessionBtn" ${aiRunning || aiMessages.length === 0 ? 'disabled' : ''}>↺ 新会话</button>
       </div>
       <div class="ai-settings" id="aiSettings" style="display:${aiSettingsOpen ? 'grid' : 'none'}">
         <div class="ai-settings-panel">
+          <div class="ai-cfg-title"><span class="k">⚙</span>模型配置<span class="ai-cfg-note">Key 仅本次会话内存 · 留空 = 本地模拟</span></div>
           <div class="row">
             <label class="ai-label">服务商</label>
-            <select id="aiProvider" class="req-box" style="min-height:auto;width:auto;flex:0 1 240px">
-              ${Object.keys(AI_PRESETS).map((pid) => `<option value="${pid}"${pid === aiProviderSel ? ' selected' : ''}>${({ deepseek: 'DeepSeek', opencode: 'OpenCode', openrouter: 'OpenRouter', siliconflow: '硅基流动', moonshot: 'Moonshot（Kimi）', zhipu: '智谱 GLM', minimax: 'MiniMax', custom: '自定义（OpenAI 兼容）' }[pid] || pid)}</option>`).join('')}
-            </select>
-            <input type="password" class="req-box" id="aiKeyInput" style="min-height:auto;flex:1 1 200px" placeholder="API Key（留空=本地模拟；仅本次会话内存，不持久化）" autocomplete="off" spellcheck="false" value="${esc(aiKeyMem)}">
+            <div class="ctl-line">
+              <select id="aiProvider" class="ai-ctl" style="flex:0 1 190px">
+                ${Object.keys(AI_PRESETS).map((pid) => `<option value="${pid}"${pid === aiProviderSel ? ' selected' : ''}>${({ deepseek: 'DeepSeek', opencode: 'OpenCode', openrouter: 'OpenRouter', siliconflow: '硅基流动', moonshot: 'Moonshot（Kimi）', zhipu: '智谱 GLM', minimax: 'MiniMax', custom: '自定义（OpenAI 兼容）' }[pid] || pid)}</option>`).join('')}
+              </select>
+              <input type="text" class="ai-ctl" id="aiModelInput" style="flex:1 1 200px;min-width:130px" placeholder="模型名，如 deepseek-chat / deepseek-v4-flash" spellcheck="false" value="${esc(aiModelMem)}">
+              <button class="ai-ctl-btn" id="aiTestBtn" title="用当前配置发起一次最小请求验证">测试连接</button>
+            </div>
           </div>
           <div class="row">
-            <input type="text" class="req-box" id="aiBaseUrlInput" style="min-height:auto;flex:1 1 260px" placeholder="Base URL（OpenAI 兼容，如 https://api.deepseek.com）" spellcheck="false" value="${esc(aiBaseUrlMem)}">
-            <input type="text" class="req-box" id="aiModelInput" style="min-height:auto;flex:1 1 220px" placeholder="模型名（如 deepseek-chat / deepseek-v4-flash / kimi-k3）" spellcheck="false" value="${esc(aiModelMem)}">
+            <label class="ai-label">API Key</label>
+            <div class="ctl-line">
+              <input type="password" class="ai-ctl" id="aiKeyInput" style="flex:1 1 300px" placeholder="API Key（留空 = 本地模拟；仅本次会话内存，不持久化）" autocomplete="off" spellcheck="false" value="${esc(aiKeyMem)}">
+              <input type="text" class="ai-ctl" id="aiBaseUrlInput" style="flex:1 1 300px" placeholder="Base URL（OpenAI 兼容，如 https://api.deepseek.com/v1）" spellcheck="false" value="${esc(aiBaseUrlMem)}">
+            </div>
           </div>
+          <div class="ai-hint">预设端点已实测校正：<b>OpenCode</b> = OpenCode Go（需 Go credits 的 Key，模型名不带前缀）；<b>自定义</b> 需自行填写 https:// Base URL。切换服务商自动填充端点；不确定时先点「测试连接」。</div>
+          <div id="aiShellRow" style="display:none"></div>
         </div>
       </div>
       <div class="ai-scroll" id="aiScroll">
@@ -1758,6 +1807,8 @@ function renderAi() {
   syncMem('aiKeyInput', 'aiKeyMem');
   syncMem('aiBaseUrlInput', 'aiBaseUrlMem');
   syncMem('aiModelInput', 'aiModelMem');
+  const tb = $('aiTestBtn');
+  if (tb) tb.addEventListener('click', aiTestConnection);
   const inp = $('reqInput');
   inp.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1782,6 +1833,49 @@ function refreshConnNote() {
   const n = $('aiConnNote');
   if (n) n.textContent = connNote();
 }
+
+/** 连接测试：standalone 直接 fetch 最小请求；EXE 经外壳 aiTest 消息（结果由 __aiTestResult 回传）。 */
+async function aiTestConnection() {
+  const preset = AI_PRESETS[aiProviderSel] || AI_PRESETS.deepseek;
+  const baseURL = aiBaseUrlMem.trim() || preset.baseURL;
+  const model = aiModelMem.trim() || preset.model;
+  const apiKey = aiKeyMem.trim();
+  const btn = $('aiTestBtn');
+  if (btn) btn.disabled = true;
+  if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.postMessage('aiTest:' + JSON.stringify({ model }));
+    return; // 结果经 __aiTestResult 回传（外壳侧给出 Key/URL 的准确诊断）
+  }
+  if (!apiKey) { toast('未填写 API Key：无法测试（本地模拟不需要端点）'); if (btn) btn.disabled = false; return; }
+  if (!/^https:\/\//i.test(baseURL)) { toast('Base URL 必须以 https:// 开头（TLS 铁律）'); if (btn) btn.disabled = false; return; }
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    let res;
+    try {
+      res = await fetch(baseURL.replace(/\/+$/, '') + '/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+        body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 8, temperature: 0 }),
+        signal: ctrl.signal
+      });
+    } finally { clearTimeout(timer); }
+    if (res.ok) toast('✓ 连接成功：' + model);
+    else {
+      const t = (await res.text()).slice(0, 160).replace(apiKey, '***');
+      toast('连接失败 HTTP ' + res.status + '：' + t);
+    }
+  } catch (e) {
+    toast('连接失败：' + String((e && e.message) || e));
+  }
+  if (btn) btn.disabled = false;
+}
+/** EXE 外壳测试结果回传（true=成功）。 */
+window.__aiTestResult = (ok, msg) => {
+  const btn = $('aiTestBtn');
+  if (btn) btn.disabled = false;
+  toast(ok ? ('✓ 连接成功' + (msg ? '：' + msg : '')) : ('连接失败：' + (msg || '请检查配置')));
+};
 
 /** 消息气泡 + 产物卡片 HTML（头像按每条消息的发信人设渲染：历史消息不随当前人设漂移）。 */
 function msgHtml(m, persona) {

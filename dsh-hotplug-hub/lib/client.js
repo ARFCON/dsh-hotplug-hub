@@ -294,6 +294,7 @@ window.__ModuleLoader__.load({
 			const [aiMessages, setAiMessages] = useState([]); // {role: 'user'|'assistant', text, pack?, diff?, error?}
 			const [aiPack, setAiPack] = useState(null); // {name, tags, pack, readme, diff}
 			const [aiSettingsOpen, setAiSettingsOpen] = useState(false); // 连接设置折叠面板
+			const [aiTesting, setAiTesting] = useState(false); // 「测试连接」进行中
 			const [aiTyping, setAiTyping] = useState(false); // 打字指示器
 			const [aiRunning, setAiRunning] = useState(false);
 			const fileRef = useRef(null);
@@ -499,6 +500,30 @@ window.__ModuleLoader__.load({
 						setAiMessages((prev) => [...prev, { role: "assistant", text: t("aiFail") + msg, persona: aiPersona, pack: null, diff: null, error: true }]);
 					})
 					.finally(() => { setAiTyping(false); setAiRunning(false); });
+			};
+			const doAiTest = () => {
+				if (aiTesting) return;
+				const preset = AI_PROVIDER_OPTIONS.find((p) => p.id === aiProvider);
+				const baseURL = (aiBaseURL.trim() || (preset && preset.baseURL) || "").trim();
+				const model = (aiModel.trim() || (preset && preset.model) || "").trim();
+				const key = aiKey.trim();
+				if (!key) { say("warn", "未填写 API Key：无法测试（留空走服务端环境变量）"); return; }
+				if (!/^https:\/\//i.test(baseURL)) { say("warn", "Base URL 必须以 https:// 开头（TLS 铁律）"); return; }
+				setAiTesting(true);
+				fetch(baseURL.replace(/\/+$/, "") + "/chat/completions", {
+					method: "POST",
+					headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+					body: JSON.stringify({ model, messages: [{ role: "user", content: "ping" }], max_tokens: 8, temperature: 0 })
+				})
+					.then(async (res) => {
+						if (res.ok) say("ok", "✓ 连接成功：" + model);
+						else {
+							const t = await res.text().catch(() => "");
+							say("error", "连接失败 HTTP " + res.status + "：" + t.slice(0, 120));
+						}
+					})
+					.catch((e) => say("error", "连接失败：" + String((e && e.message) || e)))
+					.finally(() => setAiTesting(false));
 			};
 			const doAiNewSession = () => {
 				if (aiMessages.length === 0 && !aiSessionId) return;
@@ -763,26 +788,29 @@ window.__ModuleLoader__.load({
 					h("select", { className: "hp_input", style: { width: "auto" }, value: aiPersona, title: "切换装配女仆", onChange: (e) => setAiPersona(e.target.value) },
 						AI_PERSONA_OPTIONS.map(([id, label]) => h("option", { key: id, value: id }, label))
 					),
-					h("button", { className: "hp_btn", onClick: () => setAiSettingsOpen(!aiSettingsOpen) }, "⚙️ " + t("aiSettings")),
+					h("button", { className: "hp_btn", onClick: () => setAiSettingsOpen(!aiSettingsOpen) }, "⚙ 模型"),
 					h("span", { className: "hp_aiTurn" }, aiSessionId ? t("aiTurn") + String(Math.max(1, aiMessages.filter((m) => m.role === "user").length)) + t("aiTurnEnd") : ""),
 					h("button", { className: "hp_btn", disabled: busy || (aiMessages.length === 0 && !aiSessionId), onClick: doAiNewSession }, t("aiNewSession"))
 				),
 				aiSettingsOpen ? h("div", { className: "hp_settings" },
 					h("div", { className: "hp_aiKeyRow" },
 						h("label", null, t("aiProviderLabel")),
-						h("select", { className: "hp_input", value: aiProvider, onChange: (e) => {
+						h("select", { className: "hp_input", style: { flex: "0 1 200px" }, value: aiProvider, onChange: (e) => {
 							const preset = AI_PROVIDER_OPTIONS.find((p) => p.id === e.target.value);
 							setAiProvider(e.target.value);
 							if (preset) { setAiBaseURL(preset.baseURL); setAiModel(preset.model); }
 						} },
 							AI_PROVIDER_OPTIONS.map((p) => h("option", { key: p.id, value: p.id }, p.label))
-						)
+						),
+						h("input", { className: "hp_input", style: { flex: 1 }, placeholder: t("aiModelPlaceholder"), value: aiModel, onChange: (e) => setAiModel(e.target.value), spellCheck: false }),
+						h("button", { className: "hp_btn", disabled: aiTesting, onClick: doAiTest }, aiTesting ? "测试中…" : "测试连接")
 					),
 					h("div", { className: "hp_aiKeyRow" },
+						h("label", null, "Key"),
 						h("input", { type: "password", className: "hp_input", style: { flex: 1 }, placeholder: t("aiKeyPlaceholder"), value: aiKey, onChange: (e) => setAiKey(e.target.value), autoComplete: "off", spellCheck: false }),
-						h("input", { className: "hp_input", style: { flex: 1 }, placeholder: t("aiBaseUrlPlaceholder"), value: aiBaseURL, onChange: (e) => setAiBaseURL(e.target.value), spellCheck: false }),
-						h("input", { className: "hp_input", style: { flex: 1 }, placeholder: t("aiModelPlaceholder"), value: aiModel, onChange: (e) => setAiModel(e.target.value), spellCheck: false })
+						h("input", { className: "hp_input", style: { flex: 1 }, placeholder: t("aiBaseUrlPlaceholder"), value: aiBaseURL, onChange: (e) => setAiBaseURL(e.target.value), spellCheck: false })
 					),
+					h("p", { className: "hp_info" }, "预设端点已实测校正：OpenCode = OpenCode Go（需 Go credits Key）；自定义需自填 https:// Base URL。"),
 					h("p", { className: "hp_info" }, t("aiKeyHint")),
 					h("p", { className: "hp_info" }, t("aiPersonaHint"))
 				) : null,

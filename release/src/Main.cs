@@ -44,7 +44,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.10.8";
+        private const string APP_VERSION = "0.10.9";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_VERSION = "0.8.1-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
         // GitHub API 结果的会话级缓存：避免每次插件列表刷新都同步打 API、离线时反复等 15s 超时
@@ -335,6 +335,10 @@ namespace DSHHotplugHub
                         else if (message != null && message.StartsWith("ai:"))
                         {
                             await HandleAiRequestAsync(message.Substring(3));
+                        }
+                        else if (message != null && message.StartsWith("aiTest:"))
+                        {
+                            await HandleAiTestAsync(message.Substring("aiTest:".Length));
                         }
                     }
                     catch
@@ -1589,19 +1593,30 @@ namespace DSHHotplugHub
             string js =
                 "window.__apiConfig=" + configJson + ";" +
                 "(function(){var cfg=window.__apiConfig||{};" +
-                // 精致入口：顶栏「⚙ 模型」徽标按钮（点击打开 DSH API 配置对话框）；
-                // 不再注入「当前模型」横条与「模型:」下拉——模型名只由状态行体现（去重复）
+                // 入口合并：不再注入顶栏「⚙ 模型」按钮（页面面板即唯一入口）；
+                // EXE 模式仅在设置面板内注入「外壳配置」行（Key 由外壳提供，避免重复配置）
                 "var ensure=function(){" +
-                "var btn=document.getElementById('aiSettingsBtn');" +
-                "if(!btn||document.getElementById('aiApiCfg'))return;" +
-                "var b=document.createElement('button');b.id='aiApiCfg';b.type='button';b.className='ai-chip-btn';" +
-                "b.title='DSH API 配置（模型 / Key）';b.textContent='⚙ 模型';" +
-                "b.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('openApiConfig');}};" +
-                "btn.parentNode.insertBefore(b,btn);" +
+                "var shellRow=document.getElementById('aiShellRow');" +
+                "if(shellRow&&shellRow.children.length===0){" +
+                "var ok=!!(cfg&&cfg.apiKey);" +
+                "var ks=document.createElement('span');ks.textContent=ok?'API Key：DSH 外壳已提供':'API Key：DSH 外壳未配置';" +
+                "ks.style.fontWeight=ok?'600':'400';" +
+                "var ob=document.createElement('button');ob.type='button';ob.className='ai-ctl-btn';ob.textContent='打开外壳配置';" +
+                "ob.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('openApiConfig');}};" +
+                "shellRow.appendChild(ks);shellRow.appendChild(ob);" +
+                "shellRow.style.display='flex';" +
+                "}" +
+                "var ki=document.getElementById('aiKeyInput');" +
+                "if(ki){ki.disabled=true;ki.value='';ki.placeholder='DSH 外壳提供 Key（点击「打开外壳配置」修改）';}" +
+                "var mi=document.getElementById('aiModelInput');" +
+                "var bi=document.getElementById('aiBaseUrlInput');" +
+                "if(mi&&cfg&&cfg.defaultModel&&!mi.value){mi.value=cfg.defaultModel;}" +
+                "if(bi&&cfg&&cfg.baseUrl&&!bi.value){bi.value=cfg.baseUrl;}" +
                 "var note=document.getElementById('aiConnNote');" +
-                "if(note&&cfg.defaultModel){note.textContent='当前模型：'+cfg.defaultModel+'（DSH API）';}" +
+                "if(note){var m0=(mi&&mi.value)||(cfg&&cfg.defaultModel)||'?';note.textContent='当前模型：'+m0+'（DSH API）';}" +
                 "};" +
                 "var origRenderAi=renderAi;renderAi=function(){origRenderAi();ensure();};" +
+                "var origRefresh=refreshConnNote;refreshConnNote=function(){var mi2=document.getElementById('aiModelInput');var n2=document.getElementById('aiConnNote');if(n2){n2.textContent='当前模型：'+((mi2&&mi2.value)||(cfg&&cfg.defaultModel)||'?')+'（DSH API）';}};" +
                 "if(document.readyState!=='loading'){ensure();}" +
                 "var hasCfg=!!(cfg&&cfg.apiKey&&cfg.baseUrl&&cfg.defaultModel);" +
                 "var origCompose=compose;" +
@@ -1610,7 +1625,7 @@ namespace DSHHotplugHub
                 "var text=(input.value||'').trim();if(!text)return;" +
                 "if(typeof aiRunning!=='undefined'&&aiRunning)return;" +
                 "var personaSel=document.getElementById('aiPersona');var persona=personaSel?personaSel.value:'maid';" +
-                "var model=(cfg&&cfg.defaultModel)||'deepseek-chat';" +
+                "var mi3=document.getElementById('aiModelInput');var model=(mi3&&mi3.value&&mi3.value.trim())||(cfg&&cfg.defaultModel)||'deepseek-chat';" +
                 "var isFirst=(!aiSession||aiSession.messages.length===0||!aiSession.pack);" +
                 "if(typeof beginTurn!=='function'){origCompose();return;}" +   // 页面组件未就绪：回退原路径
                 "beginTurn(text,persona);" +
@@ -1698,6 +1713,27 @@ namespace DSHHotplugHub
             {
                 await ExecuteScriptSafe("window.__onAiError(" + JsString(errorMsg) + ");");
             }
+        }
+
+        private async Task HandleAiTestAsync(string payload)
+        {
+            string model = "";
+            try
+            {
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> req = ser.Deserialize<Dictionary<string, object>>(payload);
+                if (req != null && req.ContainsKey("model")) model = Convert.ToString(req["model"]);
+            }
+            catch { /* 模型名缺失时用外壳默认 */ }
+            ApiConfig cfg = LoadApiConfig();
+            if (string.IsNullOrEmpty(model)) model = cfg.defaultModel;
+            string error;
+            bool ok = false;
+            if (string.IsNullOrEmpty(cfg.baseUrl)) { error = "未配置 Base URL"; }
+            else if (string.IsNullOrEmpty(cfg.apiKey)) { error = "DSH 外壳未配置 API Key（点击「打开外壳配置」填写）"; }
+            else if (!cfg.baseUrl.StartsWith("https://")) { error = "Base URL 必须以 https:// 开头（TLS 铁律）"; }
+            else { ok = TestApiConnection(cfg, model, out error); }
+            await ExecuteScriptSafe("window.__aiTestResult(" + (ok ? "true" : "false") + "," + JsString(error) + ");");
         }
 
         private async Task ExecuteScriptSafe(string script)
@@ -3064,11 +3100,16 @@ namespace DSHHotplugHub
         }
         private static bool TestApiConnection(ApiConfig cfg, out string error)
         {
+            return TestApiConnection(cfg, cfg.defaultModel, out error);
+        }
+
+        private static bool TestApiConnection(ApiConfig cfg, string model, out string error)
+        {
             error = "";
             try
             {
                 string endpoint = (cfg.baseUrl.TrimEnd('/')) + "/chat/completions";
-                string body = "{\"model\":" + JsString(cfg.defaultModel) +
+                string body = "{\"model\":" + JsString(string.IsNullOrEmpty(model) ? cfg.defaultModel : model) +
                     ",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":1}";
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(endpoint);
                 request.Method = "POST";

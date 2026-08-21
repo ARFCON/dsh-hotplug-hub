@@ -107,6 +107,25 @@ try {
   const page = await newPage()
   await gotoAi(page)
   await page.evaluate(injectWith(mockCfg))
+  // 面板（EXE 模式）：外壳行注入 / Key 输入禁用 / 模型端点填充自外壳配置
+  await page.click('#aiSettingsBtn')
+  await new Promise((r) => setTimeout(r, 300))
+  check('EXE 模式外壳行注入（Key 由 DSH 外壳提供）', await page.evaluate(() => {
+    const sr = document.getElementById('aiShellRow')
+    return !!sr && sr.style.display === 'flex' && sr.textContent.includes('外壳已提供') && !!sr.querySelector('button')
+  }))
+  check('EXE 模式 Key 输入禁用（防误配）', await page.$eval('#aiKeyInput', (el) => el.disabled))
+  check('EXE 模式面板模型/端点填充自外壳配置', await page.evaluate(() => {
+    const mi = document.getElementById('aiModelInput')
+    const bi = document.getElementById('aiBaseUrlInput')
+    return !!mi && mi.value === 'deepseek-chat' && !!bi && bi.value === 'https://api.deepseek.com/v1'
+  }))
+  await page.click('#aiTestBtn')
+  await new Promise((r) => setTimeout(r, 300))
+  const testMsg = await page.evaluate(() => window.__capturedAi.find((m) => m.startsWith('aiTest:')) || '')
+  check('测试连接经外壳消息（aiTest:）', testMsg.startsWith('aiTest:'), testMsg.slice(0, 44))
+  await page.click('#aiSettingsBtn')
+  await new Promise((r) => setTimeout(r, 200))
   await send(page, '帮我校对 Word 文档')
   check('用户气泡出现', await page.$eval('#aiCol', (el) => el.textContent.includes('帮我校对 Word 文档')))
   check('打字指示器出现', await page.$('#aiTyping') !== null)
@@ -114,7 +133,7 @@ try {
   check('新会话按钮运行中禁用', await page.$eval('#aiNewSessionBtn', (el) => el.disabled))
   check('欢迎卡已移除（EXE 首发送不残留）', await page.$('.ai-welcome') === null)
   check('输入框已清空', await page.$eval('#reqInput', (el) => el.value) === '')
-  const cap1 = JSON.parse((await page.evaluate(() => window.__capturedAi[0] || '')).slice(3))
+  const cap1 = JSON.parse((await page.evaluate(() => window.__capturedAi.filter((m) => m.startsWith('ai:'))[0] || '')).slice(3))
   check('请求含 text/model/persona', cap1.text === '帮我校对 Word 文档' && cap1.model === 'deepseek-chat' && cap1.persona === 'maid', JSON.stringify({ text: cap1.text, model: cap1.model }))
   check('请求含组装模式 system', (cap1.system || '').includes('组装模式'), (cap1.system || '').slice(0, 24))
   check('首轮 history 为空', Array.isArray(cap1.history) && cap1.history.length === 0, JSON.stringify(cap1.history))
@@ -129,8 +148,15 @@ try {
   check('祝贺语为人设化（主人…请过目～）', (await page.$eval('#aiCol .ai-msg.assistant .ai-bubble', (el) => el.textContent)).includes('请过目～'))
 
   console.log('== B. 二轮 EXE 渠道：多轮上下文 + 差异 + per-card 数据 ==')
+  // 面板改模型 → 发送应使用面板值（模型由面板优先，外壳 defaultModel 兜底）
+  await page.evaluate(() => {
+    const mi = document.getElementById('aiModelInput')
+    mi.value = 'kimi-k3'
+    mi.dispatchEvent(new Event('input', { bubbles: true }))
+  })
   await send(page, '把 format-md 换成 prettier')
-  const cap2 = JSON.parse((await page.evaluate(() => window.__capturedAi[1] || '')).slice(3))
+  const cap2 = JSON.parse((await page.evaluate(() => window.__capturedAi.filter((m) => m.startsWith('ai:'))[1] || '')).slice(3))
+  check('二轮请求使用面板模型（面板优先）', cap2.model === 'kimi-k3', cap2.model)
   check('二轮 history 含完整上下文（≥2 条）', Array.isArray(cap2.history) && cap2.history.length >= 2, `len=${(cap2.history || []).length}`)
   check('二轮 pack 携带当前清单', cap2.pack && cap2.pack.hotpack === '1.0' && cap2.pack.id === 'pack.ai.demo', JSON.stringify(cap2.pack && cap2.pack.id))
   check('二轮 system 为对话模式', (cap2.system || '').includes('对话模式'))
