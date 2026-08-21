@@ -38,10 +38,22 @@ if (oldVersion !== newVersion) {
 // 行尾归一化：Windows autocrlf 检出会把工作区文本改为 CRLF，直接 pack 会把 CRLF 打进
 // tgz，导致 Linux CI 解包比对失败（字节不一致）。先在临时副本把所有文本文件归一化为
 // LF 再打包——tgz 恒为 LF，check-embedded-tgz.mjs 双侧归一化比对，跨平台稳定。
+// 无扩展名文本（LICENSE 等）同样归一化（与 check-embedded-tgz.mjs 的 isTextFile 口径一致）。
 const TEXT_EXT = new Set(['.js', '.mjs', '.cjs', '.md', '.json', '.yml', '.yaml', '.txt', '.ps1', '.cs'])
+function isTextFile(buf, name) {
+  const dot = name.lastIndexOf('.')
+  const ext = dot >= 0 ? name.slice(dot) : ''
+  if (TEXT_EXT.has(ext)) return true
+  if (ext === '') {
+    for (let i = 0; i < buf.length; i += 1) {
+      if (buf[i] === 0) return false
+    }
+    return true
+  }
+  return false
+}
 function normalizeCrlf(buf, name) {
-  const ext = name.slice(name.lastIndexOf('.'))
-  if (!TEXT_EXT.has(ext)) return buf
+  if (!isTextFile(buf, name)) return buf
   const text = buf.toString('utf8')
   return text.includes('\r\n') ? Buffer.from(text.replace(/\r\n/g, '\n'), 'utf8') : buf
 }

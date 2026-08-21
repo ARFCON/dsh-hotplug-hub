@@ -1,4 +1,4 @@
-﻿# 重新编译 DSH-Hotplug-Hub.exe（WinForms + WebView2 桌面版）
+# 重新编译 DSH-Hotplug-Hub.exe（WinForms + WebView2 桌面版）
 # 用法: pwsh -File build-exe.ps1
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -7,7 +7,7 @@ $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $csc)) { throw "找不到 csc.exe: $csc" }
 
 $protoHtml = Join-Path $root '..\dsh-hotplug-hub\dsh-pack-hub\prototype.html'
-$embeddedSkillmcpTgz = Join-Path $root 'embedded/dseam-skillmcp-0.8.0-pre.tgz'
+$embeddedSkillmcpTgz = Join-Path $root 'embedded/dseam-skillmcp-0.8.1-pre.tgz'
 $main = Join-Path $srcDir 'Main.cs'
 $out = Join-Path $root 'DSH-Hotplug-Hub.exe'
 

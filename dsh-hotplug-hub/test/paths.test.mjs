@@ -1,6 +1,6 @@
 // test/paths.test.mjs — 路径与常量（env 驱动）
 import { describe, it, expect, afterEach, beforeEach } from 'vitest'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import {
@@ -28,8 +28,10 @@ describe('lib/core/paths', () => {
     expect(MARKET_CACHE_FILE()).toBe(join(hotplugRoot(), 'market-cache.json'))
   })
 
-  it('DSH_HOME 尾部斜杠归一化', () => {
-    process.env.DSH_HOME = dshHome + '\\\\'
+  it('DSH_HOME 尾部斜杠归一化（path.resolve 语义：双分隔符压平）', () => {
+    // 平台正确：Windows 用反斜杠（此前写死 '\\\\' 在 Linux 上是文件名合法字符，
+    // path.resolve 不归一化 → CI 失败）；统一用 path.sep 双分隔符。
+    process.env.DSH_HOME = dshHome + sep + sep
     expect(homeDir()).toBe(dshHome)
   })
 

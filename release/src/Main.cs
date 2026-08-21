@@ -46,7 +46,7 @@ namespace DSHHotplugHub
         private readonly WebView2 webView = new WebView2();
         private const string APP_VERSION = "0.9.7";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
-        private const string PANEL_VERSION = "0.8.0-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
+        private const string PANEL_VERSION = "0.8.1-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
         // GitHub API 结果的会话级缓存：避免每次插件列表刷新都同步打 API、离线时反复等 15s 超时
         private static readonly Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>> _githubCache =
             new Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>>();

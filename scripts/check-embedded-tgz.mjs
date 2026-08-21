@@ -29,10 +29,25 @@ if (!filesField.includes('package.json')) filesField.push('package.json')
 
 // 文本文件归一化比对（Windows autocrlf 检出 → CRLF；tgz 恒为 LF）：双侧转 LF 后哈希，
 // 跨平台稳定；二进制（png 等）原样比对。
+// 无扩展名文本（LICENSE/COPYING/NOTICE/README…）同样归一化：无 NUL 字节即可解码为
+// UTF-8 即视为文本——LICENSE 无扩展名，此前被跳过导致 Windows 打包的 CRLF 版
+// LICENSE 与 Linux CI 检出的 LF 版不一致（CI 红根因之一）。
 const TEXT_EXT = new Set(['.js', '.mjs', '.cjs', '.md', '.json', '.yml', '.yaml', '.txt', '.ps1', '.cs'])
+function isTextFile(buf, name) {
+  const dot = name.lastIndexOf('.')
+  const ext = dot >= 0 ? name.slice(dot) : ''
+  if (TEXT_EXT.has(ext)) return true
+  if (ext === '') {
+    // 无扩展名：无 NUL 字节 → 视为文本（tgz 发布集内无扩展名文件均为 LICENSE 类）
+    for (let i = 0; i < buf.length; i += 1) {
+      if (buf[i] === 0) return false
+    }
+    return true
+  }
+  return false
+}
 function normalized(buf, name) {
-  const ext = name.slice(name.lastIndexOf('.'))
-  if (!TEXT_EXT.has(ext)) return buf
+  if (!isTextFile(buf, name)) return buf
   const text = buf.toString('utf8')
   return text.includes('\r\n') ? Buffer.from(text.replace(/\r\n/g, '\n'), 'utf8') : buf
 }

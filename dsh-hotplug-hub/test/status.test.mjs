@@ -1,7 +1,7 @@
 // test/status.test.mjs — statusSync / previewPack / checkAsync（假 pnpm 走真实 spawn）
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join } from 'node:path'
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs'
 import { statusSync, importPackSync, previewPack, checkAsync } from '../lib/core/status.js'
 import { applyIsolatedEnv, isolatedDsh, samplePack } from './helpers.mjs'
 
@@ -16,7 +16,8 @@ afterEach(() => { if (restoreEnv) restoreEnv(); if (iso) iso.cleanup() })
 
 /** 在隔离 PATH 放置假 pnpm：pnpm.exe = node.exe 副本（spawn 免 shell 可解析）。
  * 说明：Windows 下 spawn 无法直接启动 .cmd（EINVAL/ENOENT），DSH 运行时内置
- * pnpm.exe 独立可执行文件——测试用 node 副本模拟该形态。 */
+ * pnpm.exe 独立可执行文件——测试用 node 副本模拟该形态。
+ * POSIX：sh 包装必须可执行位（writeFileSync 默认 0644 → spawn EACCES，CI 红根因）。 */
 function fakePnpm() {
   const exe = process.platform === 'win32' ? join(iso.dshHome, 'pnpm.exe') : join(iso.dshHome, 'pnpm')
   if (process.platform === 'win32') {
@@ -24,6 +25,7 @@ function fakePnpm() {
   } else {
     // POSIX：sh 包装（node 不可复制为可执行脚本名，用 sh 脚本 exec node）
     writeFileSync(exe, `#!/bin/sh\nnode -e "console.log('v9.99.9')"\n`)
+    chmodSync(exe, 0o755)
   }
 }
 
