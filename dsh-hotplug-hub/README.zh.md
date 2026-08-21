@@ -66,7 +66,8 @@ dsh plugin --profile desktop add "link:$HOME/.dsh/plugin-src/dsh-hotplug-hub"
 | `deactivate` | — | 卸载当前激活包（保留 store 缓存） |
 | `removePack` | `packId` | 移除未激活的包记录 |
 | `check` | — | 自检：Node/pnpm 版本、profile 状态、patch 状态、插件冲突矩阵、包数/store 数 |
-| `marketList` | `params` | 插件包市场：按标签搜索 GitHub 项目（`topic` 默认 `dsh-plugin`，`sources` 可选来源数组如 `['github','ghfast.top',...]`（默认官方+全部镜像），`page` 分页，`refresh` 强制重抓），返回条目含 star/作者/许可/介绍（README 首段）/安装方法（README 安装节）/生成好的 hotpack manifest |
+| `marketList` | `params` | 插件包市场：按标签搜索 GitHub 项目（`topic` 默认 `dsh-plugin`，`sources` 可选来源数组如 `['github','ghfast.top',...]`（默认官方+全部镜像），`page` 分页，`refresh` 强制重抓），只返回列表元数据（star/作者/许可/简介/仓库），`detailPending: true` 表示待补详情 |
+| `marketDetail` | `params` | 插件包市场渐进式详情：`{repo, ref, sources, meta}` 单仓库抓取（README 提取介绍与安装方法 + package.json 取 name/version + hotpack/.dshpack 清单生成 manifest），独立缓存 `market-detail-cache.json`，客户端并发调用后逐卡替换 |
 
 ## 热插拔包格式（hotpack v1）
 
@@ -113,9 +114,9 @@ dsh plugin --profile desktop add "link:$HOME/.dsh/plugin-src/dsh-hotplug-hub"
 dsh-hotplug-hub/
   package.json          # 插件配置（ESM, peerDeps cordis + typert-protocol）
   lib/
-    index.js            # host 插件：HotplugGateway + 7 个 Remote 方法 + hotpack 解析 + 挂载/卸载
+    index.js            # host 插件：HotplugGateway + 9 个 Remote 方法 + hotpack 解析 + 挂载/卸载
     client.js           # client UI：5 子页签设置页（settings.section slot）
-    typert.js           # TYPERT manifest：7 个 invocation 定义
+    typert.js           # TYPERT manifest：9 个 invocation 定义
   docs/
     hotpack-format.zh.md  # hotpack v1 格式规范
   examples/
