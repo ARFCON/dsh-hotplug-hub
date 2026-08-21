@@ -97,6 +97,8 @@ window.__ModuleLoader__.load({
 			marketNote: "数据来源：GitHub 标签搜索（官方 API + 多镜像站全并发测速取最快），README 对比提取介绍与安装方法",
 			aiTitle: "AI 组装器",
 			aiPlaceholder: "描述你的工作场景和需要的插件能力",
+			aiKeyPlaceholder: "DeepSeek API Key（可留空，走服务端 DSH_DEEPSEEK_API_KEY 环境变量）",
+			aiKeyHint: "Key 仅本次会话内存使用，不持久化、不上传日志；建议通过中枢进程环境变量 DSH_DEEPSEEK_API_KEY 配置。",
 			aiCompose: "开始组装",
 			aiComposing: "组装中…",
 			aiLog: "执行日志",
@@ -108,6 +110,9 @@ window.__ModuleLoader__.load({
 			aiExport: "导出到剪贴板",
 			aiImport: "一键导入",
 			aiDone: "已生成：",
+			aiFail: "AI 组装失败：",
+			aiBadProduct: "AI 产物校验未通过（缺少插件清单）",
+			aiNoGateway: "当前中枢不支持 aiAssemble（需较新版本中枢）",
 			aiSamples: ["我要搭一套科研出论文的工作流", "帮我组一个视频剪辑加字幕的包", "考研背单词、刷真题、导闪卡"],
 			memTitle: "记忆中枢",
 			memIntro: "全局记忆包，与 profile 解耦。切换包不影响记忆。",
@@ -161,7 +166,8 @@ window.__ModuleLoader__.load({
 				descriptor("removePack", ["packId"]),
 				descriptor("check", []),
 				descriptor("marketList", ["params"]),
-				descriptor("marketDetail", ["params"])
+				descriptor("marketDetail", ["params"]),
+				descriptor("aiAssemble", ["params"])
 			]
 		};
 		function unwrap(result) {
@@ -182,22 +188,6 @@ window.__ModuleLoader__.load({
 			{ id: "pack-fullstack", name: "全栈开发插座包", tags: ["开发", "全栈", "DevOps"], desc: "脚手架、代码评审、测试和安全检查", plugins: 4, accent: "#5b5488" },
 			{ id: "pack-notes", name: "知识管理插座包", tags: ["笔记", "知识库", "整理"], desc: "网页收藏、笔记整理、书摘提取与双链", plugins: 3, accent: "#237a57" }
 		];
-		const AI_KEYWORD_MAP = [
-			["文献", "research"], ["论文", "research"], ["科研", "research"], ["引用", "research"], ["综述", "research"],
-			["视频", "video"], ["剪辑", "video"], ["字幕", "video"], ["分镜", "video"], ["封面", "video"],
-			["自媒体", "social"], ["选题", "social"], ["文案", "social"], ["热点", "social"],
-			["考研", "study"], ["背诵", "study"], ["闪卡", "study"], ["真题", "study"], ["语法", "study"],
-			["开发", "dev"], ["代码", "dev"], ["测试", "dev"], ["部署", "dev"], ["全栈", "dev"],
-			["笔记", "notes"], ["知识库", "notes"], ["书摘", "notes"], ["收藏", "notes"]
-		];
-		function keywordHits(text) {
-			const lower = text.toLowerCase();
-			const hits = [];
-			for (const [kw, id] of AI_KEYWORD_MAP) {
-				if (lower.includes(kw.toLowerCase())) hits.push(id);
-			}
-			return [...new Set(hits)];
-		}
 		function HotplugTab(props) {
 			const api = props.inject ?? {};
 			const t = (key) => (props.locale && props.locale(key)) || zh[key] || en[key] || key;
@@ -219,11 +209,11 @@ window.__ModuleLoader__.load({
 			const [marketPage, setMarketPage] = useState(1);
 			const [marketOpen, setMarketOpen] = useState(null);
 			const [aiInput, setAiInput] = useState("");
+			const [aiKey, setAiKey] = useState(""); // 仅内存，不持久化（key 安全）
 			const [aiRunning, setAiRunning] = useState(false);
 			const [aiLog, setAiLog] = useState([]);
 			const [aiResult, setAiResult] = useState(null);
 			const fileRef = useRef(null);
-			const aiTimerRef = useRef(null);
 			const say = (kind, text) => setNotice({ kind, text });
 			const load = async () => {
 				try {
@@ -234,7 +224,6 @@ window.__ModuleLoader__.load({
 				}
 			};
 			useEffect(() => { load(); }, []);
-			useEffect(() => () => { if (aiTimerRef.current) clearTimeout(aiTimerRef.current); }, []);
 			const run = async (label, task) => {
 				if (busy) { say("error", t("busy")); return; }
 				setBusy(true);
@@ -380,64 +369,48 @@ window.__ModuleLoader__.load({
 					}
 				});
 			};
+			// AI 组装（v5 阶段 5）：真实 DeepSeek 调用（网关 aiAssemble）。
+			// 产物已由服务端权威 parseHotpack 校验（plugins 非空等），此处仅兜底断言。
+			// key 安全：aiKey 仅内存 state（不持久化）；留空时服务端读 DSH_DEEPSEEK_API_KEY。
 			const doCompose = () => {
 				if (!aiInput.trim() || aiRunning) return;
 				setAiRunning(true);
 				setAiResult(null);
-				setAiLog([]);
-				const hits = keywordHits(aiInput);
-				const rootPacks = CATALOG.filter((p) => hits.includes(p.id.replace("pack-", "")));
-				const steps = [
-					["拆解需求", `场景关键词：${hits.join(", ") || "通用工具"}`],
-					["检索目录", `匹配 ${rootPacks.length} 个候选包`],
-					["筛选版本", "过滤精确稳定版本"],
-					["冲突消解", "处理重复插件"],
-					["生成文件", "输出 pack manifest + README"]
-				];
-				let stepIdx = 0;
-				const tick = () => {
-					if (stepIdx < steps.length) {
-						setAiLog((prev) => [...prev, { cls: "warn", text: `[${stepIdx + 1}/5] ${steps[stepIdx][0]}` }, { cls: "ok", text: "  " + steps[stepIdx][1] }]);
-						stepIdx++;
-						aiTimerRef.current = setTimeout(tick, 400);
-					} else {
-						const picked = rootPacks.length ? rootPacks : [CATALOG[0]];
-						const packId = "pack.ai." + Date.now().toString(36);
-						const manifest = {
-							hotpack: "1.0",
-							id: packId,
-							name: "AI 定制" + picked.map((p) => p.name.replace("插座包", "")).join("·") + "插座包",
-							version: "0.1.0",
-							description: "由 AI 组装器根据需求生成：" + aiInput,
-							tags: [...new Set(picked.flatMap((p) => p.tags))],
-							plugins: []
-						};
-						const readme = [
-							"# " + manifest.name,
-							"",
-							"由 DSH AI 组装器根据需求生成：" + aiInput,
-							"",
-							"## 候选包",
-							...picked.map((p) => "- " + p.name + "（" + p.plugins + " 插件）"),
-							"",
-							"## 安装",
-							"1. 在热插拔中枢导入本包。",
-							"2. 确认版本与冲突信息后激活。",
-							"3. 重启 DSH 生效。"
-						].join("\n");
-						setAiResult({ name: manifest.name, tags: manifest.tags, manifest, readme });
-						setAiLog((prev) => [...prev, { cls: "ok", text: "完成：pack + README 已就绪" }]);
-						setAiRunning(false);
+				setAiLog([{ cls: "warn", text: "[1/2] 调用 DeepSeek 组装器…" }]);
+				const finish = (r) => {
+					const pack = r && r.data && r.data.pack ? r.data.pack : (r ? r.pack : null);
+					const readme = r && r.data && r.data.readme ? r.data.readme : (r ? r.readme : "");
+					if (!pack || !Array.isArray(pack.plugins) || pack.plugins.length === 0) {
+						throw new Error(t("aiBadProduct"));
 					}
+					setAiResult({ name: pack.name, tags: pack.tags || [], pack, readme: readme || "" });
+					setAiLog((prev) => [...prev, { cls: "ok", text: `完成：${pack.name}（${pack.plugins.length} 个插件）` }]);
+					say("success", t("aiDone") + pack.name);
 				};
-				tick();
+				const task = () => {
+					if (typeof api.aiAssemble !== "function") return Promise.reject(new Error(t("aiNoGateway")));
+					return api.aiAssemble({ input: aiInput.trim(), apiKey: aiKey.trim() || undefined }).then(unwrap).then((r) => {
+						if (!r || r.ok === false) throw new Error(String((r && (r.message || r.error)) || t("aiFail")));
+						return r;
+					});
+				};
+				task()
+					.then(finish)
+					.catch((e) => {
+						setAiLog((prev) => [...prev, { cls: "err", text: "失败：" + String(e && e.message ? e.message : e) }]);
+						say("error", t("aiFail") + String(e && e.message ? e.message : e));
+					})
+					.finally(() => setAiRunning(false));
 			};
 			const doAiImport = () => {
 				if (!aiResult) return;
-				run("import", () => api.importPack(JSON.stringify(aiResult.manifest))).then((result) => {
+				run("import", () => api.importPack(JSON.stringify(aiResult.pack))).then((result) => {
 					if (result && result.ok) {
 						say("success", t("importDone") + aiResult.name);
 						setTab("hub");
+					} else {
+						// 修复：导入失败显式反馈（此前静默）
+						say("error", t("importFailed") + String((result && (result.message || result.error)) || ""));
 					}
 				});
 			};
@@ -624,6 +597,8 @@ window.__ModuleLoader__.load({
 				h("div", { className: "hp_card" },
 					h("div", { className: "hp_heading" }, h("h3", null, t("aiTitle"))),
 					h("textarea", { className: "hp_textarea", placeholder: t("aiPlaceholder"), value: aiInput, onChange: (e) => setAiInput(e.target.value), spellCheck: false }),
+					h("input", { type: "password", className: "hp_input", placeholder: t("aiKeyPlaceholder"), value: aiKey, onChange: (e) => setAiKey(e.target.value), autoComplete: "off", spellCheck: false }),
+					h("p", { className: "hp_info" }, t("aiKeyHint")),
 					h("div", { className: "hp_bar" },
 						t("aiSamples").map((sample) => h("button", { key: sample, className: "hp_chip", onClick: () => setAiInput(sample) }, sample))
 					),
@@ -638,11 +613,11 @@ window.__ModuleLoader__.load({
 					h("p", { className: "hp_info" }, t("aiDone") + aiResult.name),
 					h("div", { className: "hp_meta" }, aiResult.tags.map((tag) => h("span", { key: tag, className: "hp_tag" }, tag))),
 					h("div", { className: "hp_bar" },
-						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(aiResult.manifest, null, 2)); } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ } } }, t("aiCopyManifest")),
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(aiResult.pack, null, 2)); } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ } } }, t("aiCopyManifest")),
 						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(aiResult.readme); } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ } } }, t("aiCopyReadme")),
 						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: doAiImport }, t("aiImport"))
 					),
-					h("pre", { className: "hp_code", style: { whiteSpace: "pre-wrap", maxHeight: 200, overflow: "auto" } }, JSON.stringify(aiResult.manifest, null, 2))
+					h("pre", { className: "hp_code", style: { whiteSpace: "pre-wrap", maxHeight: 200, overflow: "auto" } }, JSON.stringify(aiResult.pack, null, 2))
 				) : null
 			);
 			const renderMemory = () => h("div", null,

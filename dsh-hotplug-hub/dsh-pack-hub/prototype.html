@@ -1460,6 +1460,7 @@ function renderAi() {
           <div><h2>需求输入</h2><div class="sub">AI 组装器</div></div>
         </div>
         <textarea class="req-box" id="reqInput" placeholder="描述你的工作场景和需要的插件能力"></textarea>
+        <input type="password" class="req-box" id="aiKeyInput" style="min-height:auto" placeholder="DeepSeek API Key（可留空=本地模拟；仅本次会话内存使用，不持久化）" autocomplete="off" spellcheck="false">
         <div class="chip-row">
           ${sample.map((s) => `<button class="chip" data-sample="${esc(s)}">${esc(s)}</button>`).join('')}
         </div>
@@ -1507,68 +1508,114 @@ function keywordHits(text) {
     ['文献', 'research'], ['论文', 'research'], ['科研', 'research'], ['引用', 'research'], ['综述', 'research'],
     ['视频', 'video'], ['剪辑', 'video'], ['字幕', 'video'], ['分镜', 'video'], ['封面', 'video'],
     ['自媒体', 'social'], ['选题', 'social'], ['文案', 'social'], ['热点', 'social'],
-    ['考研', 'study'], ['背诵', 'study'], ['闪卡', 'study'], ['真题', 'study'], ['语法', 'study'],
-    ['开发', 'dev'], ['代码', 'dev'], ['测试', 'dev'], ['部署', 'dev'], ['全栈', 'dev'],
+    ['考研', 'kaoyan'], ['背诵', 'kaoyan'], ['闪卡', 'kaoyan'], ['真题', 'kaoyan'], ['语法', 'kaoyan'],
+    ['开发', 'fullstack'], ['代码', 'fullstack'], ['测试', 'fullstack'], ['部署', 'fullstack'], ['全栈', 'fullstack'],
     ['笔记', 'notes'], ['知识库', 'notes'], ['书摘', 'notes'], ['收藏', 'notes']
   ];
   for (const [kw, id] of map) if (t.includes(kw.toLowerCase())) hits.push(id);
   return [...new Set(hits)];
 }
 
-function compose() {
+/** 从 LLM 响应提取 JSON（容忍 ```json 代码围栏与说明文字）。 */
+function extractJson(text) {
+  if (typeof text !== 'string' || text.trim() === '') return null;
+  let t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  try {
+    return JSON.parse(t);
+  } catch {
+    const start = t.indexOf('{');
+    const end = t.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try { return JSON.parse(t.slice(start, end + 1)); } catch { /* 落空 */ }
+    }
+  }
+  return null;
+}
+
+/**
+ * AI 组装：
+ *  - 填写了 DeepSeek API Key → 真实调用（LLM 产物经内联 parseHotpackJson 权威校验，
+ *    再转 dshpack 形态供导入/导出）；
+ *  - 未填 Key → 本地关键词模拟（产物标注"本地模拟"）。
+ * key 安全：仅本次会话内存读取，不写入 localStorage、不打印、不落盘。
+ */
+async function compose() {
   const input = $('reqInput').value.trim();
   if (!input || aiRunning) return;
+  const apiKey = ($('aiKeyInput').value || '').trim();
   aiRunning = true;
   aiResult = null;
   renderAi();
   const box = $('logBox');
-  const rootPacks = CATALOG.filter((p) => keywordHits(input).includes(p.id.replace('pack-', '')));
-  const steps = [
-    ['拆解需求', `场景关键词：${keywordHits(input).join(', ') || '通用工具'}`],
-    ['检索目录', `匹配 ${rootPacks.length} 个候选包，按 star 排序`],
-    ['筛选版本', '过滤精确稳定版本、license 与维护状态'],
-    ['冲突消解', '处理重复 role，生成冲突矩阵'],
-    ['生成文件', '输出 pack manifest + README']
-  ];
-  let i = 0;
-  const tick = () => {
-    if (!aiRunning) return;
-    if (i < steps.length) {
-      logLine(box, `[${i + 1}/5] ${steps[i][0]}`, 'warn');
-      logLine(box, '  ' + steps[i][1], 'ok');
-      i++;
-      setTimeout(tick, 420);
-    } else {
-      const picked = rootPacks.length ? rootPacks : [CATALOG[0]];
-      const bundles = [];
-      picked.forEach((p) => p.bundles.forEach((b) => { if (!bundles.some((x) => x.name === b.name)) bundles.push(b); }));
-      state.aiCount += 1;
-      const packId = 'pack.ai.' + Date.now().toString(36);
-      const manifest = {
-        packId,
-        name: 'AI 定制' + picked.map((p) => p.name.replace('插座包', '')).join('·') + '插座包',
-        version: '0.1.0',
-        scene: picked[0].id.replace('pack-', '') || 'custom',
-        tags: [...new Set(picked.flatMap((p) => p.tags))],
-        requires: { dsh: state.dshVersion, node: '>=22.19.0', profile: 'desktop' },
-        bundles,
-        conflicts: [],
-        memory: picked[0].memory || [],
-        configDir: 'packs/' + packId,
-        market: { author: 'AI Pack Assembler', license: 'MIT', stars: 0, generatedBy: 'dsh-pack-hub prototype' }
-      };
+  const toDshpack = (hp) => ({
+    packId: hp.id,
+    name: hp.name,
+    version: hp.version,
+    description: hp.description || '',
+    tags: hp.tags || [],
+    scene: (hp.id || 'custom').replace(/^pack\.ai\./, '').slice(0, 40) || 'custom',
+    bundles: (hp.plugins || []).map((p) => ({
+      name: p.name,
+      version: p.version,
+      role: p.id || '工具',
+      ...(p.source && p.source.type !== 'npm' ? { source: p.source } : {})
+    })),
+    conflicts: [],
+    memory: [],
+    market: { author: 'AI Pack Assembler', license: 'MIT', stars: 0, generatedBy: 'dsh-pack-hub prototype' }
+  });
+
+  if (apiKey !== '') {
+    // ---- 真实 DeepSeek 组装 ----
+    logLine(box, '[1/2] 调用 DeepSeek 组装器…', 'warn');
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 90000);
+      let res;
+      try {
+        res = await fetch('https://api.deepseek.com/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [
+              { role: 'system', content: '你是 DSH 热插拔中枢的「AI 组装器」。根据用户需求输出一个 hotpack 1.0 插件包清单。只输出一个 JSON 对象，不要 markdown 代码围栏、不要任何解释文字。结构必须是：{"hotpack":"1.0","id":"pack.ai.<英文短id>","name":"<中文包名>","version":"0.1.0","description":"<一句话说明>","tags":["<标签>"],"plugins":[{"id":"<英文插件id>","name":"<npm包名>","version":"<精确版本号 x.y.z>","source":{"type":"npm"},"config":{}}]}。plugins 必须是非空数组（1-5 个），插件 id 只含小写字母数字下划线连字符（首字符字母数字，最长 40），name 是合法 npm 包名，version 必须是精确版本号。插件要贴近需求场景且彼此互补，宁可少而真实，不要编造不存在的知名包。不要输出任何多余字段。' },
+              { role: 'user', content: '用户需求：' + input + '\n请输出对应的 hotpack 1.0 插件包清单 JSON。' }
+            ],
+            temperature: 0.3,
+            max_tokens: 2048,
+            stream: false
+          }),
+          signal: ctrl.signal
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res.ok) {
+        const body = (await res.text()).slice(0, 300).replace(apiKey, '***');
+        throw new Error('DeepSeek HTTP ' + res.status + '：' + body);
+      }
+      const json = await res.json();
+      const content = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
+      if (typeof content !== 'string' || content.trim() === '') throw new Error('AI 响应缺少内容');
+      logLine(box, '  LLM 响应 ' + content.length + ' 字符（model=' + (json.model || 'deepseek-chat') + '）', 'ok');
+      const manifest = extractJson(content);
+      if (!manifest) throw new Error('AI 输出不是合法 JSON');
+      // 权威校验（内联 parseHotpackJson 与 shared-core 行为等价，跨语言测试锁定）
+      const hp = parseHotpackJson(JSON.stringify(manifest));
+      if (!hp) throw new Error('AI 产物未通过 hotpack 1.0 校验（plugins 必须非空）');
+      logLine(box, '[2/2] 校验通过，生成 pack + README…', 'warn');
+      const dsh = toDshpack(hp);
       const readme = [
-        '# ' + manifest.name,
+        '# ' + dsh.name,
         '',
-        '由 DSH AI 组装器根据需求生成：' + input,
+        '由 DSH AI 组装器（真实 DeepSeek）根据需求生成：' + input,
         '',
         '## Bundles',
         '',
-        ...bundles.map((b) => '- `' + b.name + '@' + b.version + '` · ' + b.role),
-        '',
-        '## Memory',
-        '',
-        ...(manifest.memory || []).map((m) => '- ' + m),
+        ...dsh.bundles.map((b) => '- `' + b.name + '@' + b.version + '` · ' + b.role),
         '',
         '## 安装',
         '',
@@ -1576,15 +1623,85 @@ function compose() {
         '2. 确认版本与冲突信息后安装。',
         '3. 重启 DSH 生效。'
       ].join('\n');
-      aiResult = { name: manifest.name, tags: manifest.tags, manifest, readme };
-      logLine(box, '完成：pack + README 已就绪', 'ok');
+      aiResult = { name: dsh.name, tags: dsh.tags, manifest: dsh, readme };
+      logLine(box, '完成：' + dsh.name + '（' + dsh.bundles.length + ' 个插件，真实 AI）', 'ok');
+    } catch (e) {
+      logLine(box, '失败：' + String(e.message || e), 'err');
       aiRunning = false;
       renderAi();
-      const exp = $('exportPack');
-      if (exp) exp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return;
     }
-  };
-  tick();
+  } else {
+    // ---- 本地模拟（无 Key；产物标注） ----
+    const rootPacks = CATALOG.filter((p) => keywordHits(input).includes(p.id.replace('pack-', '')));
+    const steps = [
+      ['拆解需求', `场景关键词：${keywordHits(input).join(', ') || '通用工具'}`],
+      ['检索目录', `匹配 ${rootPacks.length} 个候选包（本地模拟，未配置 API Key）`],
+      ['筛选版本', '过滤精确稳定版本、license 与维护状态'],
+      ['冲突消解', '处理重复 role，生成冲突矩阵'],
+      ['生成文件', '输出 pack manifest + README']
+    ];
+    let i = 0;
+    const tick = () => {
+      if (!aiRunning) return;
+      if (i < steps.length) {
+        logLine(box, `[${i + 1}/5] ${steps[i][0]}`, 'warn');
+        logLine(box, '  ' + steps[i][1], 'ok');
+        i++;
+        setTimeout(tick, 420);
+      } else {
+        const picked = rootPacks.length ? rootPacks : [CATALOG[0]];
+        const bundles = [];
+        picked.forEach((p) => p.bundles.forEach((b) => { if (!bundles.some((x) => x.name === b.name)) bundles.push(b); }));
+        state.aiCount += 1;
+        const packId = 'pack.ai.' + Date.now().toString(36);
+        const manifest = {
+          packId,
+          name: 'AI 定制' + picked.map((p) => p.name.replace('插座包', '')).join('·') + '插座包',
+          version: '0.1.0',
+          scene: picked[0].id.replace('pack-', '') || 'custom',
+          tags: [...new Set(picked.flatMap((p) => p.tags))],
+          requires: { dsh: state.dshVersion, node: '>=22.19.0', profile: 'desktop' },
+          bundles,
+          conflicts: [],
+          memory: picked[0].memory || [],
+          configDir: 'packs/' + packId,
+          market: { author: 'AI Pack Assembler', license: 'MIT', stars: 0, generatedBy: 'dsh-pack-hub prototype（本地模拟）' }
+        };
+        const readme = [
+          '# ' + manifest.name,
+          '',
+          '由 DSH AI 组装器（本地模拟，未配置 API Key）根据需求生成：' + input,
+          '',
+          '## Bundles',
+          '',
+          ...bundles.map((b) => '- `' + b.name + '@' + b.version + '` · ' + b.role),
+          '',
+          '## Memory',
+          '',
+          ...(manifest.memory || []).map((m) => '- ' + m),
+          '',
+          '## 安装',
+          '',
+          '1. 在 DSH 插件市场或插件中枢导入本包。',
+          '2. 确认版本与冲突信息后安装。',
+          '3. 重启 DSH 生效。'
+        ].join('\n');
+        aiResult = { name: manifest.name, tags: manifest.tags, manifest, readme };
+        logLine(box, '完成：pack + README 已就绪（本地模拟）', 'ok');
+        aiRunning = false;
+        renderAi();
+        const exp = $('exportPack');
+        if (exp) exp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    };
+    tick();
+    return;
+  }
+  aiRunning = false;
+  renderAi();
+  const exp = $('exportPack');
+  if (exp) exp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function memoryRowHtml(m, index) {

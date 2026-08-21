@@ -11,6 +11,7 @@ import { packsDir } from './core/paths.js'
 import { readPackManifest, readState, writeState } from './core/state.js'
 import { statusSync, importPackSync, previewPack, checkAsync } from './core/status.js'
 import { marketListAsync, marketDetailAsync } from './core/market.js'
+import { aiAssemble } from './core/ai.js'
 import { mountPack, unmountPack, removePatchBlock, removeBundles, bundlePkgNames } from './core/patch.js'
 
 /** 网关通用失败码（RPC 域，非 CLI ERROR_CODES 表）。 */
@@ -38,7 +39,7 @@ class HotplugGateway extends TypertRemoteService {
   constructor(ctx) {
     super(ctx, 'dshHotplug')
     // 与 lib/typert.js、lib/client.js REMOTE.descriptors 三处同步。
-    const methods = ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check', 'marketList', 'marketDetail']
+    const methods = ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check', 'marketList', 'marketDetail', 'aiAssemble']
     for (const method of methods) {
       const decorator = Remote(method)
       decorator(HotplugGateway.prototype[method], {
@@ -139,6 +140,20 @@ class HotplugGateway extends TypertRemoteService {
   // 上游 v0.9.7 对齐：marketList 只返回列表元数据，详情由 marketDetail 逐条并发补齐
   marketDetail(params) {
     return marketDetailAsync(params).then(normalizeRpc)
+  }
+
+  // AI 组装（v5 阶段 5）：需求 → DeepSeek → 权威校验产物。
+  // 安全：apiKey 仅内存传递（不落盘、不进日志/序列化）；缺省读服务端
+  // DSH_DEEPSEEK_API_KEY 环境变量。响应仅含 {ok, manifest, pack, readme, error}，
+  // 绝不含 key。
+  aiAssemble(params) {
+    const p = params && typeof params === 'object' ? params : {}
+    const input = typeof p.input === 'string' ? p.input : ''
+    const apiKey = typeof p.apiKey === 'string' && p.apiKey.trim() !== '' ? p.apiKey : undefined
+    return aiAssemble(input, { apiKey }).then((r) => {
+      if (!r.ok) return normalizeRpc({ ok: false, error: r.error, code: RPC_ERROR_CODE })
+      return { ok: true, code: 'OK', data: { pack: r.pack, readme: r.readme }, exitCode: 0 }
+    })
   }
 }
 

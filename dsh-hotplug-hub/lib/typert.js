@@ -37,7 +37,8 @@ export const TYPERT = {
     inv('removePack', ['packId']),
     inv('check'),
     inv('marketList', ['params']),
-    inv('marketDetail', ['params'])
+    inv('marketDetail', ['params']),
+    inv('aiAssemble', ['params'])
   ],
   model: { services: [], events: [], objects: [] }
 }
