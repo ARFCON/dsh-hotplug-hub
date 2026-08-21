@@ -142,15 +142,21 @@ class HotplugGateway extends TypertRemoteService {
     return marketDetailAsync(params).then(normalizeRpc)
   }
 
-  // AI 组装（v5 阶段 5）：需求 → DeepSeek → 权威校验产物。
+  // AI 组装（v5 阶段 5）：需求 → LLM → 权威校验产物。
+  // 多平台：默认 deepseek；可传 provider/baseURL/model 接任意 OpenAI 兼容端点
+  // （如 opencode-go/hy3-preview：provider='opencode'）。
   // 安全：apiKey 仅内存传递（不落盘、不进日志/序列化）；缺省读服务端
-  // DSH_DEEPSEEK_API_KEY 环境变量。响应仅含 {ok, manifest, pack, readme, error}，
-  // 绝不含 key。
+  // DSH_AI_API_KEY / DSH_DEEPSEEK_API_KEY / DSH_OPENCODE_API_KEY 环境变量。
+  // 响应仅含 {ok, pack, readme}，绝不含 key。
   aiAssemble(params) {
     const p = params && typeof params === 'object' ? params : {}
     const input = typeof p.input === 'string' ? p.input : ''
-    const apiKey = typeof p.apiKey === 'string' && p.apiKey.trim() !== '' ? p.apiKey : undefined
-    return aiAssemble(input, { apiKey }).then((r) => {
+    return aiAssemble(input, {
+      provider: typeof p.provider === 'string' && p.provider !== '' ? p.provider : undefined,
+      baseURL: typeof p.baseURL === 'string' && p.baseURL !== '' ? p.baseURL : undefined,
+      model: typeof p.model === 'string' && p.model !== '' ? p.model : undefined,
+      apiKey: typeof p.apiKey === 'string' && p.apiKey.trim() !== '' ? p.apiKey : undefined,
+    }).then((r) => {
       if (!r.ok) return normalizeRpc({ ok: false, error: r.error, code: RPC_ERROR_CODE })
       return { ok: true, code: 'OK', data: { pack: r.pack, readme: r.readme }, exitCode: 0 }
     })

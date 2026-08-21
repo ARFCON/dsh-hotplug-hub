@@ -97,8 +97,11 @@ window.__ModuleLoader__.load({
 			marketNote: "数据来源：GitHub 标签搜索（官方 API + 多镜像站全并发测速取最快），README 对比提取介绍与安装方法",
 			aiTitle: "AI 组装器",
 			aiPlaceholder: "描述你的工作场景和需要的插件能力",
-			aiKeyPlaceholder: "DeepSeek API Key（可留空，走服务端 DSH_DEEPSEEK_API_KEY 环境变量）",
-			aiKeyHint: "Key 仅本次会话内存使用，不持久化、不上传日志；建议通过中枢进程环境变量 DSH_DEEPSEEK_API_KEY 配置。",
+			aiProviderLabel: "AI 服务商",
+			aiKeyPlaceholder: "API Key（可留空，走服务端对应环境变量）",
+			aiBaseUrlPlaceholder: "Base URL（OpenAI 兼容，如 https://api.deepseek.com）",
+			aiModelPlaceholder: "模型名（如 deepseek-chat / hy3-preview / kimi-k3）",
+			aiKeyHint: "支持 DeepSeek / OpenCode（hy3、Kimi 等）/ OpenRouter / 硅基流动 / Moonshot / 智谱 GLM / MiniMax 及任意 OpenAI 兼容端点。Key 仅本次会话内存使用，不持久化、不上传日志；建议通过服务端环境变量（DSH_*_API_KEY）配置。",
 			aiCompose: "开始组装",
 			aiComposing: "组装中…",
 			aiLog: "执行日志",
@@ -188,6 +191,18 @@ window.__ModuleLoader__.load({
 			{ id: "pack-fullstack", name: "全栈开发插座包", tags: ["开发", "全栈", "DevOps"], desc: "脚手架、代码评审、测试和安全检查", plugins: 4, accent: "#5b5488" },
 			{ id: "pack-notes", name: "知识管理插座包", tags: ["笔记", "知识库", "整理"], desc: "网页收藏、笔记整理、书摘提取与双链", plugins: 3, accent: "#237a57" }
 		];
+		// AI 服务商预设（与后端 lib/core/ai.js AI_PROVIDERS 注册表一致的默认值；
+		// 后端为权威，此处仅作 UI 快捷填充）
+		const AI_PROVIDER_OPTIONS = [
+			{ id: "deepseek", label: "DeepSeek", baseURL: "https://api.deepseek.com", model: "deepseek-chat" },
+			{ id: "opencode", label: "OpenCode（hy3 / Kimi 等）", baseURL: "https://opencode.ai/zen/go/v1", model: "hy3-preview" },
+			{ id: "openrouter", label: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", model: "deepseek/deepseek-chat" },
+			{ id: "siliconflow", label: "硅基流动", baseURL: "https://api.siliconflow.cn/v1", model: "deepseek-ai/DeepSeek-V3" },
+			{ id: "moonshot", label: "Moonshot（Kimi）", baseURL: "https://api.moonshot.cn/v1", model: "kimi-k2" },
+			{ id: "zhipu", label: "智谱 GLM", baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4.5" },
+			{ id: "minimax", label: "MiniMax", baseURL: "https://api.minimaxi.com/v1", model: "MiniMax-M2.7" },
+			{ id: "custom", label: "自定义（OpenAI 兼容）", baseURL: "", model: "" },
+		];
 		function HotplugTab(props) {
 			const api = props.inject ?? {};
 			const t = (key) => (props.locale && props.locale(key)) || zh[key] || en[key] || key;
@@ -209,7 +224,10 @@ window.__ModuleLoader__.load({
 			const [marketPage, setMarketPage] = useState(1);
 			const [marketOpen, setMarketOpen] = useState(null);
 			const [aiInput, setAiInput] = useState("");
+			const [aiProvider, setAiProvider] = useState("deepseek");
 			const [aiKey, setAiKey] = useState(""); // 仅内存，不持久化（key 安全）
+			const [aiBaseURL, setAiBaseURL] = useState(AI_PROVIDER_OPTIONS[0].baseURL);
+			const [aiModel, setAiModel] = useState(AI_PROVIDER_OPTIONS[0].model);
 			const [aiRunning, setAiRunning] = useState(false);
 			const [aiLog, setAiLog] = useState([]);
 			const [aiResult, setAiResult] = useState(null);
@@ -389,7 +407,12 @@ window.__ModuleLoader__.load({
 				};
 				const task = () => {
 					if (typeof api.aiAssemble !== "function") return Promise.reject(new Error(t("aiNoGateway")));
-					return api.aiAssemble({ input: aiInput.trim(), apiKey: aiKey.trim() || undefined }).then(unwrap).then((r) => {
+					const preset = AI_PROVIDER_OPTIONS.find((p) => p.id === aiProvider);
+					// provider 传内置名；custom（或改过默认值的预设）传 baseURL/model 覆盖
+					const params = { input: aiInput.trim(), provider: aiProvider, apiKey: aiKey.trim() || undefined };
+					if (aiBaseURL.trim() !== "" && aiBaseURL.trim() !== (preset && preset.baseURL)) params.baseURL = aiBaseURL.trim();
+					if (aiModel.trim() !== "" && aiModel.trim() !== (preset && preset.model)) params.model = aiModel.trim();
+					return api.aiAssemble(params).then(unwrap).then((r) => {
 						if (!r || r.ok === false) throw new Error(String((r && (r.message || r.error)) || t("aiFail")));
 						return r;
 					});
@@ -597,7 +620,19 @@ window.__ModuleLoader__.load({
 				h("div", { className: "hp_card" },
 					h("div", { className: "hp_heading" }, h("h3", null, t("aiTitle"))),
 					h("textarea", { className: "hp_textarea", placeholder: t("aiPlaceholder"), value: aiInput, onChange: (e) => setAiInput(e.target.value), spellCheck: false }),
+					h("div", { className: "hp_bar" },
+						h("label", null, t("aiProviderLabel")),
+						h("select", { className: "hp_input", value: aiProvider, onChange: (e) => {
+							const preset = AI_PROVIDER_OPTIONS.find((p) => p.id === e.target.value);
+							setAiProvider(e.target.value);
+							if (preset) { setAiBaseURL(preset.baseURL); setAiModel(preset.model); }
+						} },
+							AI_PROVIDER_OPTIONS.map((p) => h("option", { key: p.id, value: p.id }, p.label))
+						)
+					),
 					h("input", { type: "password", className: "hp_input", placeholder: t("aiKeyPlaceholder"), value: aiKey, onChange: (e) => setAiKey(e.target.value), autoComplete: "off", spellCheck: false }),
+					h("input", { className: "hp_input", placeholder: t("aiBaseUrlPlaceholder"), value: aiBaseURL, onChange: (e) => setAiBaseURL(e.target.value), spellCheck: false }),
+					h("input", { className: "hp_input", placeholder: t("aiModelPlaceholder"), value: aiModel, onChange: (e) => setAiModel(e.target.value), spellCheck: false }),
 					h("p", { className: "hp_info" }, t("aiKeyHint")),
 					h("div", { className: "hp_bar" },
 						t("aiSamples").map((sample) => h("button", { key: sample, className: "hp_chip", onClick: () => setAiInput(sample) }, sample))

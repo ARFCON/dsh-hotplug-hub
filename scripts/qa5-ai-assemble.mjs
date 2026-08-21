@@ -1,17 +1,22 @@
 #!/usr/bin/env node
 /**
- * scripts/qa5-ai-assemble.mjs — AI 组装真实全链路测试（进程隔离红线）
+ * scripts/qa5-ai-assemble.mjs — AI 组装真实全链路测试（进程隔离红线，多平台）
  *
- * 用法：
+ * 用法（任选其一 provider）：
+ *   # DeepSeek
  *   DSH_DEEPSEEK_API_KEY=sk-xxx node scripts/qa5-ai-assemble.mjs [需求文本]
+ *   # OpenCode Go（hy3 等）
+ *   DSH_AI_PROVIDER=opencode DSH_OPENCODE_API_KEY=sk-xxx node scripts/qa5-ai-assemble.mjs [需求文本]
+ *   # 任意 OpenAI 兼容端点
+ *   DSH_AI_BASE_URL=https://... DSH_AI_MODEL=... DSH_AI_API_KEY=sk-xxx node scripts/qa5-ai-assemble.mjs [需求文本]
  *
  * 验证链（网关级，与产品路径一致）：
- *   真实 DeepSeek 调用（网关 aiAssemble）→ 权威 shared-core parseHotpack 校验 →
- *   网关 importPack 落盘（隔离根）→ 网关 status 可见已导入包。任何一环失败 exit 非 0。
+ *   真实 LLM 调用（网关 aiAssemble，多平台解析）→ 权威 shared-core parseHotpack
+ *   校验 → 网关 importPack 落盘（隔离根）→ 网关 status 可见已导入包。
+ *   任何一环失败 exit 非 0。
  *
  * 隔离与安全（P5 铁律）：
- *   - API key 只经环境变量 DSH_DEEPSEEK_API_KEY 注入；不硬编码、不打印、不落盘
- *     （错误信息脱敏：key → ***）；
+ *   - API key 只经环境变量注入；不硬编码、不打印、不落盘（错误信息脱敏）；
  *   - 显式删除 NODE_TLS_REJECT_UNAUTHORIZED / NODE_OPTIONS / CA / SSL 变量
  *     （fetch 恒为系统默认证书校验，TLS 铁律）；
  *   - DSH_HOME / HOME / USERPROFILE / LOCALAPPDATA / PATH 全部指向 os.tmpdir()
@@ -28,9 +33,13 @@ for (const k of ['NODE_TLS_REJECT_UNAUTHORIZED', 'NODE_OPTIONS', 'NODE_EXTRA_CA_
   delete process.env[k]
 }
 
-const API_KEY = process.env.DSH_DEEPSEEK_API_KEY || ''
-if (!API_KEY) {
-  console.error('FAIL: 缺少 DSH_DEEPSEEK_API_KEY 环境变量（隔离注入，不落盘）')
+// provider 由 DSH_AI_PROVIDER 或 key 变量存在性推断；key 缺失由网关 resolveAiProvider 报错
+const provider = process.env.DSH_AI_PROVIDER || (process.env.DSH_OPENCODE_API_KEY ? 'opencode' : 'deepseek')
+const hasKey = Boolean(
+  process.env.DSH_AI_API_KEY || process.env.DSH_DEEPSEEK_API_KEY || process.env.DSH_OPENCODE_API_KEY
+)
+if (!hasKey) {
+  console.error('FAIL: 缺少 API Key 环境变量（DSH_AI_API_KEY / DSH_DEEPSEEK_API_KEY / DSH_OPENCODE_API_KEY，隔离注入不落盘）')
   process.exitCode = 2
 } else {
   const input = process.argv[2] || '帮我组一个做笔记和知识管理的插件包'
@@ -48,13 +57,13 @@ if (!API_KEY) {
 
   let exitCode = 0
   try {
-    console.log(`== QA5 AI 组装真实全链路（model=deepseek-chat，隔离根=${isoRoot}）==`)
+    console.log(`== QA5 AI 组装真实全链路（provider=${provider}，隔离根=${isoRoot}）==`)
     console.log(`需求：${input}`)
 
     const gateway = new HotplugGateway({ reflect: { provide: () => {} } })
 
-    // 1) 网关 aiAssemble（真实 DeepSeek；key 经 env，网关内不打印）
-    console.log('[1/3] 网关 aiAssemble（真实 DeepSeek 调用）…')
+    // 1) 网关 aiAssemble（真实 LLM 调用，多平台；key 经 env，网关内不打印）
+    console.log('[1/3] 网关 aiAssemble（真实 LLM 调用，provider=' + provider + '）…')
     const assembled = await gateway.aiAssemble({ input })
     if (!assembled.ok) {
       console.error(`FAIL: aiAssemble：${assembled.message}`)

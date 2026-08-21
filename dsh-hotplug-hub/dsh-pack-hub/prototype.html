@@ -1460,7 +1460,21 @@ function renderAi() {
           <div><h2>需求输入</h2><div class="sub">AI 组装器</div></div>
         </div>
         <textarea class="req-box" id="reqInput" placeholder="描述你的工作场景和需要的插件能力"></textarea>
-        <input type="password" class="req-box" id="aiKeyInput" style="min-height:auto" placeholder="DeepSeek API Key（可留空=本地模拟；仅本次会话内存使用，不持久化）" autocomplete="off" spellcheck="false">
+        <div class="chip-row" style="gap:6px">
+          <select id="aiProvider" class="req-box" style="min-height:auto;width:auto;flex:0 0 auto">
+            <option value="deepseek">DeepSeek</option>
+            <option value="opencode">OpenCode（hy3 / Kimi 等）</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="siliconflow">硅基流动</option>
+            <option value="moonshot">Moonshot（Kimi）</option>
+            <option value="zhipu">智谱 GLM</option>
+            <option value="minimax">MiniMax</option>
+            <option value="custom">自定义（OpenAI 兼容）</option>
+          </select>
+          <input type="password" class="req-box" id="aiKeyInput" style="min-height:auto;flex:1 1 220px" placeholder="API Key（可留空=本地模拟；仅本次会话内存使用，不持久化）" autocomplete="off" spellcheck="false">
+          <input type="text" class="req-box" id="aiBaseUrlInput" style="min-height:auto;flex:1 1 260px" placeholder="Base URL（OpenAI 兼容，如 https://api.deepseek.com）" spellcheck="false">
+          <input type="text" class="req-box" id="aiModelInput" style="min-height:auto;flex:0 1 200px" placeholder="模型名（如 deepseek-chat / hy3-preview / kimi-k3）" spellcheck="false">
+        </div>
         <div class="chip-row">
           ${sample.map((s) => `<button class="chip" data-sample="${esc(s)}">${esc(s)}</button>`).join('')}
         </div>
@@ -1535,16 +1549,31 @@ function extractJson(text) {
 }
 
 /**
- * AI 组装：
- *  - 填写了 DeepSeek API Key → 真实调用（LLM 产物经内联 parseHotpackJson 权威校验，
- *    再转 dshpack 形态供导入/导出）；
+ * AI 组装（多厂商，OpenAI 兼容协议）：
+ *  - 填写了 API Key → 真实调用（LLM 产物经内联 parseHotpackJson 权威校验，再转
+ *    dshpack 形态供导入/导出）；服务商可经下拉选择（内置 DeepSeek/OpenCode/
+ *    OpenRouter/硅基流动/Moonshot/智谱/MiniMax），或自定义 Base URL + 模型名；
  *  - 未填 Key → 本地关键词模拟（产物标注"本地模拟"）。
  * key 安全：仅本次会话内存读取，不写入 localStorage、不打印、不落盘。
  */
+const AI_PRESETS = {
+  deepseek: { baseURL: 'https://api.deepseek.com', model: 'deepseek-chat' },
+  opencode: { baseURL: 'https://opencode.ai/zen/go/v1', model: 'hy3-preview' },
+  openrouter: { baseURL: 'https://openrouter.ai/api/v1', model: 'deepseek/deepseek-chat' },
+  siliconflow: { baseURL: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
+  moonshot: { baseURL: 'https://api.moonshot.cn/v1', model: 'kimi-k2' },
+  zhipu: { baseURL: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4.5' },
+  minimax: { baseURL: 'https://api.minimaxi.com/v1', model: 'MiniMax-M2.7' },
+  custom: { baseURL: '', model: '' }
+};
 async function compose() {
   const input = $('reqInput').value.trim();
   if (!input || aiRunning) return;
   const apiKey = ($('aiKeyInput').value || '').trim();
+  const providerId = ($('aiProvider').value || 'deepseek');
+  const preset = AI_PRESETS[providerId] || AI_PRESETS.deepseek;
+  const baseURL = ($('aiBaseUrlInput').value || '').trim() || preset.baseURL;
+  const model = ($('aiModelInput').value || '').trim() || preset.model;
   aiRunning = true;
   aiResult = null;
   renderAi();
@@ -1568,23 +1597,29 @@ async function compose() {
   });
 
   if (apiKey !== '') {
-    // ---- 真实 DeepSeek 组装 ----
-    logLine(box, '[1/2] 调用 DeepSeek 组装器…', 'warn');
+    // ---- 真实 LLM 组装（多厂商，OpenAI 兼容协议） ----
+    if (!/^https:\/\//i.test(baseURL)) {
+      logLine(box, '失败：Base URL 必须 https://（TLS 铁律）', 'err');
+      aiRunning = false;
+      renderAi();
+      return;
+    }
+    logLine(box, '[1/2] 调用 ' + (providerId === 'custom' ? baseURL : providerId) + ' 组装器（' + model + '）…', 'warn');
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 90000);
       let res;
       try {
-        res = await fetch('https://api.deepseek.com/chat/completions', {
+        res = await fetch(baseURL.replace(/\/+$/, '') + '/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
           body: JSON.stringify({
-            model: 'deepseek-chat',
+            model,
             messages: [
               { role: 'system', content: '你是 DSH 热插拔中枢的「AI 组装器」。根据用户需求输出一个 hotpack 1.0 插件包清单。只输出一个 JSON 对象，不要 markdown 代码围栏、不要任何解释文字。结构必须是：{"hotpack":"1.0","id":"pack.ai.<英文短id>","name":"<中文包名>","version":"0.1.0","description":"<一句话说明>","tags":["<标签>"],"plugins":[{"id":"<英文插件id>","name":"<npm包名>","version":"<精确版本号 x.y.z>","source":{"type":"npm"},"config":{}}]}。plugins 必须是非空数组（1-5 个），插件 id 只含小写字母数字下划线连字符（首字符字母数字，最长 40），name 是合法 npm 包名，version 必须是精确版本号。插件要贴近需求场景且彼此互补，宁可少而真实，不要编造不存在的知名包。不要输出任何多余字段。' },
               { role: 'user', content: '用户需求：' + input + '\n请输出对应的 hotpack 1.0 插件包清单 JSON。' }
             ],
-            temperature: 0.3,
+            temperature: 1,
             max_tokens: 2048,
             stream: false
           }),
@@ -1595,7 +1630,7 @@ async function compose() {
       }
       if (!res.ok) {
         const body = (await res.text()).slice(0, 300).replace(apiKey, '***');
-        throw new Error('DeepSeek HTTP ' + res.status + '：' + body);
+        throw new Error('AI 服务 HTTP ' + res.status + '：' + body);
       }
       const json = await res.json();
       const content = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
