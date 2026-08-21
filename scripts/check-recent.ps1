@@ -5,7 +5,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$git = 'C:\Program Files\Git\cmd\git.exe'
+. (Join-Path $PSScriptRoot '_git.ps1')
+$git = Get-GitExe
+Assert-GitExe $git
 
 Write-Output "== 最近提交记录: $Path =="
 & $git -C $repo log --oneline -10 -- $Path 2>&1 | Out-String
