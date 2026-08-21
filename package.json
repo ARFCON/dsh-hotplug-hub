@@ -1,6 +1,6 @@
 {
   "name": "dsh-hotplug-hub-monorepo",
-  "version": "0.9.5",
+  "version": "0.10.0",
   "private": true,
   "description": "DSH-Hotplug-Hub 单仓：launcher / dsh-hotplug-hub / dsh-memory-hub / 共享内核 / vendor",
   "workspaces": [
@@ -18,5 +18,8 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.8.0"
   }
 }

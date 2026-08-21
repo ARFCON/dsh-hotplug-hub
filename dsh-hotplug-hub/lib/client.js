@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
 		let react = require("react");
 		const h = react.createElement;
 		const { useEffect, useRef, useState } = react;
-		const css = ".hp_section{width:100%;max-width:860px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:14px;display:flex}.hp_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:10px;padding:12px 14px;flex-direction:column;gap:8px;display:flex;min-width:0}.hp_heading{display:flex;align-items:baseline;gap:7px;margin:0}.hp_heading h3{margin:0;font-size:13px;font-weight:600;line-height:20px}.hp_heading span{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:12px}.hp_info{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.hp_bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hp_btn{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:34px;padding:0 14px;font-size:13px}.hp_btn:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_btn:disabled{opacity:.5;cursor:default}.hp_primary{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:0 0}.hp_notice{margin:0;font-size:13px;line-height:20px}.hp_notice[data-kind=error]{color:var(--dsw-alias-state-error-primary)}.hp_notice[data-kind=success]{color:var(--dsw-alias-state-success-primary)}.hp_textarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace}.hp_list{margin:0;padding:0;list-style:none;flex-direction:column;gap:8px;display:flex}.hp_row{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}.hp_row[data-active=true]{border-color:var(--dsw-alias-state-business-primary)}.hp_rowTop{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}.hp_name{font-weight:600;font-size:13px}.hp_meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_tag{font-size:11px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);padding:2px 8px;border-radius:10px;color:var(--dsw-alias-label-tertiary)}.hp_badge{font-size:11px;font-weight:600;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);padding:2px 8px;border-radius:10px}.hp_actions{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.hp_kv{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}.hp_code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:var(--dsw-alias-bg-layer-2);padding:2px 6px;border-radius:4px}.hp_empty{color:var(--dsw-alias-label-tertiary);font-size:13px;padding:8px 0}.hp_dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}.hp_dot[data-kind=reused]{background:var(--dsw-alias-state-success-primary)}.hp_dot[data-kind=download]{background:var(--dsw-alias-state-business-primary)}.hp_dot[data-kind=error]{background:var(--dsw-alias-state-error-primary)}.hp_preview{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}.hp_preview li{font-size:12px;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;gap:4px;flex-wrap:wrap}.hp_tabs{display:flex;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2);margin-bottom:14px;flex-wrap:wrap}.hp_tab{border:0;border-bottom:2px solid transparent;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;padding:8px 14px;cursor:pointer}.hp_tab:hover{color:var(--dsw-alias-label-primary)}.hp_tab[data-on=true]{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-state-business-primary)}.hp_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.hp_stat{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px}.hp_stat .hp_label{font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_stat .hp_num{font-size:22px;font-weight:700;margin-top:4px}.hp_log{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.7;padding:10px 12px;min-height:160px;max-height:300px;overflow-y:auto;white-space:pre-wrap}.hp_log .ok{color:var(--dsw-alias-state-success-primary)}.hp_log .warn{color:var(--dsw-alias-state-business-primary)}.hp_msg{display:flex;gap:8px;padding:8px 0;border-bottom:1px dashed var(--dsw-alias-border-l2)}.hp_msg:last-child{border-bottom:0}.hp_msgRole{flex:0 0 auto;width:24px;height:24px;line-height:24px;text-align:center;border-radius:50%;background:var(--dsw-alias-bg-layer-2);font-size:13px}.hp_msgBody{flex:1 1 auto;min-width:0;flex-direction:column;gap:4px;display:flex}.hp_msgText{font-size:13px;line-height:20px;white-space:pre-wrap;word-break:break-word}.hp_msgPack{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:8px;padding:6px 10px;font-size:12px;gap:6px;display:flex;flex-wrap:wrap;align-items:center}.hp_msg.err .hp_msgText{color:var(--dsw-alias-state-error-primary)}.hp_check{display:flex;align-items:center;gap:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px;font-size:13px}.hp_check .hp_val{margin-left:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_chip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer}.hp_chip[data-on=true]{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_input{flex:1;min-width:160px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px}.hp_input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.hp_select{flex:0 0 auto;min-width:118px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}.hp_topic{flex:0 0 160px}.hp_link{border:1px solid var(--dsw-alias-border-l2);background:0 0;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:30px;padding:0 12px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:5px}.hp_link:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_expand{margin:0;padding:8px 10px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}.hp_loading{color:var(--dsw-alias-label-tertiary);font-size:13px;margin:0;padding:10px 2px;display:flex;align-items:center;gap:8px}.hp_loading .hp_spin{width:14px;height:14px;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);border-radius:50%;animation:hp-rotate .8s linear infinite;display:inline-block}@keyframes hp-rotate{to{transform:rotate(360deg)}}";
+		const css = ".hp_section{width:100%;max-width:860px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:14px;display:flex}.hp_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:10px;padding:12px 14px;flex-direction:column;gap:8px;display:flex;min-width:0}.hp_heading{display:flex;align-items:baseline;gap:7px;margin:0}.hp_heading h3{margin:0;font-size:13px;font-weight:600;line-height:20px}.hp_heading span{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:12px}.hp_info{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.hp_bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hp_btn{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:34px;padding:0 14px;font-size:13px}.hp_btn:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_btn:disabled{opacity:.5;cursor:default}.hp_primary{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:0 0}.hp_notice{margin:0;font-size:13px;line-height:20px}.hp_notice[data-kind=error]{color:var(--dsw-alias-state-error-primary)}.hp_notice[data-kind=success]{color:var(--dsw-alias-state-success-primary)}.hp_textarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace}.hp_list{margin:0;padding:0;list-style:none;flex-direction:column;gap:8px;display:flex}.hp_row{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}.hp_row[data-active=true]{border-color:var(--dsw-alias-state-business-primary)}.hp_rowTop{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}.hp_name{font-weight:600;font-size:13px}.hp_meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_tag{font-size:11px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);padding:2px 8px;border-radius:10px;color:var(--dsw-alias-label-tertiary)}.hp_badge{font-size:11px;font-weight:600;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);padding:2px 8px;border-radius:10px}.hp_actions{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.hp_kv{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}.hp_code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:var(--dsw-alias-bg-layer-2);padding:2px 6px;border-radius:4px}.hp_empty{color:var(--dsw-alias-label-tertiary);font-size:13px;padding:8px 0}.hp_dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}.hp_dot[data-kind=reused]{background:var(--dsw-alias-state-success-primary)}.hp_dot[data-kind=download]{background:var(--dsw-alias-state-business-primary)}.hp_dot[data-kind=error]{background:var(--dsw-alias-state-error-primary)}.hp_preview{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}.hp_preview li{font-size:12px;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;gap:4px;flex-wrap:wrap}.hp_tabs{display:flex;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2);margin-bottom:14px;flex-wrap:wrap}.hp_tab{border:0;border-bottom:2px solid transparent;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;padding:8px 14px;cursor:pointer}.hp_tab:hover{color:var(--dsw-alias-label-primary)}.hp_tab[data-on=true]{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-state-business-primary)}.hp_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.hp_stat{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px}.hp_stat .hp_label{font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_stat .hp_num{font-size:22px;font-weight:700;margin-top:4px}.hp_log{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.7;padding:10px 12px;min-height:160px;max-height:300px;overflow-y:auto;white-space:pre-wrap}.hp_log .ok{color:var(--dsw-alias-state-success-primary)}.hp_log .warn{color:var(--dsw-alias-state-business-primary)}.hp_msg{display:flex;gap:8px;padding:8px 0;border-bottom:1px dashed var(--dsw-alias-border-l2)}.hp_msg:last-child{border-bottom:0}.hp_msgRole{flex:0 0 auto;width:24px;height:24px;line-height:24px;text-align:center;border-radius:50%;background:var(--dsw-alias-bg-layer-2);font-size:13px}.hp_msgBody{flex:1 1 auto;min-width:0;flex-direction:column;gap:4px;display:flex}.hp_msgText{font-size:13px;line-height:20px;white-space:pre-wrap;word-break:break-word}.hp_msgPack{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:8px;padding:6px 10px;font-size:12px;gap:6px;display:flex;flex-wrap:wrap;align-items:center}.hp_msg.err .hp_msgText{color:var(--dsw-alias-state-error-primary)}.hp_aiZone{display:flex;flex-direction:column;gap:10px}.hp_aiTop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.hp_aiTitle{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px;white-space:nowrap}.hp_aiTitle span{color:var(--dsw-alias-label-tertiary);font-size:12px;font-weight:400}.hp_aiMark{width:20px;height:20px;display:grid;place-items:center;flex:0 0 20px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);border-radius:6px;font-size:11px;font-weight:800}.hp_aiAv.av-err{background:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_aiSpacer{flex:1}.hp_aiTurn{font-size:12px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}.hp_aiChat{display:flex;flex-direction:column;gap:14px;min-height:320px;max-height:52vh;overflow-y:auto;padding:14px 4px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:12px}.hp_aiMsg{display:flex;gap:8px;align-items:flex-start;animation:hpAiIn .22s ease}.hp_aiMsg.user{flex-direction:row-reverse}@keyframes hpAiIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}.hp_aiAv{flex:0 0 28px;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:14px;background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l2);margin:0 4px}.hp_aiMsg.user .hp_aiAv{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);font-size:11px;font-weight:600}.hp_aiBub{max-width:78%;border-radius:13px;padding:9px 13px;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word}.hp_aiMsg.assistant .hp_aiBub{background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l2);border-top-left-radius:4px}.hp_aiMsg.user .hp_aiBub{background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);border-top-right-radius:4px}.hp_aiMsg.err .hp_aiBub{background:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-label-inverse,#fff);opacity:.92}.hp_aiTyping{display:inline-flex;gap:4px;align-items:center;padding:4px 2px}.hp_aiTyping i{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary);animation:hpAiDot 1.1s infinite}.hp_aiTyping i:nth-child(2){animation-delay:.18s}.hp_aiTyping i:nth-child(3){animation-delay:.36s}@keyframes hpAiDot{0%,60%,100%{opacity:.35}30%{opacity:1}}.hp_aiPack{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:9px;margin-left:36px;max-width:calc(100% - 36px);animation:hpAiIn .26s ease}.hp_aiPack .head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.hp_aiPack .name{font-weight:600;font-size:13px}.hp_aiPack .meta{font-size:12px;color:var(--dsw-alias-label-tertiary);display:flex;gap:6px;flex-wrap:wrap;align-items:center}.hp_aiDiff{display:flex;gap:6px}.hp_aiDiff b{font-weight:600;border-radius:7px;padding:2px 8px;font-size:11.5px}.hp_aiDiff .add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent)}.hp_aiDiff .del{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent)}.hp_aiDiff .chg{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)}.hp_aiPlugins{display:flex;flex-direction:column;gap:3px;font-size:12.5px}.hp_aiPlugins .p{display:flex;gap:7px;align-items:center}.hp_aiPlugins .dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-success-primary)}.hp_aiPlugins .pn{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_aiPlugins .pv{color:var(--dsw-alias-label-tertiary);font-size:11.5px}.hp_aiPack .acts{display:flex;gap:8px;flex-wrap:wrap;border-top:1px dashed var(--dsw-alias-border-l2);padding-top:9px}.hp_aiDock{display:flex;flex-direction:column;gap:8px}.hp_aiInputWrap{display:flex;align-items:flex-end;gap:8px;border:1.5px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-2);padding:8px 8px 8px 12px;transition:border-color .15s ease}.hp_aiInputWrap:focus-within{border-color:var(--dsw-alias-state-business-primary)}.hp_aiInputWrap textarea{flex:1;border:0;outline:0;resize:none;background:transparent;font:inherit;font-size:13px;line-height:1.6;max-height:120px;min-height:22px;padding:2px 0;color:var(--dsw-alias-label-primary)}.hp_aiSend{flex:0 0 34px;width:34px;height:34px;border-radius:50%;border:0;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);cursor:pointer;display:grid;place-items:center;transition:transform .12s ease,opacity .15s ease}.hp_aiSend:active{transform:scale(.94)}.hp_aiSend:disabled{opacity:.45;cursor:default}.hp_aiSend svg{width:16px;height:16px}.hp_aiDockNote{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dsw-alias-label-tertiary);flex-wrap:wrap}.hp_aiKeyRow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.hp_settings{border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2);padding:12px 14px;display:flex;flex-direction:column;gap:8px}.hp_welcome{border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:linear-gradient(150deg,color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent),transparent 55%);padding:24px 20px;display:flex;flex-direction:column;gap:10px;text-align:center}.hp_welcome .g{font-size:17px;font-weight:700}.hp_welcome .d{font-size:13px;line-height:1.8;color:var(--dsw-alias-label-secondary);max-width:420px;margin:0 auto}.hp_welcomeRow{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}.hp_check{display:flex;align-items:center;gap:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px;font-size:13px}.hp_check .hp_val{margin-left:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_chip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer}.hp_chip[data-on=true]{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_input{flex:1;min-width:160px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px}.hp_input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.hp_select{flex:0 0 auto;min-width:118px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}.hp_topic{flex:0 0 160px}.hp_link{border:1px solid var(--dsw-alias-border-l2);background:0 0;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:30px;padding:0 12px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:5px}.hp_link:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_expand{margin:0;padding:8px 10px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}.hp_loading{color:var(--dsw-alias-label-tertiary);font-size:13px;margin:0;padding:10px 2px;display:flex;align-items:center;gap:8px}.hp_loading .hp_spin{width:14px;height:14px;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);border-radius:50%;animation:hp-rotate .8s linear infinite;display:inline-block}@keyframes hp-rotate{to{transform:rotate(360deg)}}.hp_aiBub code{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;padding:1px 5px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_aiBub pre{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 10px;overflow-x:auto;margin:6px 0;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.5}.hp_aiBub pre code{background:0 0;border:none;padding:0}.hp_aiBub b{font-weight:600}";
 		const tagId = "dsh-hotplug-hub/hotplug.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -96,7 +96,15 @@ window.__ModuleLoader__.load({
 			marketUpdated: "更新",
 			marketNote: "数据来源：GitHub 标签搜索（官方 API + 多镜像站全并发测速取最快），README 对比提取介绍与安装方法",
 			aiTitle: "小织女仆 · 装配间",
-			aiPlaceholder: "描述你的工作场景和需要的插件能力；装配完成后还能继续对话调整",
+			aiSubtitle: "人设化对话式装配",
+			aiSettings: "连接设置",
+			aiConnNote: "连接",
+			aiModelNow: "当前模型",
+			aiKeyMissing: "本地模拟",
+			aiEnterHint: "Enter 发送 · Shift+Enter 换行",
+			aiWelcomeTitle: "主人，欢迎来到装配间～",
+			aiWelcomeDesc: "描述您需要的工作流，小织会自动挑选真实可用的 npm 插件并织成 hotpack 包。不够满意？直接继续说「换个 xx」「加个功能」，我们边聊边改。",
+			aiPlaceholder: "描述您的需求，小织马上开工。",
 			aiProviderLabel: "AI 服务商",
 			aiPersonaLabel: "装配女仆",
 			aiKeyPlaceholder: "API Key（可留空，走服务端对应环境变量）",
@@ -130,7 +138,7 @@ window.__ModuleLoader__.load({
 			aiDiffChanged: "调整",
 			aiTurn: "第 ",
 			aiTurnEnd: " 轮",
-			aiSamples: ["我要搭一套科研出论文的工作流", "帮我组一个视频剪辑加字幕的包", "考研背单词、刷真题、导闪卡"],
+			aiSamples: ["我要整理读书笔记：双链引用、全文搜索、自动背卡", "我写技术博客：Markdown 编辑、代码高亮、语法检查", "我做自媒体：热点选题、文案初稿、发布清单"],
 			memTitle: "记忆中枢",
 			memIntro: "全局记忆包，与 profile 解耦。切换包不影响记忆。",
 			memPacks: "全局记忆包",
@@ -207,10 +215,11 @@ window.__ModuleLoader__.load({
 			{ id: "pack-notes", name: "知识管理插座包", tags: ["笔记", "知识库", "整理"], desc: "网页收藏、笔记整理、书摘提取与双链", plugins: 3, accent: "#237a57" }
 		];
 		// AI 服务商预设（与后端 lib/core/ai.js AI_PROVIDERS 注册表一致的默认值；
-		// 后端为权威，此处仅作 UI 快捷填充）
+		// 后端为权威，此处仅作 UI 快捷填充。label 只写平台名，模型名由模型输入框体现，
+		// 避免「服务商下拉 + 模型输入框」出现两处模型名造成困惑）
 		const AI_PROVIDER_OPTIONS = [
 			{ id: "deepseek", label: "DeepSeek", baseURL: "https://api.deepseek.com", model: "deepseek-chat" },
-			{ id: "opencode", label: "OpenCode（DeepSeek V4 Flash 等）", baseURL: "https://opencode.ai/zen/go/v1", model: "deepseek-v4-flash" },
+			{ id: "opencode", label: "OpenCode", baseURL: "https://opencode.ai/zen/go/v1", model: "deepseek-v4-flash" },
 			{ id: "openrouter", label: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", model: "deepseek/deepseek-chat" },
 			{ id: "siliconflow", label: "硅基流动", baseURL: "https://api.siliconflow.cn/v1", model: "deepseek-ai/DeepSeek-V3" },
 			{ id: "moonshot", label: "Moonshot（Kimi）", baseURL: "https://api.moonshot.cn/v1", model: "kimi-k2" },
@@ -218,10 +227,39 @@ window.__ModuleLoader__.load({
 			{ id: "minimax", label: "MiniMax", baseURL: "https://api.minimaxi.com/v1", model: "MiniMax-M2.7" },
 			{ id: "custom", label: "自定义（OpenAI 兼容）", baseURL: "", model: "" },
 		];
-		// 人设 → 头像 emoji（与后端 PERSONAS 对应；消息气泡按当前人设展示）
-		const AI_PERSONA_EMOJI = { maid: "🧹", butler: "🎩", neko: "🐱", assistant: "🤖" };
+		const AI_PROVIDER_LABEL = Object.fromEntries(AI_PROVIDER_OPTIONS.map((p) => [p.id, p.label]));
+		// 人设 → 头像徽标（文字优先：不依赖 emoji 字体，渲染稳定）；展示名随标题变化
+		const AI_PERSONA_BADGE = { maid: "织", butler: "管", neko: "喵", assistant: "助" };
+		const AI_PERSONA_NAME = { maid: "小织女仆", butler: "执事管家", neko: "咪咪猫娘", assistant: "标准助手" };
+		const AI_PERSONA_DESC = {
+			maid: "小织为您挑选真实可用的 npm 插件，织成完整的 hotpack 包～不满意就说「换个 xx」「加个功能」，我们边聊边改。",
+			butler: "描述您的工作流需求，我将为您甄选成熟可靠的 npm 插件并装配为完整清单；如不满意，随时吩咐调整。",
+			neko: "告诉咪咪你的工作流，咪咪会挑出好用的插件，织成漂漂亮亮的包喵～不满意的主意，直接跟咪咪说喵！",
+			assistant: "描述您的工作流需求，系统将挑选真实可用的 npm 插件生成 hotpack 包；装配完成后仍可继续对话调整。",
+		};
+		// 人设 → 空态欢迎语标题（不写死「主人」；但ler/assistant 称呼不同）
+		const AI_PERSONA_GREET = {
+			maid: "主人，欢迎来到装配间～小织已经把织布机准备好啦！",
+			butler: "先生/女士，欢迎来到装配间。塞德里克随时待命。",
+			neko: "主人喵～咪咪来啦，今天想织什么插件包喵？",
+			assistant: "欢迎使用 AI 装配间。",
+		};
+		// 人设 → 空态输入坞占位符（不写死「小织」）
+		const AI_PERSONA_PLACEHOLDER = {
+			maid: "描述您的需求，小织马上开工。",
+			butler: "请描述您的需求，塞德里克立即执行。",
+			neko: "告诉咪咪您的需求喵～",
+			assistant: "描述您的需求，装配师立即开工。",
+		};
+		// 人设 → 空态示例芯片（保留核心关键词保证场景命中；语气与内容随人设变化）
+		const AI_PERSONA_SAMPLES = {
+			maid: ["我要整理读书笔记：双链引用、全文搜索、自动背卡", "我写技术博客：Markdown 编辑、代码高亮、语法检查", "我做自媒体：热点选题、文案初稿、发布清单"],
+			butler: ["请规划文献管理工作流：引用整理、全文检索、综述摘要", "构建技术博客流水线：Markdown 编辑、代码高亮、部署检查", "准备自媒体内容排期：热点选题、文案初稿、发布清单"],
+			neko: ["咪咪帮我整理读书笔记喵：双链引用、全文搜索、自动背卡", "给我织个写博客的工具包喵：Markdown 编辑、代码高亮、语法检查", "自媒体工作流喵：热点选题、文案初稿、发布清单"],
+			assistant: ["整理读书笔记：双链引用、全文搜索、自动背卡", "技术博客流程：Markdown 编辑、代码高亮、语法检查", "自媒体流程：热点选题、文案初稿、发布清单"],
+		};
 		const AI_PERSONA_OPTIONS = [
-			["maid", "小织女仆 🧹"], ["butler", "执事管家 🎩"], ["neko", "咪咪猫娘 🐱"], ["assistant", "标准助手 🤖"]
+			["maid", "小织女仆"], ["butler", "执事管家"], ["neko", "咪咪猫娘"], ["assistant", "标准助手"]
 		];
 		function HotplugTab(props) {
 			const api = props.inject ?? {};
@@ -255,6 +293,9 @@ window.__ModuleLoader__.load({
 			});
 			const [aiMessages, setAiMessages] = useState([]); // {role: 'user'|'assistant', text, pack?, diff?, error?}
 			const [aiPack, setAiPack] = useState(null); // {name, tags, pack, readme, diff}
+			const [aiSettingsOpen, setAiSettingsOpen] = useState(false); // 连接设置折叠面板
+			const [aiTesting, setAiTesting] = useState(false); // 「测试连接」进行中
+			const [aiTyping, setAiTyping] = useState(false); // 打字指示器
 			const [aiRunning, setAiRunning] = useState(false);
 			const fileRef = useRef(null);
 			const say = (kind, text) => setNotice({ kind, text });
@@ -421,6 +462,7 @@ window.__ModuleLoader__.load({
 				const text = aiInput.trim();
 				setAiInput("");
 				setAiMessages((prev) => [...prev, { role: "user", text }]);
+				setAiTyping(true);
 				setAiRunning(true);
 				const task = () => {
 					if (typeof api.aiChat !== "function") return Promise.reject(new Error(t("aiNoGatewayChat")));
@@ -447,19 +489,41 @@ window.__ModuleLoader__.load({
 						const pack = d && d.pack ? d.pack : null;
 						const diff = (d && d.diff) || null;
 						if (reply !== "" || pack) {
-							setAiMessages((prev) => [...prev, { role: "assistant", text: reply !== "" ? reply : (t("aiDone") + pack.name), pack, diff, error: false }]);
+							setAiMessages((prev) => [...prev, { role: "assistant", text: reply !== "" ? reply : (t("aiDone") + pack.name), persona: aiPersona, pack, diff, error: false }]);
 						}
 						if (pack) {
 							setAiPack({ name: pack.name, tags: pack.tags || [], pack, readme: (d && d.readme) || "", diff });
-							say("success", t("aiDone") + pack.name);
 						}
 					})
 					.catch((e) => {
 						const msg = String(e && e.message ? e.message : e);
-						setAiMessages((prev) => [...prev, { role: "assistant", text: t("aiFail") + msg, pack: null, diff: null, error: true }]);
-						say("error", t("aiFail") + msg);
+						setAiMessages((prev) => [...prev, { role: "assistant", text: t("aiFail") + msg, persona: aiPersona, pack: null, diff: null, error: true }]);
 					})
-					.finally(() => setAiRunning(false));
+					.finally(() => { setAiTyping(false); setAiRunning(false); });
+			};
+			const doAiTest = () => {
+				if (aiTesting) return;
+				const preset = AI_PROVIDER_OPTIONS.find((p) => p.id === aiProvider);
+				const baseURL = (aiBaseURL.trim() || (preset && preset.baseURL) || "").trim();
+				const model = (aiModel.trim() || (preset && preset.model) || "").trim();
+				const key = aiKey.trim();
+				if (!key) { say("warn", "未填写 API Key：无法测试（留空走服务端环境变量）"); return; }
+				if (!/^https:\/\//i.test(baseURL)) { say("warn", "Base URL 必须以 https:// 开头（TLS 铁律）"); return; }
+				setAiTesting(true);
+				fetch(baseURL.replace(/\/+$/, "") + "/chat/completions", {
+					method: "POST",
+					headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+					body: JSON.stringify({ model, messages: [{ role: "user", content: "ping" }], max_tokens: 8, temperature: 0 })
+				})
+					.then(async (res) => {
+						if (res.ok) say("ok", "✓ 连接成功：" + model);
+						else {
+							const t = await res.text().catch(() => "");
+							say("error", "连接失败 HTTP " + res.status + "：" + t.slice(0, 120));
+						}
+					})
+					.catch((e) => say("error", "连接失败：" + String((e && e.message) || e)))
+					.finally(() => setAiTesting(false));
 			};
 			const doAiNewSession = () => {
 				if (aiMessages.length === 0 && !aiSessionId) return;
@@ -676,76 +740,128 @@ window.__ModuleLoader__.load({
 				) : null,
 				marketData ? h("p", { className: "hp_info" }, t("marketNote")) : null
 			);
-			const renderAi = () => h("div", null,
-				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
-				h("div", { className: "hp_card" },
-					h("div", { className: "hp_heading" }, h("h3", null, t("aiTitle")), aiSessionId ? h("span", null, t("aiTurn") + String(Math.max(1, aiMessages.filter((m) => m.role === "user").length)) + t("aiTurnEnd")) : null),
-					h("div", { className: "hp_bar" },
-						h("label", null, t("aiPersonaLabel")),
-						h("select", { className: "hp_input", value: aiPersona, onChange: (e) => setAiPersona(e.target.value) },
-							AI_PERSONA_OPTIONS.map(([id, label]) =>
-								h("option", { key: id, value: id }, label)
-							)
-						),
-						h("button", { className: "hp_btn", disabled: busy || (aiMessages.length === 0 && !aiSessionId), onClick: doAiNewSession }, t("aiNewSession"))
+			const renderAiMsg = (m, index) => {
+				if (m.role === "user") {
+					return h("div", { key: index, className: "hp_aiMsg user" },
+						h("div", { className: "hp_aiAv" }, "您"),
+						h("div", { className: "hp_aiBub" }, m.text)
+					);
+				}
+				return h("div", { key: index, className: "hp_aiMsg" + (m.error ? " err" : ""), style: m.pack ? { marginBottom: 0 } : null },
+					h("div", { className: "hp_aiAv" + (m.error ? " av-err" : "") }, m.error ? "!" : (AI_PERSONA_BADGE[m.persona || aiPersona] || "助")),
+					h("div", { className: "hp_aiBub" }, fmtText(m.text)),
+					m.pack ? renderPackCard(m.pack, m.diff) : null
+				);
+			};
+			// 助理文本轻渲染（先转义语义后渲染：代码围栏 > 行内代码 > 加粗；链接剥为纯文本）
+			const fmtText = (text) => {
+				const nodes = [];
+				const blocks = [];
+				let s = String(text || "").replace(/```([\s\S]*?)```/g, (m, c) => {
+					blocks.push(c);
+					return "\u0000B" + (blocks.length - 1) + "\u0000";
+				});
+				s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+				s = s.replace(/^\|[\s:|-]+\|\s*$/gm, ""); // 表格分隔行降级丢弃
+				s = s.replace(/^\|(.+)\|\s*$/gm, (m, inner) => inner.split("|").map((x) => x.trim()).filter(Boolean).join(" · "));
+				for (const seg of s.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g)) {
+					if (!seg) continue;
+					const bm = seg.match(/^\u0000B(\d+)\u0000$/);
+					if (bm) { nodes.push(h("pre", { key: nodes.length }, h("code", null, blocks[+bm[1]]))); continue; }
+					if (seg.startsWith("**")) nodes.push(h("b", { key: nodes.length }, seg.slice(2, -2)));
+					else if (seg.startsWith("`")) nodes.push(h("code", { key: nodes.length }, seg.slice(1, -1)));
+					else nodes.push(seg);
+				}
+				return nodes;
+			};
+			const renderPackCard = (pack, diff) => {
+				const d = diff || { added: [], removed: [], changed: [] };
+				const diffEl = (d.added.length + d.removed.length + d.changed.length) > 0
+					? h("div", { className: "hp_aiDiff" },
+						d.added.length ? h("b", { className: "add" }, "+ 新增 " + d.added.length) : null,
+						d.removed.length ? h("b", { className: "del" }, "- 移除 " + d.removed.length) : null,
+						d.changed.length ? h("b", { className: "chg" }, "~ 调整 " + d.changed.length) : null
+					) : null;
+				return h("div", { className: "hp_aiPack" },
+					h("div", { className: "head" },
+						h("span", { className: "name" }, "📦 " + pack.name),
+						h("span", { className: "meta" }, (pack.plugins || []).length + t("pluginsCount"), diffEl)
 					),
-					h("div", { className: "hp_bar" },
+					h("div", { className: "hp_aiPlugins" }, (pack.plugins || []).map((p) =>
+						h("div", { key: p.id ?? p.name, className: "p" },
+							h("span", { className: "dot" }),
+							h("span", { className: "pn" }, p.name + "@" + p.version),
+							h("span", { className: "pv" }, p.id)
+						)
+					)),
+					h("div", { className: "acts" },
+						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: doAiImport }, t("aiImport")),
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(pack, null, 2)); } catch { /* 尽力而为 */ } } }, t("aiCopyManifest")),
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(aiPack && aiPack.readme || ""); } catch { /* 尽力而为 */ } } }, t("aiCopyReadme"))
+					)
+				);
+			};
+			const renderAi = () => h("div", { className: "hp_aiZone" },
+				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
+				h("div", { className: "hp_aiTop" },
+					h("div", { className: "hp_aiTitle" }, h("span", { className: "hp_aiMark" }, "织"), h("span", null, AI_PERSONA_NAME[aiPersona] || "小织女仆"), h("span", null, "· 装配间")),
+					h("div", { className: "hp_aiSpacer" }),
+					h("select", { className: "hp_input", style: { width: "auto" }, value: aiPersona, title: "切换装配女仆", onChange: (e) => setAiPersona(e.target.value) },
+						AI_PERSONA_OPTIONS.map(([id, label]) => h("option", { key: id, value: id }, label))
+					),
+					h("button", { className: "hp_btn", onClick: () => setAiSettingsOpen(!aiSettingsOpen) }, "⚙ 模型"),
+					h("span", { className: "hp_aiTurn" }, aiSessionId ? t("aiTurn") + String(Math.max(1, aiMessages.filter((m) => m.role === "user").length)) + t("aiTurnEnd") : ""),
+					h("button", { className: "hp_btn", disabled: busy || (aiMessages.length === 0 && !aiSessionId), onClick: doAiNewSession }, t("aiNewSession"))
+				),
+				aiSettingsOpen ? h("div", { className: "hp_settings" },
+					h("div", { className: "hp_aiKeyRow" },
 						h("label", null, t("aiProviderLabel")),
-						h("select", { className: "hp_input", value: aiProvider, onChange: (e) => {
+						h("select", { className: "hp_input", style: { flex: "0 1 200px" }, value: aiProvider, onChange: (e) => {
 							const preset = AI_PROVIDER_OPTIONS.find((p) => p.id === e.target.value);
 							setAiProvider(e.target.value);
 							if (preset) { setAiBaseURL(preset.baseURL); setAiModel(preset.model); }
 						} },
 							AI_PROVIDER_OPTIONS.map((p) => h("option", { key: p.id, value: p.id }, p.label))
-						)
+						),
+						h("input", { className: "hp_input", style: { flex: 1 }, placeholder: t("aiModelPlaceholder"), value: aiModel, onChange: (e) => setAiModel(e.target.value), spellCheck: false }),
+						h("button", { className: "hp_btn", disabled: aiTesting, onClick: doAiTest }, aiTesting ? "测试中…" : "测试连接")
 					),
-					h("input", { type: "password", className: "hp_input", placeholder: t("aiKeyPlaceholder"), value: aiKey, onChange: (e) => setAiKey(e.target.value), autoComplete: "off", spellCheck: false }),
-					h("input", { className: "hp_input", placeholder: t("aiBaseUrlPlaceholder"), value: aiBaseURL, onChange: (e) => setAiBaseURL(e.target.value), spellCheck: false }),
-					h("input", { className: "hp_input", placeholder: t("aiModelPlaceholder"), value: aiModel, onChange: (e) => setAiModel(e.target.value), spellCheck: false }),
+					h("div", { className: "hp_aiKeyRow" },
+						h("label", null, "Key"),
+						h("input", { type: "password", className: "hp_input", style: { flex: 1 }, placeholder: t("aiKeyPlaceholder"), value: aiKey, onChange: (e) => setAiKey(e.target.value), autoComplete: "off", spellCheck: false }),
+						h("input", { className: "hp_input", style: { flex: 1 }, placeholder: t("aiBaseUrlPlaceholder"), value: aiBaseURL, onChange: (e) => setAiBaseURL(e.target.value), spellCheck: false })
+					),
+					h("p", { className: "hp_info" }, "预设端点已实测校正：OpenCode = OpenCode Go（需 Go credits Key）；自定义需自填 https:// Base URL。"),
 					h("p", { className: "hp_info" }, t("aiKeyHint")),
 					h("p", { className: "hp_info" }, t("aiPersonaHint"))
-				),
-				h("div", { className: "hp_card" },
-					h("div", { className: "hp_heading" }, h("h3", null, t("aiLog"))),
+				) : null,
+				h("div", { className: "hp_aiChat" },
 					aiMessages.length === 0
-						? h("p", { className: "hp_info" }, t("aiWelcome"))
-						: h("div", { className: "hp_log" }, aiMessages.map((m, index) =>
-							h("div", { key: index, className: m.role === "user" ? "hp_msg" : "hp_msg" + (m.error ? " err" : "") },
-								h("div", { className: "hp_msgRole" }, m.role === "user" ? "🧑" : (m.error ? "⚠️" : (AI_PERSONA_EMOJI[aiPersona] || "🤖"))),
-								h("div", { className: "hp_msgBody" },
-									h("div", { className: "hp_msgText" }, m.text),
-									m.pack ? h("div", { className: "hp_msgPack" },
-										h("b", null, m.pack.name),
-										h("span", null, " · " + (m.pack.plugins ? m.pack.plugins.length : 0) + t("pluginsCount")),
-										m.diff && (m.diff.added || []).length + (m.diff.removed || []).length + (m.diff.changed || []).length > 0
-											? h("span", null, " · " + t("aiDiffTitle") + " +" + (m.diff.added || []).length + " -" + (m.diff.removed || []).length + " ~" + (m.diff.changed || []).length)
-											: null
-									) : null
-								)
-							)
-						))
+						? h("div", { className: "hp_welcome" },
+							h("div", { className: "g" }, AI_PERSONA_GREET[aiPersona] || t("aiWelcomeTitle")),
+							h("div", { className: "d" }, AI_PERSONA_DESC[aiPersona] || t("aiWelcomeDesc")),
+							h("div", { className: "hp_welcomeRow" }, (AI_PERSONA_SAMPLES[aiPersona] || t("aiSamples")).map((sample) =>
+								h("button", { key: sample, className: "hp_chip", onClick: () => setAiInput(sample) }, sample)
+							))
+						)
+						: h("div", null, aiMessages.map(renderAiMsg), aiTyping ? h("div", { key: "typing", className: "hp_aiMsg" },
+							h("div", { className: "hp_aiAv" }, AI_PERSONA_BADGE[aiPersona] || "助"),
+							h("div", { className: "hp_aiBub" }, h("span", { className: "hp_aiTyping" }, h("i"), h("i"), h("i")))
+						) : null)
 				),
-				h("div", { className: "hp_card" },
-					h("textarea", { className: "hp_textarea", placeholder: t("aiPlaceholder"), value: aiInput, onChange: (e) => setAiInput(e.target.value), spellCheck: false, onKeyDown: (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) doAiSend(); } }),
-					h("div", { className: "hp_bar" },
-						t("aiSamples").map((sample) => h("button", { key: sample, className: "hp_chip", onClick: () => setAiInput(sample) }, sample))
+				h("div", { className: "hp_aiDock" },
+					h("div", { className: "hp_aiInputWrap" },
+						h("textarea", { placeholder: AI_PERSONA_PLACEHOLDER[aiPersona] || t("aiPlaceholder"), value: aiInput, onChange: (e) => setAiInput(e.target.value), onKeyDown: (e) => { if (e.key === "Enter" && !e.shiftKey) { if (e.isComposing || e.keyCode === 229) return; e.preventDefault(); doAiSend(); } }, maxLength: 4000, rows: 1, spellCheck: false }),
+						h("button", { className: "hp_aiSend", title: t("aiSend"), disabled: aiRunning || !aiInput.trim(), onClick: doAiSend },
+							h("svg", { viewBox: "0 0 20 20", fill: "none" }, h("path", { d: "M3.5 10L16.5 3.5L12.5 16.5L9.5 11.5L3.5 10Z", stroke: "currentColor", strokeWidth: 1.6, strokeLinejoin: "round" }))
+						)
 					),
-					h("div", { className: "hp_bar" },
-						h("button", { className: "hp_btn hp_primary", disabled: aiRunning || !aiInput.trim(), onClick: doAiSend }, aiRunning ? t("aiSending") : t("aiSend"))
+					h("div", { className: "hp_aiDockNote" },
+						h("span", null, t("aiModelNow") + "：" + aiModel + "（" + (AI_PROVIDER_LABEL[aiProvider] || aiProvider) + "）" + (aiKey ? "" : " · " + t("aiKeyMissing"))),
+						h("span", { style: { flex: 1 } }),
+						h("span", null, t("aiEnterHint"))
 					)
-				),
-				aiPack ? h("div", { className: "hp_card" },
-					h("div", { className: "hp_heading" }, h("h3", null, t("aiResult")), h("span", null, aiPack.name)),
-					h("p", { className: "hp_info" }, t("aiDone") + aiPack.name),
-					h("div", { className: "hp_meta" }, aiPack.tags.map((tag) => h("span", { key: tag, className: "hp_tag" }, tag))),
-					renderAiDiff(aiPack.diff),
-					h("div", { className: "hp_bar" },
-						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(aiPack.pack, null, 2)); } catch { /* 尽力而为 */ } } }, t("aiCopyManifest")),
-						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(aiPack.readme); } catch { /* 尽力而为 */ } } }, t("aiCopyReadme")),
-						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: doAiImport }, t("aiImport"))
-					),
-					h("pre", { className: "hp_code", style: { whiteSpace: "pre-wrap", maxHeight: 200, overflow: "auto" } }, JSON.stringify(aiPack.pack, null, 2))
-				) : null
+				)
 			);
 			const renderMemory = () => h("div", null,
 				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
