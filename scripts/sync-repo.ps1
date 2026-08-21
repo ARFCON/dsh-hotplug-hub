@@ -1,8 +1,10 @@
-﻿# sync-repo.ps1 — 修改前自动同步远程仓库到工作文件夹
+# sync-repo.ps1 — 修改前自动同步远程仓库到工作文件夹
 # 用法: pwsh -File scripts/sync-repo.ps1
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$git = 'C:\Program Files\Git\cmd\git.exe'
+. (Join-Path $PSScriptRoot '_git.ps1')
+$git = Get-GitExe
+Assert-GitExe $git
 if (-not (Test-Path (Join-Path $repo '.git'))) { Write-Error "不是 Git 仓库: $repo"; exit 1 }
 
 Write-Output "== 同步仓库: $repo =="

@@ -1,8 +1,10 @@
-﻿# check-before-upload.ps1 — 上传前检查修改内容是否有错误
+# check-before-upload.ps1 — 上传前检查修改内容是否有错误
 # 用法: pwsh -File scripts/check-before-upload.ps1
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$git = 'C:\Program Files\Git\cmd\git.exe'
+. (Join-Path $PSScriptRoot '_git.ps1')
+$git = Get-GitExe
+Assert-GitExe $git
 $failed = @()
 
 function Step($name, [scriptblock]$block) {
