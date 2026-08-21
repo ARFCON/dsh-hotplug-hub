@@ -45,13 +45,30 @@ function fakeChild(pid = 4242) {
 }
 
 function coreWith(roots, extra = {}) {
-  const core = createCore({
+  // 隔离红线（P5）：home 必须注入——否则 createCore 回退 resolveDshRoot(env).home
+  // （真实主目录），findHarness 会探测真实 ~/.dsh：本机有 DSH 时测试"假绿"、
+  // CI 无 DSH 时 launch 前置失败（ERR_HARNESS_NOT_FOUND，retries/快照/logWarnings
+  // 全部不生效）。在隔离 home 的候选路径放置假 harness（verifyHarness：存在 +
+  // 普通文件 + 体积>0 + 非符号链接），launch 全链路在临时目录内自给自足。
+  const home = path.dirname(roots.storeRoot); // tempRoots: storeRoot = <base>/store
+  const harnessPath = process.platform === 'win32'
+    ? path.join(home, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe')
+    : process.platform === 'darwin'
+      ? path.join(home, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')
+      : path.join(home, '.local', 'bin', 'dsh')
+  fs.mkdirSync(path.dirname(harnessPath), { recursive: true })
+  fs.writeFileSync(harnessPath, 'fake-harness') // 非空普通文件
+  // 注入式夹具（v5 阶段 2）：harness 探测经 dshPort 注入，不再 monkey-patch core.infra。
+  // env 同样隔离 LOCALAPPDATA：Windows 候选1 = LOCALAPPDATA\Programs\DSH Desktop\...
+  // 若指向真实目录可能命中本机真实 DSH 桌面端（假绿）——隔离后候选全部收敛到
+  // 隔离 home 内，测试完全自足。
+  return createCore({
     roots,
+    home,
+    env: { ...process.env, LOCALAPPDATA: path.join(home, 'AppData', 'Local') },
     procPort: createProcPort({ spawn: extra.spawn || (() => { throw new Error('no spawn'); }), spawnSync: () => ({ status: 0, error: null, stderr: '', stdout: '' }) }),
-    dshPort: { findHarness: () => ({ ok: true, harness: 'fake-dsh' }), verifyHarness: () => ({ ok: true }), pluginAdd: async () => ({ ok: false }), isInstalled: () => false }
+    dshPort: { findHarness: () => ({ ok: true, harness: harnessPath }), verifyHarness: () => ({ ok: true }), pluginAdd: async () => ({ ok: false }), isInstalled: () => false }
   });
-  core.infra.harness.findHarness = () => ({ ok: true, harness: 'fake-dsh' });
-  return core;
 }
 
 const PLUGIN_A = { id: 'a', name: 'pkg-a', version: '1.0.0', source: { type: 'npm' }, config: {} };

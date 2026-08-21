@@ -7,7 +7,6 @@ const path = require('path');
 const fs = require('fs');
 const { createCore } = require('../app/create-core');
 const { createProcPort } = require('../ports/proc');
-
 /**
  * 构造假子进程（模拟 spawn 返回值）。
  * @param {object} [opts]
@@ -27,6 +26,7 @@ function createFakeChild(opts = {}) {
 /**
  * 隔离环境：覆盖 HOME/USERPROFILE/LOCALAPPDATA/ProgramFiles，防止测试
  * 中的 findHarness/findDshCli 探测或执行真实 dsh CLI（隔离红线）。
+ * H-1 语义（v5）：DSH_HOME = .dsh 域目录本身 → home/.dsh（resolveDshRoot 契约）。
  * @param {string} home 隔离 home 目录
  * @returns {object} 隔离 env
  */
@@ -39,7 +39,7 @@ function isolatedEnv(home) {
   env.ProgramFiles = home;
   env['ProgramFiles(x86)'] = home;
   env.PATH = home; // PATH 指向隔离目录，杜绝 where dsh.cmd 命中真实 dsh CLI
-  env.DSH_HOME = home;
+  env.DSH_HOME = path.join(home, '.dsh');
   return env;
 }
 

@@ -49,7 +49,7 @@ function cleanEnv(extra = {}) {
     ProgramFiles: path.join(HOME, 'pf'),
     'ProgramFiles(x86)': path.join(HOME, 'pf86'),
     PATH: BIN + path.delimiter + sysPath,
-    DSH_HOME: HOME,
+    DSH_HOME: path.join(QA_ROOT, '.dsh'), // H-1 语义：DSH_HOME = .dsh 域目录
     ...extra
   };
 }
@@ -111,19 +111,28 @@ function writeFakeTools() {
   }
 }
 
-/** 假 harness：win32=node 副本（REPL EOF exit 0）；POSIX=sh 包装 exec node。 */
+/** 假 harness：win32=node 副本（REPL EOF exit 0）；POSIX=sh 包装 exec node。
+ * H-1（v5 阶段 1）：DSH_HOTPLUG_ROOT=QA_ROOT 时 CLI 的 config.home = QA_ROOT →
+ * findHarness 候选基于 QA_ROOT（Linux/macOS）——只放 HOME 在 CI（无真实 DSH）上
+ * 找不到（本机 Windows 靠 LOCALAPPDATA 候选命中而假绿）。POSIX 双放 HOME 与 QA_ROOT。 */
 function writeFakeHarness() {
-  const hpath = process.platform === 'win32'
-    ? path.join(HOME, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe')
-    : process.platform === 'darwin'
-      ? path.join(HOME, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')
-      : path.join(HOME, '.local', 'bin', 'dsh');
-  fs.mkdirSync(path.dirname(hpath), { recursive: true });
-  if (process.platform === 'win32') {
-    fs.copyFileSync(process.execPath, hpath);
-  } else {
-    fs.writeFileSync(hpath, '#!/bin/sh\nexec "' + process.execPath + '"\n');
-    fs.chmodSync(hpath, 0o755);
+  const winPath = path.join(HOME, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe');
+  const posixHome = process.platform === 'darwin'
+    ? [path.join(HOME, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
+    : [path.join(HOME, '.local', 'bin', 'dsh'), path.join(HOME, 'Applications', 'DSH Desktop', 'dsh')];
+  const posixRoot = process.platform === 'darwin'
+    ? [path.join(QA_ROOT, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
+    : [path.join(QA_ROOT, '.local', 'bin', 'dsh'), path.join(QA_ROOT, 'Applications', 'DSH Desktop', 'dsh')];
+  const targets = process.platform === 'win32' ? [winPath] : [...posixHome, ...posixRoot];
+  let hpath = targets[0];
+  for (const t of targets) {
+    fs.mkdirSync(path.dirname(t), { recursive: true });
+    if (process.platform === 'win32') {
+      fs.copyFileSync(process.execPath, t);
+    } else {
+      fs.writeFileSync(t, '#!/bin/sh\nexec "' + process.execPath + '"\n');
+      fs.chmodSync(t, 0o755);
+    }
   }
   return hpath;
 }
@@ -173,7 +182,7 @@ function main() {
   // ---- 2. 假 npm 失败 → 真实退出码透传 ----
   r = cli(['install', ID], { FAKE_NPM_FAIL: '1' });
   check('假 npm 退出 7 → CLI exit=6（安装域）', r.code === 6, `code=${r.code} ${r.stderr.slice(0, 200)}`);
-  const stateFile = path.join(HOME, '.dsh', 'hotplug-store', ID, 'state.json');
+  const stateFile = path.join(QA_ROOT, '.dsh', 'hotplug-store', ID, 'state.json');
   let lastExit = null;
   if (fs.existsSync(stateFile)) {
     const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));

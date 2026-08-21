@@ -6,14 +6,27 @@
 // 可选环境变量：
 //   DSH_MEMORY_HUB_URL  自定义 tgz 下载地址（缺省使用 GitHub Release v0.9.7 资产）
 //   DSH_PROFILE          目标 profile（缺省 web）
+//   DSH_ALLOW_INSTALL_SCRIPTS=1  显式放行依赖 install scripts（R-v5-17 放行通道；
+//                                缺省 npm_config_ignore_scripts=true 纵深防御）
+//
+// v5 安全修复（阶段 1）：
+//   - M-47：删除 profile .npmrc 的 strict-ssl=false（TLS 校验不可静默关闭）；
+//   - H-7：tarballUrl / profile 进 argv 前过 assertShellSafe(Url)（shared 契约）；
+//   - R-v5-17：npm_config_ignore_scripts=true 默认 + 显式放行通道。
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { assertShellSafe, assertShellSafeUrl } from '../packages/shared-core/security/shell.js'
+import { resolveDshRoot } from '../packages/shared-core/contracts/constants.js'
+import { sanitizeChildEnv } from '../packages/shared-core/security/net.js'
 
+// 上游适配（H-1）：根域 = resolveDshRoot()（优先级 DSH_HOTPLUG_ROOT > DSH_HOME >
+// ~/.dsh），profile 落其下；此前硬编码 ~/.dsh 无法在隔离/自定义根环境使用。
+const dshRoot = resolveDshRoot(process.env).dshRoot
 const home = os.homedir()
 const profile = process.env.DSH_PROFILE || 'web'
-const profileRoot = path.join(home, '.dsh', 'profiles', profile)
+const profileRoot = path.join(dshRoot, 'profiles', profile)
 const pkgFile = path.join(profileRoot, 'node_modules', 'dsh-memory-hub', 'package.json')
 const tarballUrl = process.env.DSH_MEMORY_HUB_URL ||
   'https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.7/dsh-memory-hub-0.8.0-pre.tgz'
@@ -31,20 +44,6 @@ function tarballVersion(url) {
   return m ? m[1] : null
 }
 
-function ensureProfileNpmrc() {
-  try {
-    fs.mkdirSync(profileRoot, { recursive: true })
-    const npmrc = path.join(profileRoot, '.npmrc')
-    const line = 'strict-ssl=false'
-    const text = fs.existsSync(npmrc) ? fs.readFileSync(npmrc, 'utf8') : ''
-    if (!text.includes(line)) {
-      fs.appendFileSync(npmrc, (text.endsWith('\n') ? '' : '\n') + line + '\n')
-    }
-  } catch (e) {
-    console.log('warn: cannot write .npmrc:', e.message)
-  }
-}
-
 function findDshCli() {
   // 1) DSH Desktop 内置 bin.js（最可靠，优先）
   const base = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local')
@@ -53,8 +52,8 @@ function findDshCli() {
     return { bin: process.execPath, args: [builtin, 'plugin', '--profile', profile, 'add', tarballUrl] }
   }
 
-  // 2) ~/.dsh 下的内置 dsh
-  const alt = path.join(home, '.dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+  // 2) 根域下的内置 dsh（resolveDshRoot 语义，非硬编码 ~/.dsh）
+  const alt = path.join(dshRoot, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
   if (fs.existsSync(alt)) {
     return { bin: process.execPath, args: [alt, 'plugin', '--profile', profile, 'add', tarballUrl] }
   }
@@ -67,16 +66,34 @@ function findDshCli() {
 }
 
 function runDshPluginAdd() {
+  // H-7：URL / profile 进 argv 前过 shell 安全契约（白名单 + 无元字符）
+  const urlCheck = assertShellSafeUrl(tarballUrl, 'tarballUrl')
+  if (!urlCheck.ok) {
+    console.error('tarballUrl 非法：' + urlCheck.error.message)
+    process.exit(2)
+  }
+  const profileCheck = assertShellSafe(profile, 'profile')
+  if (!profileCheck.ok) {
+    console.error('profile 非法：' + profileCheck.error.message)
+    process.exit(2)
+  }
   const ver = tarballVersion(tarballUrl)
   const installed = installedVersion()
   if (installed && ver && installed === ver) {
     console.log('already installed: dsh-memory-hub@' + installed)
     return
   }
-  ensureProfileNpmrc()
   const { bin, args } = findDshCli()
   console.log('run:', bin, args.join(' '))
-  const r = spawnSync(bin, args, { stdio: 'inherit', cwd: home })
+  // R-v5-17：安装脚本 RCE 纵深防御——默认 ignore-scripts，显式放行通道
+  // DSH_ALLOW_INSTALL_SCRIPTS=1（dsh-memory-hub 无 install scripts，放行无副作用）
+  // M-3（安全审计）：子进程 env 经 sanitizeChildEnv 净化——NODE_OPTIONS /
+  // NODE_TLS_REJECT_UNAUTHORIZED / CA / SSL 变量不泄漏进安装进程（否则父环境被
+  // 污染时可注入代码或静默关闭 tarball 下载的 TLS 校验）。
+  const allowScripts = process.env.DSH_ALLOW_INSTALL_SCRIPTS === '1'
+  const spawnEnv = sanitizeChildEnv(process.env)
+  if (!allowScripts) spawnEnv.npm_config_ignore_scripts = 'true'
+  const r = spawnSync(bin, args, { stdio: 'inherit', cwd: home, env: spawnEnv })
   if (r.error) {
     console.error('failed to run dsh plugin add:', r.error.message)
     process.exit(1)

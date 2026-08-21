@@ -46,7 +46,7 @@ function cleanEnv(extra = {}, opts = {}) {
   env.LOCALAPPDATA = path.join(HOME, 'AppData', 'Local');
   env.ProgramFiles = HOME;
   env['ProgramFiles(x86)'] = HOME;
-  env.DSH_HOME = HOME;
+  env.DSH_HOME = path.join(QA_ROOT, '.dsh'); // H-1 语义：DSH_HOME = .dsh 域目录
   env.DSH_HOTPLUG_ROOT = QA_ROOT;
   if (!opts.keepPath) env.PATH = HOME;
   return env;
@@ -101,7 +101,7 @@ function writeAssembly(plugins) {
 function cleanup() {
   try { fs.rmSync(ASSEMBLY_DIR, { recursive: true, force: true }); } catch (_) { /* ok */ }
   try { fs.rmSync(SANDBOX_DIR, { recursive: true, force: true }); } catch (_) { /* ok */ }
-  try { fs.rmSync(path.join(HOME, '.dsh'), { recursive: true, force: true }); } catch (_) { /* ok */ }
+  try { fs.rmSync(path.join(QA_ROOT, '.dsh'), { recursive: true, force: true }); } catch (_) { /* ok */ }
   try { fs.rmSync(QA_ROOT, { recursive: true, force: true }); } catch (_) { /* ok */ }
 }
 
@@ -110,20 +110,29 @@ function cleanup() {
  * - win32：node.exe 副本 + NODE_OPTIONS --require=keepalive（3s 后退出 0）；
  * - POSIX：sh 包装脚本 exec node -e "…KEEPALIVE_MARKER…"（自含常驻代码，
  *   无需 NODE_OPTIONS；stageLaunch 传入的 --profile 参数被忽略）。
+ * H-1（v5 阶段 1）：DSH_HOTPLUG_ROOT=QA_ROOT 时 CLI 的 config.home = QA_ROOT →
+ * findHarness 候选基于 QA_ROOT（Linux/macOS）——只放 HOME 在 CI（无真实 DSH）上
+ * 找不到（本机 Windows 靠 LOCALAPPDATA 候选命中而假绿）。POSIX 双放 HOME 与 QA_ROOT。
  */
 function writeKeepaliveHarness(keepalive) {
-  const hpath = process.platform === 'win32'
-    ? path.join(HOME, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe')
-    : process.platform === 'darwin'
-      ? path.join(HOME, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')
-      : path.join(HOME, '.local', 'bin', 'dsh');
-  fs.mkdirSync(path.dirname(hpath), { recursive: true });
-  if (process.platform === 'win32') {
-    fs.copyFileSync(process.execPath, hpath);
-  } else {
-    const code = `setInterval(()=>{},1000);setTimeout(()=>process.exit(0),3000);//${KEEPALIVE_MARKER}`;
-    fs.writeFileSync(hpath, '#!/bin/sh\nexec "' + process.execPath + '" -e "' + code + '"\n');
-    fs.chmodSync(hpath, 0o755);
+  const winPath = path.join(HOME, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe');
+  const posixHome = process.platform === 'darwin'
+    ? [path.join(HOME, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
+    : [path.join(HOME, '.local', 'bin', 'dsh'), path.join(HOME, 'Applications', 'DSH Desktop', 'dsh')];
+  const posixRoot = process.platform === 'darwin'
+    ? [path.join(QA_ROOT, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
+    : [path.join(QA_ROOT, '.local', 'bin', 'dsh'), path.join(QA_ROOT, 'Applications', 'DSH Desktop', 'dsh')];
+  const targets = process.platform === 'win32' ? [winPath] : [...posixHome, ...posixRoot];
+  let hpath = targets[0];
+  for (const t of targets) {
+    fs.mkdirSync(path.dirname(t), { recursive: true });
+    if (process.platform === 'win32') {
+      fs.copyFileSync(process.execPath, t);
+    } else {
+      const code = `setInterval(()=>{},1000);setTimeout(()=>process.exit(0),3000);//${KEEPALIVE_MARKER}`;
+      fs.writeFileSync(t, '#!/bin/sh\nexec "' + process.execPath + '" -e "' + code + '"\n');
+      fs.chmodSync(t, 0o755);
+    }
   }
   return { hpath, keepalive };
 }
@@ -163,7 +172,7 @@ async function main() {
   if (errMsgs.length) console.log('  非零退出消息：', errMsgs);
 
   // state 完整性：单进程读回校验
-  const stateFile = path.join(HOME, '.dsh', 'hotplug-store', ID, 'state.json');
+  const stateFile = path.join(QA_ROOT, '.dsh', 'hotplug-store', ID, 'state.json');
   check('state.json 存在', fs.existsSync(stateFile), stateFile);
   // 隔离红线回归（A2）：CLI 子进程必须把 state 写到隔离 HOME，
   // 真实用户 HOME 的 ~/.dsh 不得出现本测试的任何条目

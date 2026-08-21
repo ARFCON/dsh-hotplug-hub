@@ -58,19 +58,19 @@ function check(name, cond, detail) {
   // 4. logs example
   const l = run(['logs', 'example', '--tail', '3']);
   check('CLI logs example exit=0', l.code === 0, `code=${l.code}`);
-  // 5. launch example（未 install，设计上应 ERR_ENV_UNSUPPORTED exit=12 —— 行为变化记录）
+  // 5. launch example（未 install，M-36 后专属码 ERR_ARG_BAD_STATE exit=2 —— 行为变化记录）
   const lc = run(['launch', 'example', '--wait']);
-  const launchBlocked = lc.code === 12 && (lc.stderr || lc.stdout).includes('前置命令');
-  check('CLI launch 未install 前置拒绝(设计行为, exit=12)', launchBlocked, `code=${lc.code} msg=${(lc.stderr || lc.stdout).split('\n')[0]}`);
+  const launchBlocked = lc.code === 2 && (lc.stderr || lc.stdout).includes('前置命令');
+  check('CLI launch 未install 前置拒绝(设计行为, exit=2)', launchBlocked, `code=${lc.code} msg=${(lc.stderr || lc.stdout).split('\n')[0]}`);
   // 6. 穿越向量 CLI 仍全拒
   for (const v of ['../escape', '..\\escape', 'a/../../../x', 'CON']) {
     const r = run(['assemble', v]);
     check(`CLI 穿越[${v}] exit=2`, r.code === 2, `code=${r.code}`);
   }
-  // 7. --yes 位置无关（无信号时 heal 返回 ERR_HEAL_NO_ACTION exit=9，FIX-7）
+  // 7. --yes 位置无关（未 launch 的 profile：M-24 守卫 → 两形态同码 exit=2）
   const h1 = run(['heal', '--yes', 'example']);
   const h2 = run(['heal', 'example', '--yes']);
-  check('CLI --yes 位置无关', h1.code === h2.code && h1.code === 9, `h1=${h1.code} h2=${h2.code}`);
+  check('CLI --yes 位置无关', h1.code === h2.code && h1.code === 2, `h1=${h1.code} h2=${h2.code}`);
   // 8. --json 可解析（完整 stdout）
   const j = run(['status', 'example', '--json']);
   let jsonOk = false;

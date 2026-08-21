@@ -5,11 +5,17 @@
 //   - F：check/status 只读命令不写 state
 //   - G：resolved 被真正消费；外部修正通过 mergeState 保留（N34 修复）
 //   - N33：state 损坏时禁止覆盖，返回错误而非空骨架整体写回
+// v5（M-28/H-14）：读路径经 shared schemas 校验（phase enum）；
+// 旧 phase 不在新 STATES → 映射 IDLE 并记 migratedFrom（兼容性契约 §9）。
 const crypto = require('crypto');
 const path = require('path');
 const { SCHEMA_VERSION } = require('../contracts/constants');
 const { makeError } = require('../contracts/errors');
 const { writeFileAtomic } = require('./atomic');
+const { validateState, validateRunLine, validateCommandResult } = require('../contracts/schemas');
+const stateMachine = require('../contracts/state-machine');
+
+const VALID_PHASES = new Set(Object.keys(stateMachine.STATES));
 
 /**
  * 创建空 state。
@@ -46,6 +52,11 @@ function readState(fsPort, stateFile) {
   }
   const migrated = migrateState(raw);
   if (!migrated.ok) return migrated;
+  // H-14（v5）：读路径 schema 校验（phase enum 等）
+  const check = validateState(migrated.state);
+  if (!check.ok) {
+    return { ok: false, error: makeError('ERR_ENV_UNSUPPORTED', `state.json 不符合 schema：${check.errors.join('；')}`, { cause: raw }) };
+  }
   return { ok: true, state: migrated.state };
 }
 
@@ -78,6 +89,11 @@ function migrateState(raw) {
   }
   const empty = createEmptyState(typeof next.id === 'string' ? next.id : 'unknown');
   const merged = { ...empty, ...next };
+  // 兼容性契约 §9（v5）：旧 phase 不在新 STATES → 映射 IDLE 并记 migratedFrom
+  if (typeof merged.phase === 'string' && !VALID_PHASES.has(merged.phase)) {
+    merged.migratedFrom = merged.phase;
+    merged.phase = stateMachine.STATES.IDLE;
+  }
   if (!merged.resolved || typeof merged.resolved !== 'object') merged.resolved = empty.resolved;
   else merged.resolved = { ...empty.resolved, ...merged.resolved };
   if (!merged.install || typeof merged.install !== 'object') merged.install = empty.install;

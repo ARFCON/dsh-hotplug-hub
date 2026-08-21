@@ -9,7 +9,9 @@ const { makeError } = require('../contracts/errors');
 // （命令注入/参数断裂）。此前 quoteCmdArg 手写引号同样被 libuv 转义破坏；
 // 现在改为显式拒绝（调用方上游的 id/profile/spec 均已通过白名单校验，
 // 正常值不含这些字符；异常值宁可报错也不静默注入）。
-const CMD_SPECIAL_RE = /[&|<>^%()!"]/;
+// 特殊字符集收敛于 infra/cmd-special.js（CMD_EXE_SPECIAL_RE，与契约
+// CMD_SPECIAL_RE 的 POSIX shell 集不同——勿混用）。
+const { CMD_EXE_SPECIAL_RE } = require('./cmd-special');
 
 /**
  * 定位 dsh CLI。
@@ -42,7 +44,7 @@ function findDshCli(core, opts = {}) {
   // 3) PATH 上的 dsh（Windows 用 cmd.exe /c）
   if (platform === 'win32') {
     // C6 修复：profile 是已校验 id（白名单无特殊字符）；防御性拒绝异常值
-    if (CMD_SPECIAL_RE.test(String(profile))) {
+    if (CMD_EXE_SPECIAL_RE.test(String(profile))) {
       return { ok: false, error: makeError('ERR_ARG_BAD_OPTION', `profile 含 cmd 特殊字符，拒绝经 cmd 执行：${profile}`) };
     }
     return { ok: true, bin: 'cmd.exe', args: ['/c', 'dsh', 'plugin', '--profile', profile, 'add'] };
@@ -64,10 +66,10 @@ function pluginAddCommand(core, opts) {
   const isWin = core.config.platform === 'win32';
   // C6 修复：win32 分支同样不做手写引号（libuv 转义破坏），改为显式拒绝特殊字符
   const spec = String(opts.packageSpec || '');
-  if (isWin && CMD_SPECIAL_RE.test(spec)) {
+  if (isWin && CMD_EXE_SPECIAL_RE.test(spec)) {
     return { ok: false, error: makeError('ERR_ARG_BAD_OPTION', `包规格含 cmd 特殊字符，拒绝经 cmd 执行：${spec}`) };
   }
   return { ok: true, bin: base.bin, args: [...base.args, spec] };
 }
 
-module.exports = { findDshCli, pluginAddCommand, CMD_SPECIAL_RE };
+module.exports = { findDshCli, pluginAddCommand, CMD_EXE_SPECIAL_RE };

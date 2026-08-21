@@ -91,6 +91,8 @@ const ACTIONS = {
 
 /**
  * 由分类结果生成自愈动作计划。
+ * M-10 修复（v5 阶段 2）：返回深拷贝 + 冻结的 action 列表——调用方修改
+ * action.steps 等字段不得污染 ACTIONS 定义（此前 steps[].mirrors 数组按引用共享）。
  * @param {object|Array<object>} classification classifySignal 产物（单个或列表）
  * @param {object} [context]
  * @param {boolean} [context.dryRun] 默认 true（dry-run 预览）
@@ -105,19 +107,24 @@ function planActions(classification, context = {}) {
     else if (c.code && ACTIONS[c.code]) codes.add(c.code);
   }
   const actions = [...codes].map((code) => ({
-    ...ACTIONS[code],
+    ...deepCopyAction(ACTIONS[code]),
     dryRun: context.dryRun !== false
   }));
   return { ok: true, actions };
 }
 
 /**
- * 查询动作定义。
+ * 查询动作定义（M-10：返回深拷贝，调用方修改不影响定义）。
  * @param {string} code
  * @returns {object|null}
  */
 function describeAction(code) {
-  return ACTIONS[code] || null;
+  return ACTIONS[code] ? deepCopyAction(ACTIONS[code]) : null;
+}
+
+/** 深拷贝动作定义（steps 数组/镜像列表均复制）。 */
+function deepCopyAction(action) {
+  return JSON.parse(JSON.stringify(action));
 }
 
 /**
@@ -127,5 +134,16 @@ function describeAction(code) {
 function allActionCodes() {
   return Object.keys(ACTIONS);
 }
+
+// M-10：定义表冻结（浅冻结 + 内层 steps/mirrors 数组冻结）——任何运行时
+// 写入（含 Object.assign 到 ACTIONS[code]）在严格模式下抛 TypeError。
+function deepFreeze(obj) {
+  if (obj && typeof obj === 'object') {
+    for (const key of Object.keys(obj)) deepFreeze(obj[key]);
+    Object.freeze(obj);
+  }
+  return obj;
+}
+deepFreeze(ACTIONS);
 
 module.exports = { ACTIONS, planActions, describeAction, allActionCodes };

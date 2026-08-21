@@ -1,4 +1,4 @@
-﻿# DSH 热插拔中枢（dsh-hotplug-hub）说明文档
+# DSH 热插拔中枢（dsh-hotplug-hub）说明文档
 
 ## 1. 项目简介
 
@@ -20,7 +20,7 @@ DeepSeek Harness（dsh）是插座，这个插件是插在插座上的“空排�
 |---|---|
 | 插件中枢 | 导入 hotpack JSON（粘贴或选文件）、包列表、预览（复用/待下载）、激活/停用/移除、store 缓存展示 |
 | 插件包市场 | 6 个内置示例包目录（科研/视频/社交/考研/全栈/笔记），搜索 + 标签筛选 + 一键导入 |
-| AI 组装 | 输入需求描述 → 关键词匹配场景 → 5 步日志动画 → 生成 hotpack manifest + README → 复制 JSON 或一键导入 |
+| AI 装配间 | 人设化对话式装配（小织女仆/执事管家/咪咪猫娘/标准助手可切换）：自然语言需求 → 真实 LLM（DeepSeek / OpenCode / OpenRouter / 硅基流动 / Moonshot / 智谱 / MiniMax 或任意 OpenAI 兼容端点）→ 权威校验的 hotpack manifest + README → 复制 JSON 或一键导入；装配完成后可继续对话增量修改，会话本地续接，每轮展示新增/移除/调整 diff |
 | 记忆中枢 | 展示 ~/.dsh/memory 全局记忆目录路径与 store 缓存条目 |
 | 自检更新 | 调用 check() 远程方法，展示 Node/pnpm 版本、profile 状态、patch 状态、插件冲突矩阵、包数/store 数 |
 
@@ -65,9 +65,9 @@ dsh plugin --profile desktop add "link:$HOME/.dsh/plugin-src/dsh-hotplug-hub"
 4. 停用 / 移除：停用卸载当前包（保留 store 缓存，下次激活秒复用）；移除只删包记录。
 5. 挂载变更在重启 DSH 后生效（dsh profile 机制决定）。
 
-也可以从插件包市场页签选示例包一键导入，或在 AI 组装页签用自然语言描述需求自动生成 manifest。
+也可以从插件包市场页签选示例包一键导入，或在 AI 装配间页签用自然语言描述需求自动生成 manifest，并继续对话调整。
 
-## 6. Remote 服务 dshHotplug（7 个方法）
+## 6. Remote 服务 dshHotplug（11 个方法）
 
 | 方法 | 参数 | 功能 |
 |---|---|---|
@@ -78,6 +78,10 @@ dsh plugin --profile desktop add "link:$HOME/.dsh/plugin-src/dsh-hotplug-hub"
 | deactivate | — | 卸载当前激活包（保留 store 缓存） |
 | removePack | packId | 移除未激活的包记录 |
 | check | — | 自检：Node/pnpm 版本、profile 状态、patch 状态、插件冲突矩阵、包数/store 数 |
+| marketList | params | GitHub 市场列表（topic 搜索 + 多镜像测速，返回元数据） |
+| marketDetail | params | 单仓库详情（README/package.json/hotpack 对比提取，含缓存） |
+| aiAssemble | params | 需求 → LLM → 权威校验的 hotpack 清单 + README（多平台，key 仅内存/env） |
+| aiChat | params | 人设化对话式装配：首轮组装，后续轮对话式增量修改/闲聊，会话本地续接，产物返回 diff |
 
 ## 7. 热插拔包格式（hotpack v1）
 

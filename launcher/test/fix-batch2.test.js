@@ -33,13 +33,12 @@ function writeAssembly(roots, id, obj) {
 }
 
 function coreWith(roots) {
-  const core = createCore({
+  // 注入式夹具（v5 阶段 2）：harness 探测经 dshPort 注入，不再 monkey-patch core.infra
+  return createCore({
     roots,
     procPort: createProcPort({ spawn: () => { throw new Error('no spawn'); }, spawnSync: () => ({ status: 0, error: null, stderr: '', stdout: '' }) }),
     dshPort: { findHarness: () => ({ ok: true, harness: 'fake-dsh' }), verifyHarness: () => ({ ok: true }), pluginAdd: async () => ({ ok: false }), isInstalled: () => false }
   });
-  core.infra.harness.findHarness = () => ({ ok: true, harness: 'fake-dsh' });
-  return core;
 }
 
 describe('FIX-6 legacy assembly 双格式', () => {
@@ -83,7 +82,7 @@ describe('FIX-6 legacy assembly 双格式', () => {
 });
 
 describe('FIX-7 heal 无信号 ERR_HEAL_NO_ACTION', () => {
-  it('无 run.jsonl 信号 → exit 9 且 code=ERR_HEAL_NO_ACTION', async () => {
+  it('无 run.jsonl 信号 → exit 9 且 code=ERR_HEAL_NO_ACTION（M-24：需处于可自愈状态）', async () => {
     const { roots } = tempRoots();
     writeAssembly(roots, 'example', {
       hotpack: '1.0', id: 'example', name: '示例', version: '1.0.0',
@@ -92,6 +91,12 @@ describe('FIX-7 heal 无信号 ERR_HEAL_NO_ACTION', () => {
     const core = coreWith(roots);
     const args = { id: 'example', yes: true, wait: false, timeoutMs: 1000, tail: 50 };
     await runPipeline(core, 'assemble', args);
+    // 预置 phase=MONITORING（可自愈状态；M-24 后 IDLE/CHECKED 直接 heal 属非法转移）
+    const { stateFilePath } = require('../infra/store');
+    const sf = stateFilePath(roots.storeRoot, 'example');
+    const st = JSON.parse(fs.readFileSync(sf, 'utf8'));
+    st.phase = 'MONITORING';
+    fs.writeFileSync(sf, JSON.stringify(st, null, 2) + '\n');
     const r = await runPipeline(core, 'heal', args);
     expect(r.ok).toBe(false);
     expect(r.code).toBe('ERR_HEAL_NO_ACTION');
@@ -101,11 +106,12 @@ describe('FIX-7 heal 无信号 ERR_HEAL_NO_ACTION', () => {
 
 describe('FIX-8 状态机补全可达性', () => {
   it('QUARANTINED→INSTALLED / ROLLED_BACK→INSTALLED / MONITORING→FAILED / FAILED→IDLE / HEALING→SYNCED 均可转移', () => {
-    expect(canTransition(STATES.QUARANTINED, STATES.INSTALLED)).toBe(true);
-    expect(canTransition(STATES.ROLLED_BACK, STATES.INSTALLED)).toBe(true);
-    expect(canTransition(STATES.MONITORING, STATES.FAILED)).toBe(true);
-    expect(canTransition(STATES.FAILED, STATES.IDLE)).toBe(true);
-    expect(canTransition(STATES.HEALING, STATES.SYNCED)).toBe(true);
+    const { transitionInfo } = require('../contracts/state-machine');
+    expect(transitionInfo(STATES.QUARANTINED, STATES.INSTALLED)).not.toBeNull();
+    expect(transitionInfo(STATES.ROLLED_BACK, STATES.INSTALLED)).not.toBeNull();
+    expect(transitionInfo(STATES.MONITORING, STATES.FAILED)).not.toBeNull(); // *→FAILED
+    expect(transitionInfo(STATES.FAILED, STATES.IDLE)).not.toBeNull();
+    expect(transitionInfo(STATES.HEALING, STATES.SYNCED)).not.toBeNull();
   });
 
   it('QUARANTINED 经 install 命令可恢复（手册：用户确认移除后重新安装）', () => {

@@ -41,13 +41,26 @@ function writeAssembly(roots, id, plugins) {
 }
 
 function coreWith(roots) {
-  const core = createCore({
+  // 隔离红线（P5）：home 必须注入 + 候选路径放假 harness——否则 findHarness 探测
+  // 真实 ~/.dsh（本机假绿 / CI 无 DSH 时 launch 前置失败 ERR_HARNESS_NOT_FOUND，
+  // logWarnings 等 launch 后行为全部不生效）。见 fix-batch1.test.js 同款说明。
+  const home = path.dirname(roots.storeRoot);
+  const harnessPath = process.platform === 'win32'
+    ? path.join(home, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe')
+    : process.platform === 'darwin'
+      ? path.join(home, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')
+      : path.join(home, '.local', 'bin', 'dsh')
+  fs.mkdirSync(path.dirname(harnessPath), { recursive: true })
+  fs.writeFileSync(harnessPath, 'fake-harness')
+  // 注入式夹具（v5 阶段 2）：harness 探测经 dshPort 注入，不再 monkey-patch core.infra。
+  // env 同样隔离 LOCALAPPDATA（Windows 候选1），测试完全自足（见 fix-batch1 说明）。
+  return createCore({
     roots,
+    home,
+    env: { ...process.env, LOCALAPPDATA: path.join(home, 'AppData', 'Local') },
     procPort: createProcPort({ spawn: () => { throw new Error('no spawn'); }, spawnSync: () => ({ status: 0, error: null, stderr: '', stdout: '' }) }),
-    dshPort: { findHarness: () => ({ ok: true, harness: 'fake-dsh' }), verifyHarness: () => ({ ok: true }), pluginAdd: async () => ({ ok: false }), isInstalled: () => false }
+    dshPort: { findHarness: () => ({ ok: true, harness: harnessPath }), verifyHarness: () => ({ ok: true }), pluginAdd: async () => ({ ok: false }), isInstalled: () => false }
   });
-  core.infra.harness.findHarness = () => ({ ok: true, harness: 'fake-dsh' });
-  return core;
 }
 
 describe('FIX-19/25 缺参退出码 =2 确认', () => {

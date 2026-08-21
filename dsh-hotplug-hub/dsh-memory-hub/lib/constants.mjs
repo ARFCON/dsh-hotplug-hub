@@ -3,6 +3,9 @@
  *
  * 集中记忆包格式、条目字段、召回预算、存储路径布局的所有魔法数字，
  * 让本插件的其它模块与测试都从这里派生，避免散落的重复常量。
+ *
+ * v5 重构（阶段 0b，R-v5-6）：PACK_ID_RE 单一真源 = vendor-shared（shared-core
+ * 字节副本）；本文件其余常量保持本地（memory 域专属，无重复）。
  */
 
 /** 插件命名空间（路由/前缀/审计 source 用）。 */
@@ -12,8 +15,8 @@ export const PACK_SCHEMA_VERSION = 1
 /** 协议名（写语义核心对外的自描述名）。 */
 export const PROTOCOL_ID = 'dsh-memory-protocol'
 
-/** 记忆包 ID：1-64 位，字母开头，允许 . _ -（沿用 hotpack PACK_ID_RE 风格）。 */
-export const PACK_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i
+/** 记忆包 ID：1-64 位，字母开头，允许 . _ -（单一真源 = vendor-shared constants）。 */
+export { PACK_ID_RE } from '../vendor-shared/index.mjs'
 /** 条目 name（kebab slug）合法集：Unicode 字母/数字开头，允许 . _ -，1-64 位（中文标题可原样成名字段）。 */
 export const NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N}._-]{0,63}$/u
 /** 引用限定引用（project/<name>.md | global/<name>.md，name 同上 Unicode 规则）。 */

@@ -6,7 +6,8 @@
 const path = require('path');
 const { GITHUB_MIRRORS } = require('../contracts/constants');
 const { makeError } = require('../contracts/errors');
-const { CMD_SPECIAL_RE } = require('./dsh-cli');
+const { CMD_EXE_SPECIAL_RE } = require('./dsh-cli');
+const { sanitizeChildEnv } = require('@dsh/shared-core/security/net');
 
 /**
  * 安装 npm 插件：优先 dsh plugin add 通道，降级 npm install。
@@ -40,10 +41,13 @@ async function installNpmPlugin(core, plugin, profile) {
     : ['install', '--no-audit', '--no-fund', spec];
   let sr;
   try {
+    // M-2（安全审计）：npm 子进程 env 净化（防 NODE_OPTIONS 注入 / TLS 静默关闭）；
+    // 显式传 env 后子进程不再隐式继承 process.env，npm_config_* 用户配置仍保留。
     sr = procPort.spawnSync(npmBin, npmArgs, {
       cwd: profile,
       stdio: 'pipe',
-      encoding: 'utf8'
+      encoding: 'utf8',
+      env: sanitizeChildEnv(core.config.env || process.env)
     });
   } catch (e) {
     return { ok: false, error: makeError('ERR_INSTALL_FAILED', `npm install 无法执行：${e.message}`) };
@@ -160,11 +164,16 @@ async function installGithubPluginWithMirror(core, plugin, profile, explicitMirr
   // 形态存在（shim 安装），spawnSync('git') 直接执行返回 ENOENT，须经 cmd.exe /c
   // 包装。参数中的 cmd 特殊字符显式拒绝（libuv 会把内嵌引号转义为 \" 导致 cmd
   // 无法解析——防命令注入/引号破坏，宁可报错也不静默注入）。
+  // m8（安全审计）：repo/ref 另拒空白——cmd /c 下空白会改变参数切分（repo/ref
+  // 本就不含空白，拒绝无害）；target 是本地路径（可合法含空格），不在此列。
   if (isWin) {
-    for (const part of [repo, ref, target]) {
-      if (CMD_SPECIAL_RE.test(String(part))) {
-        return { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', `git 参数含 cmd 特殊字符，拒绝经 cmd 执行：${part}`) };
+    for (const part of [repo, ref]) {
+      if (CMD_EXE_SPECIAL_RE.test(String(part)) || /\s/.test(String(part))) {
+        return { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', `git 参数含 cmd 特殊字符/空白，拒绝经 cmd 执行：${part}`) };
       }
+    }
+    if (CMD_EXE_SPECIAL_RE.test(String(target))) {
+      return { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', `git 目标路径含 cmd 特殊字符，拒绝经 cmd 执行：${target}`) };
     }
   }
   const gitBin = isWin ? 'cmd.exe' : 'git';
@@ -185,9 +194,12 @@ async function installGithubPluginWithMirror(core, plugin, profile, explicitMirr
     }
     let gr;
     try {
+      // M-2（安全审计）：git 子进程 env 净化（同 npm 通道）；显式传 env，
+      // git 凭据/代理等用户配置仍保留（仅删可削弱 TLS / 可注入的变量）。
       gr = procPort.spawnSync(gitBin, isWin ? ['/c', 'git', ...gitBaseArgs, url, target] : [...gitBaseArgs, url, target], {
         stdio: 'pipe',
-        encoding: 'utf8'
+        encoding: 'utf8',
+        env: sanitizeChildEnv(core.config.env || process.env)
       });
     } catch (e) {
       lastErr = makeError('ERR_INSTALL_ACQUIRE', `git clone 无法执行：${e.message}`);

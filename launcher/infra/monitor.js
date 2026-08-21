@@ -6,36 +6,10 @@
 // 半行字节始终保留在 pending Buffer 中，跨 chunk 安全。
 //
 // CRLF 处理：行尾 \r 剥除（Windows 特判）。
-
-/**
- * 严格 UTF-8 校验（Buffer.isUtf8 为 Node 20+ API；手写回退兼容 Node 18）。
- * @param {Buffer} buf
- * @returns {boolean}
- */
-function isValidUtf8(buf) {
-  if (typeof Buffer.isUtf8 === 'function') return Buffer.isUtf8(buf);
-  let i = 0;
-  while (i < buf.length) {
-    const b = buf[i];
-    if (b < 0x80) { i += 1; continue; }
-    if (b >= 0xc2 && b <= 0xdf) {
-      if (i + 1 >= buf.length || (buf[i + 1] & 0xc0) !== 0x80) return false;
-      i += 2; continue;
-    }
-    if (b >= 0xe0 && b <= 0xef) {
-      if (i + 2 >= buf.length) return false;
-      for (let k = 1; k <= 2; k += 1) if ((buf[i + k] & 0xc0) !== 0x80) return false;
-      i += 3; continue;
-    }
-    if (b >= 0xf0 && b <= 0xf4) {
-      if (i + 3 >= buf.length) return false;
-      for (let k = 1; k <= 3; k += 1) if ((buf[i + k] & 0xc0) !== 0x80) return false;
-      i += 4; continue;
-    }
-    return false;
-  }
-  return true;
-}
+//
+// v5 去重：isValidUtf8 由 shared-core fs/utf8 单一真源提供（本文件曾自持副本，
+// 已收敛为再导出；字节一致断言由 check-vendored-shared 与 esm-shim 测试锁定）。
+const { isValidUtf8 } = require('@dsh/shared-core/fs/utf8');
 
 /**
  * 创建行解码器。

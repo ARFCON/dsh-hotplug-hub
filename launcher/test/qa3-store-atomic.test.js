@@ -50,33 +50,30 @@ describe('QA3 store/atomic 强化', () => {
     expect(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toHaveLength(0);
   });
 
-  it('锁过期接管：伪造旧 owner（mtime 超 staleMs）→ 接管成功', () => {
+  it('锁过期接管：陈旧 token（已死 pid）→ 接管成功（H-4 文件锁）', () => {
     const dir = tmpDir();
     const lockPath = path.join(dir, '.lock');
-    fs.mkdirSync(lockPath, { recursive: false });
-    fs.writeFileSync(path.join(lockPath, 'owner'), JSON.stringify({ owner: 'pid-99999', at: 1 }));
-    // 伪造过期 mtime
-    const old = new Date(Date.now() - 60000);
-    fs.utimesSync(lockPath, old, old);
-    fs.utimesSync(path.join(lockPath, 'owner'), old, old);
-    const r = acquireLock(fsPort, lockPath, { waitMs: 1000, staleMs: 1000, now: () => Date.now(), owner: 'qa3-test' });
+    // 伪造已死持有者的新鲜 token → pid 探活立即判死 → 接管
+    const gone = require('child_process').spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+    fs.writeFileSync(lockPath, `${gone.pid}\n${Date.now()}\n`);
+    const r = acquireLock(fsPort, lockPath, { waitMs: 1000, staleMs: 60000, owner: 'qa3-test' });
     expect(r.ok).toBe(true);
-    const owner = JSON.parse(fs.readFileSync(path.join(lockPath, 'owner'), 'utf8'));
-    expect(owner.owner).toBe('qa3-test');
-    releaseLock(fsPort, lockPath, { owner: 'qa3-test' });
+    const token = fs.readFileSync(lockPath, 'utf8').trim().split('\n');
+    expect(token[0]).toBe(String(process.pid));
+    releaseLock(fsPort, lockPath, { owner: 'qa3-test', pid: process.pid, fd: r.fd });
   });
 
   it('锁等待超时：锁被持有且未过期 → ERR_LOCK_ACQUIRE（exit=10）', () => {
     const dir = tmpDir();
     const lockPath = path.join(dir, '.lock');
-    fs.mkdirSync(lockPath, { recursive: false });
-    fs.writeFileSync(path.join(lockPath, 'owner'), JSON.stringify({ owner: 'pid-other', at: Date.now() }));
-    const r = acquireLock(fsPort, lockPath, { waitMs: 150, staleMs: 60000, now: () => Date.now() });
+    // 本进程持有（pid 存活 + token 新鲜）→ 另一 pid 获取超时
+    fs.writeFileSync(lockPath, `${process.pid}\n${Date.now()}\n`);
+    const r = acquireLock(fsPort, lockPath, { waitMs: 150, staleMs: 60000, pid: process.pid + 1 });
     expect(r.ok).toBe(false);
     expect(r.error.code).toBe('ERR_LOCK_ACQUIRE');
     expect(r.error.exitCode).toBe(10);
-    // 释放后清理
-    releaseLock(fsPort, lockPath, { owner: 'pid-other' });
+    // 清理
+    fs.unlinkSync(lockPath);
   });
 
   it('并发 acquire/release 串行化：持锁期间第二个 acquire 被拒（单进程同步语义）', () => {
@@ -84,15 +81,15 @@ describe('QA3 store/atomic 强化', () => {
     const lockPath = path.join(dir, '.lock');
     const r1 = acquireLock(fsPort, lockPath, { waitMs: 1000, staleMs: 60000, owner: 'first' });
     expect(r1.ok).toBe(true);
-    // 同一进程内第二次 acquire（未过期）→ 超时失败（证明锁串行互斥）
-    const r2 = acquireLock(fsPort, lockPath, { waitMs: 150, staleMs: 60000, owner: 'second' });
+    // 同一进程内第二次 acquire（未过期，模拟另一调用方）→ 超时失败（证明锁串行互斥）
+    const r2 = acquireLock(fsPort, lockPath, { waitMs: 150, staleMs: 60000, owner: 'second', pid: process.pid + 1 });
     expect(r2.ok).toBe(false);
     expect(r2.error.code).toBe('ERR_LOCK_ACQUIRE');
-    releaseLock(fsPort, lockPath, { owner: 'first' });
+    releaseLock(fsPort, lockPath, { owner: 'first', pid: process.pid, fd: r1.fd });
     // 释放后可再获取
     const r3 = acquireLock(fsPort, lockPath, { waitMs: 1000, staleMs: 60000, owner: 'third' });
     expect(r3.ok).toBe(true);
-    releaseLock(fsPort, lockPath, { owner: 'third' });
+    releaseLock(fsPort, lockPath, { owner: 'third', pid: process.pid, fd: r3.fd });
   });
 
   it('writeState：成功写入后可 readState 读回且 schemaVersion 正确', () => {

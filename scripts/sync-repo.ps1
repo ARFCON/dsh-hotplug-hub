@@ -38,7 +38,7 @@ try {
   if (Test-Path $pkgPath) {
     $pkg = Get-Content $pkgPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $current = $pkg.version
-    $json = curl.exe -s --ssl-no-revoke --max-time 15 'https://api.github.com/repos/ARFCON/dsh-hotplug-hub/releases/latest' 2>$null | ConvertFrom-Json
+    $json = curl.exe -s --max-time 15 'https://api.github.com/repos/ARFCON/dsh-hotplug-hub/releases/latest' 2>$null | ConvertFrom-Json
     if ($json -and $json.tag_name) {
       $latest = $json.tag_name.TrimStart('v')
       if ($latest -ne $current) {

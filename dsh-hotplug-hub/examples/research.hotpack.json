@@ -28,7 +28,7 @@
     {
       "id": "my-notes",
       "name": "dsh-my-notes",
-      "source": { "type": "path", "path": "$DSH_HOME/plugin-src/dsh-my-notes" }
+      "source": { "type": "path", "path": "/path/to/dsh-my-notes" }
     }
   ]
 }

@@ -1,12 +1,10 @@
 'use strict';
 // scripts/qa3-cli-e2e.js — CLI 进程级端到端（QA3 第 3 层主题 16）
 // 隔离 HOME（USERPROFILE → 临时目录）真实 spawn `node index.js`：
-//   全链路 assemble→install→launch(假 harness)→heal→rollback→logs
-//   穿越向量 CLI 级全拒 exit=2 / --json 全命令可解析 / 退出码传播 / check/status 目录树 hash 不变
-// 上游适配（C6）：DSH_HOTPLUG_ROOT 指向临时根（assembly/sandbox 全落在根下，不触碰仓库）；
-//   假 harness 按平台放置（win32=node 副本；POSIX=sh 包装脚本 exec node），三平台可跑（DoD-17）。
-// 用法：node scripts/qa3-cli-e2e.js
-// 退出码：0=全部通过；1=存在失败项
+//   全链路 assemble→install→launch(假 harness)→heal→rollback→logs；穿越向量 CLI 级全拒 exit=2 / --json 全命令可解析 / 退出码传播 / 只读零副作用 hash
+// 上游适配（C6）：DSH_HOTPLUG_ROOT 指向临时根（assembly/sandbox 全落根下）；
+//   假 harness 按平台放置（win32=node 副本；POSIX=sh 包装 exec node）（DoD-17）。
+// 用法：node scripts/qa3-cli-e2e.js（退出码：0=全部通过；1=存在失败项）
 const { spawnSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -16,9 +14,8 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const INDEX = path.join(ROOT, 'index.js');
 const ID = 'qa3-e2e';
-// macOS 的 /var 是 /private/var 符号链接：mkdtemp 返回逻辑路径（/var/folders/...），
-// 而 harness 进程的 process.cwd() 是物理路径（/private/var/folders/...）——
-// DoD-2 cwd 字符串比较会失败。创建后立即 realpathSync 归一化为物理路径（QA4 CI 实证）。
+// macOS /var→/private/var 符号链接：mkdtemp 返回逻辑路径而 harness cwd 是物理路径，
+// DoD-2 比较会失败——创建后立即 realpathSync 归一化（QA4 CI 实证）。
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-e2e-home-')));
 const QA_ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-e2e-root-')));
 const ASSEMBLY_DIR = path.join(QA_ROOT, 'assembly', ID);
@@ -32,16 +29,29 @@ function check(name, cond, detail) {
   else { fail += 1; failures.push({ name, detail }); console.log(`  FAIL ${name}: ${detail}`); }
 }
 
+// 隔离配方（P5/§8.1）：DSH_HOTPLUG_ROOT=临时根（H-1 根域全落其下）；HOME/各 XDG
+// 变量/PATH/DSH_HOME 全隔离；NODE_OPTIONS 剥离（extra 可显式注入 recorder）。
 function cleanEnv(extra = {}) {
   const env = { ...process.env };
   delete env.NODE_OPTIONS; // 先剥离沙箱 shim，再允许 extra 显式覆盖
-  return { ...env, DSH_HOTPLUG_ROOT: QA_ROOT, ...extra };
+  return {
+    ...env,
+    DSH_HOTPLUG_ROOT: QA_ROOT,
+    HOME,
+    USERPROFILE: HOME,
+    LOCALAPPDATA: path.join(HOME, 'AppData', 'Local'),
+    ProgramFiles: path.join(HOME, 'pf'),
+    'ProgramFiles(x86)': path.join(HOME, 'pf86'),
+    PATH: path.join(HOME, 'bin'), // PATH 指向隔离目录，杜绝 where dsh 命中真实 CLI
+    DSH_HOME: path.join(QA_ROOT, '.dsh'),
+    ...extra
+  };
 }
 
 function cli(args, envExtra = {}) {
   const r = spawnSync(process.execPath, [INDEX, ...args], {
     encoding: 'utf8',
-    env: cleanEnv({ HOME, USERPROFILE: HOME, LOCALAPPDATA: path.join(HOME, 'AppData', 'Local'), ...envExtra }),
+    env: cleanEnv(envExtra),
     timeout: 120000
   });
   return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
@@ -68,27 +78,27 @@ function writeAssembly(plugins) {
 }
 
 /**
- * 按平台放置假 harness（三平台可跑，DoD-17）：
- * - win32：node.exe 副本（REPL EOF 正常退出 0）；
- * - POSIX：sh 包装脚本 exec 真实 node（NODE_OPTIONS 注入的 recorder/keepalive 仍生效；
- *   stageLaunch 传入的 --profile 参数被忽略——假 harness 不校验参数）。
+ * 按平台放置假 harness（DoD-17）。H-1：DSH_HOTPLUG_ROOT=QA_ROOT 时 CLI 的
+ * config.home=QA_ROOT → findHarness 候选基于 QA_ROOT（Linux/macOS）——只放 HOME
+ * 在 CI（无真实 DSH）找不到（本机 Windows 靠 LOCALAPPDATA 候选假绿）。POSIX 双放。
  */
 function writeFakeHarness() {
-  const hpath = process.platform === 'win32'
-    ? path.join(HOME, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe')
-    : process.platform === 'darwin'
-      ? path.join(HOME, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')
-      : path.join(HOME, '.local', 'bin', 'dsh');
-  fs.mkdirSync(path.dirname(hpath), { recursive: true });
-  if (process.platform === 'win32') {
-    fs.copyFileSync(process.execPath, hpath);
-  } else {
-    fs.writeFileSync(hpath, '#!/bin/sh\nexec "' + process.execPath + '"\n');
-    fs.chmodSync(hpath, 0o755);
+  const winPath = path.join(HOME, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe');
+  const homeP = process.platform === 'darwin'
+    ? [path.join(HOME, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
+    : [path.join(HOME, '.local', 'bin', 'dsh'), path.join(HOME, 'Applications', 'DSH Desktop', 'dsh')];
+  const rootP = process.platform === 'darwin'
+    ? [path.join(QA_ROOT, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
+    : [path.join(QA_ROOT, '.local', 'bin', 'dsh'), path.join(QA_ROOT, 'Applications', 'DSH Desktop', 'dsh')];
+  const targets = process.platform === 'win32' ? [winPath] : [...homeP, ...rootP];
+  for (const t of targets) {
+    fs.mkdirSync(path.dirname(t), { recursive: true });
+    if (process.platform === 'win32') { fs.copyFileSync(process.execPath, t); continue; }
+    fs.writeFileSync(t, '#!/bin/sh\nexec "' + process.execPath + '"\n');
+    fs.chmodSync(t, 0o755);
   }
-  return hpath;
+  return targets; // 全部路径：调用方写坏/恢复需覆盖所有候选（POSIX 下 findHarness 用 QA_ROOT）
 }
-
 function cleanup() {
   try { fs.rmSync(ASSEMBLY_DIR, { recursive: true, force: true }); } catch (_) { /* ok */ }
   try { fs.rmSync(SANDBOX_DIR, { recursive: true, force: true }); } catch (_) { /* ok */ }
@@ -110,7 +120,7 @@ function main() {
   const fakePlugin = path.join(HOME, 'fake-plugins', 'pkg-p');
   fs.mkdirSync(fakePlugin, { recursive: true });
   fs.writeFileSync(path.join(fakePlugin, 'package.json'), JSON.stringify({ name: 'pkg-p', version: '1.0.0' }));
-  const harnessPath = writeFakeHarness();
+  const harnessPaths = writeFakeHarness();
 
   writeAssembly([
     { id: 'p', name: 'pkg-p', source: { type: 'path', path: fakePlugin }, config: { 'dsh.bundle.patch': true } }
@@ -165,7 +175,7 @@ function main() {
   check('launch（recorder 注入）exit=0', rLaunch2.code === 0, `code=${rLaunch2.code} ${rLaunch2.stderr.slice(0, 200)}`);
   if (fs.existsSync(recFile)) {
     const rec = JSON.parse(fs.readFileSync(recFile, 'utf8'));
-    const profileDir = path.join(HOME, '.dsh', 'profiles', ID);
+    const profileDir = path.join(QA_ROOT, '.dsh', 'profiles', ID);
     check('harness cwd = profile 目录（DoD-2）', rec.cwd === profileDir, JSON.stringify(rec));
     check('harness env DSH_PROFILE = id（DoD-2）', rec.DSH_PROFILE === ID, JSON.stringify(rec));
     check('harness args 为数组（win32 空数组）（DoD-2）', Array.isArray(rec.argv), JSON.stringify(rec));
@@ -216,8 +226,8 @@ function main() {
   // ---- 4. 退出码传播：launch 崩溃/spawn 失败 → exit=8 ----
   // 先确保 phase=INSTALLED（前面 assemble --json 已把 phase 置回 CHECKED）
   cli(['install', ID]);
-  // 把假 harness 换成损坏 exe（存在、size>0、非符号链接 → 过 verifyHarness，spawn 抛 UNKNOWN → ERR_LAUNCH_SPAWN exit=8）
-  fs.writeFileSync(harnessPath, 'this is not a PE file');
+  // 把假 harness 全部换成损坏 exe（存在、size>0、非符号链接 → 过 verifyHarness，spawn 抛 UNKNOWN → ERR_LAUNCH_SPAWN exit=8）
+  for (const hp of harnessPaths) fs.writeFileSync(hp, 'this is not a PE file');
   const rl = cli(['launch', ID, '--wait']);
   check('launch 损坏 exe → exit=8（ERR_LAUNCH_SPAWN 传播）', rl.code === 8, `code=${rl.code} stderr=${rl.stderr.slice(0, 150)}`);
   // 恢复
@@ -233,16 +243,9 @@ function main() {
   // 重新 assemble + install 保证 phase=INSTALLED
   cli(['assemble', ID]);
   cli(['install', ID]);
-  // 崩溃 recorder：仅当 cwd 为 profile 目录（即 harness 自身）时打印 Error 并退出 3（CLI 加载时不触发）
+  // 崩溃 recorder：仅当 cwd 为 profile 目录（harness 自身）时打印 Error 并退出 3（CLI 加载时不触发）
   const crashRec = path.join(HOME, 'crash-recorder.js');
-  fs.writeFileSync(crashRec, [
-    "const path = require('path');",
-    "if (process.cwd().split(path.sep).includes('profiles')) {",
-    "  console.error('Error: ENOENT: no such file or directory, open \\'C:\\\\missing\\\\x\\'');",
-    '  process.exit(3);',
-    '}',
-    ''
-  ].join('\n'));
+  fs.writeFileSync(crashRec, "const path=require('path');if(process.cwd().split(path.sep).includes('profiles')){console.error('Error: ENOENT: no such file or directory, open \\'C:\\\\missing\\\\x\\'');process.exit(3);}");
   writeFakeHarness();
   const rCrash = cli(['launch', ID, '--wait'], { NODE_OPTIONS: `--require=${crashRec}` });
   check('崩溃 launch → CLI exit=8（ERR_LAUNCH_EXIT 传播，DoD-3/12）', rCrash.code === 8, `code=${rCrash.code} stderr=${rCrash.stderr.slice(0, 150)}`);
@@ -253,7 +256,7 @@ function main() {
   // heal --yes：classify → LINK_FAIL → rebuild-link（path 源 node_modules 已存在）→ verified:true
   const rHeal = cli(['heal', ID, '--yes']);
   check('heal --yes exit=0（DoD-3 闭环）', rHeal.code === 0, `code=${rHeal.code} stderr=${rHeal.stderr.slice(0, 200)}`);
-  const stateFile = path.join(HOME, '.dsh', 'hotplug-store', ID, 'state.json');
+  const stateFile = path.join(QA_ROOT, '.dsh', 'hotplug-store', ID, 'state.json');
   let verifiedEntry = null;
   if (fs.existsSync(stateFile)) {
     const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
@@ -263,16 +266,15 @@ function main() {
   // 清理崩溃 recorder 影响（恢复正常 harness）
   writeFakeHarness();
 
-  // 注：C6 CRASH_LOOP 闭环 e2e（3 次崩溃 → heal verified + 隔离消费）已独立为
-  // scripts/qa3-cli-e2e-crashloop.js（保持本文件 ≤300 行，DoD-16；CI 串行执行两者）。
+  // 注：C6 CRASH_LOOP 闭环 e2e 独立于 scripts/qa3-cli-e2e-crashloop.js（DoD-16，CI 串行）。
 
   // ---- 5. check/status 前后目录树 hash 不变（只读零副作用） ----
-  const before = dirHash(path.join(HOME, '.dsh'));
+  const before = dirHash(path.join(QA_ROOT, '.dsh'));
   cli(['check', ID]);
   cli(['status', ID]);
   cli(['logs', ID]);
-  const after = dirHash(path.join(HOME, '.dsh'));
-  check('check/status/logs 前后 ~/.dsh 目录树 hash 一致', before === after, `${before} vs ${after}`);
+  const after = dirHash(path.join(QA_ROOT, '.dsh'));
+  check('check/status/logs 前后根域目录树 hash 一致', before === after, `${before} vs ${after}`);
 
   // ---- 7. 隔离红线回归（A2）：真实用户 HOME 的 ~/.dsh 不得出现本测试条目 ----
   const realStore = path.join(os.homedir(), '.dsh', 'hotplug-store', ID);

@@ -11,6 +11,7 @@ const {
   LAUNCH_WAIT_TIMEOUT_MS
 } = require('../contracts/constants');
 const { makeError } = require('../contracts/errors');
+const { sanitizeChildEnv } = require('@dsh/shared-core/security/net');
 
 // C6 修复：win32 下 spawn .cmd/.bat 直接执行抛 EINVAL（shell 脚本不可直接 CreateProcess），
 // 必须经 cmd.exe /d /c 包装（手册 §3.4.6 极端情况处理；PATH 回退命中 dsh.cmd 的路径）。
@@ -18,7 +19,8 @@ const { makeError } = require('../contracts/errors');
 // 路径/参数一律不带手写引号，由 libuv 对含空格参数自动包裹；含 cmd 特殊字符
 // （&|<>^%()!"）的路径/参数显式拒绝——否则 cmd 会按特殊字符解析（命令注入/引号破坏）。
 // cmd 解析器用 ComSpec（Windows 恒存在的绝对路径），避免 PATH 被清空时 cmd.exe ENOENT。
-const CMD_SPECIAL_RE = /[&|<>^%()!"]/;
+// 特殊字符集见 infra/cmd-special.js（CMD_EXE_SPECIAL_RE，与契约 CMD_SPECIAL_RE 不同集）。
+const { CMD_EXE_SPECIAL_RE } = require('./cmd-special');
 
 function isCmdScript(harness) {
   return typeof harness === 'string' && /\.(cmd|bat)$/i.test(harness);
@@ -32,11 +34,11 @@ function isCmdScript(harness) {
  * @returns {{ok: boolean, bin?: string, args?: Array<string>, error?: Error}}
  */
 function wrapCmdScript(harness, args, cmdBin) {
-  if (CMD_SPECIAL_RE.test(String(harness))) {
+  if (CMD_EXE_SPECIAL_RE.test(String(harness))) {
     return { ok: false, error: makeError('ERR_LAUNCH_SPAWN', `harness 路径含 cmd 特殊字符，拒绝经 cmd 执行：${harness}`) };
   }
   for (const a of args || []) {
-    if (CMD_SPECIAL_RE.test(String(a))) {
+    if (CMD_EXE_SPECIAL_RE.test(String(a))) {
       return { ok: false, error: makeError('ERR_LAUNCH_SPAWN', `参数含 cmd 特殊字符，拒绝经 cmd 执行：${a}`) };
     }
   }
@@ -75,7 +77,11 @@ async function launchProcess(core, opts) {
 
   const spawnOpts = {
     cwd: profile,
-    env: { ...(core.config.env || process.env), ...env },
+    // M-2（安全审计）：harness 子进程 env 净化——TLS/CA/SSL 变量与 NODE_OPTIONS
+    // 之外的注入面一律剥离；NODE_OPTIONS 保留（keepNodeOptions）：harness 已经
+    // N44 校验且本就执行 profile 代码，透传无边际风险，且 QA 录制器（DoD-2
+    // recorder / keepalive）依赖该注入通道（详见 shared-core security/net 说明）。
+    env: { ...sanitizeChildEnv(core.config.env || process.env, { keepNodeOptions: true }), ...env },
     stdio: ['ignore', 'pipe', 'pipe']
   };
 

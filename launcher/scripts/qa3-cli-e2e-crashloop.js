@@ -30,7 +30,18 @@ function check(name, cond, detail) {
 function cleanEnv(extra = {}) {
   const env = { ...process.env };
   delete env.NODE_OPTIONS; // 先剥离沙箱 shim，再允许 extra 显式覆盖
-  return { ...env, HOME, USERPROFILE: HOME, LOCALAPPDATA: path.join(HOME, 'AppData', 'Local'), DSH_HOTPLUG_ROOT: QA_ROOT, ...extra };
+  return {
+    ...env,
+    HOME,
+    USERPROFILE: HOME,
+    LOCALAPPDATA: path.join(HOME, 'AppData', 'Local'),
+    ProgramFiles: path.join(HOME, 'pf'),
+    'ProgramFiles(x86)': path.join(HOME, 'pf86'),
+    PATH: path.join(HOME, 'bin'),
+    DSH_HOME: path.join(QA_ROOT, '.dsh'),
+    DSH_HOTPLUG_ROOT: QA_ROOT,
+    ...extra
+  };
 }
 
 function cli(args, envExtra = {}) {
@@ -52,19 +63,28 @@ function writeAssembly(plugins) {
 /**
  * 按平台放置假 harness（win32=node 副本；POSIX=sh 包装 exec node）。
  * NODE_OPTIONS 注入的 recorder 经 env 继承仍生效（POSIX 下 sh → exec node 同进程）。
+ * H-1（v5 阶段 1）：DSH_HOTPLUG_ROOT=QA_ROOT 时 CLI 的 config.home = QA_ROOT →
+ * findHarness 候选基于 QA_ROOT（Linux/macOS）——只放 HOME 在 CI（无真实 DSH）上
+ * 找不到（本机 Windows 靠 LOCALAPPDATA 候选命中而假绿）。POSIX 双放 HOME 与 QA_ROOT。
  */
 function writeFakeHarness() {
-  const hpath = process.platform === 'win32'
-    ? path.join(HOME, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe')
-    : process.platform === 'darwin'
-      ? path.join(HOME, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')
-      : path.join(HOME, '.local', 'bin', 'dsh');
-  fs.mkdirSync(path.dirname(hpath), { recursive: true });
-  if (process.platform === 'win32') {
-    fs.copyFileSync(process.execPath, hpath);
-  } else {
-    fs.writeFileSync(hpath, '#!/bin/sh\nexec "' + process.execPath + '"\n');
-    fs.chmodSync(hpath, 0o755);
+  const winPath = path.join(HOME, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe');
+  const posixHome = process.platform === 'darwin'
+    ? [path.join(HOME, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
+    : [path.join(HOME, '.local', 'bin', 'dsh'), path.join(HOME, 'Applications', 'DSH Desktop', 'dsh')];
+  const posixRoot = process.platform === 'darwin'
+    ? [path.join(QA_ROOT, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
+    : [path.join(QA_ROOT, '.local', 'bin', 'dsh'), path.join(QA_ROOT, 'Applications', 'DSH Desktop', 'dsh')];
+  const targets = process.platform === 'win32' ? [winPath] : [...posixHome, ...posixRoot];
+  let hpath = targets[0];
+  for (const t of targets) {
+    fs.mkdirSync(path.dirname(t), { recursive: true });
+    if (process.platform === 'win32') {
+      fs.copyFileSync(process.execPath, t);
+    } else {
+      fs.writeFileSync(t, '#!/bin/sh\nexec "' + process.execPath + '"\n');
+      fs.chmodSync(t, 0o755);
+    }
   }
   return hpath;
 }
@@ -109,7 +129,7 @@ function main() {
     const rr = cli(['launch', ID, '--wait'], { NODE_OPTIONS: `--require=${crashRec}` });
     check(`崩溃 launch #${i} → exit=8`, rr.code === 8, `code=${rr.code}`);
   }
-  const stateFile = path.join(HOME, '.dsh', 'hotplug-store', ID, 'state.json');
+  const stateFile = path.join(QA_ROOT, '.dsh', 'hotplug-store', ID, 'state.json');
   let st = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : null;
   check('3 次崩溃后 retries===3', st && st.launch.retries === 3, `retries=${st && st.launch.retries}`);
   check('lastExit 存真实子进程退出码 3', st && st.launch.lastExit === 3, `lastExit=${st && st.launch.lastExit}`);
@@ -125,10 +145,10 @@ function main() {
 
   // 隔离消费：再次 launch（recorder 仍崩溃，但同步阶段已排除 pkg-p）→ profile 产物不含 pkg-p
   cli(['launch', ID, '--wait'], { NODE_OPTIONS: `--require=${crashRec}` });
-  const profilePkg = path.join(HOME, '.dsh', 'profiles', ID, 'package.json');
+  const profilePkg = path.join(QA_ROOT, '.dsh', 'profiles', ID, 'package.json');
   const pkgJson = fs.existsSync(profilePkg) ? JSON.parse(fs.readFileSync(profilePkg, 'utf8')) : null;
   check('profile package.json 排除 pkg-p', pkgJson && !(pkgJson.dependencies || {}).hasOwnProperty('pkg-p'), JSON.stringify(pkgJson && pkgJson.dependencies));
-  const profilePatch = path.join(HOME, '.dsh', 'profiles', ID, 'cordis.patch.yml');
+  const profilePatch = path.join(QA_ROOT, '.dsh', 'profiles', ID, 'cordis.patch.yml');
   const patchText = fs.existsSync(profilePatch) ? fs.readFileSync(profilePatch, 'utf8') : '';
   check('profile cordis.patch.yml 排除 pkg-p', !patchText.includes('pkg-p'), patchText.slice(0, 200));
 

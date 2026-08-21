@@ -46,7 +46,7 @@ namespace DSHHotplugHub
         private readonly WebView2 webView = new WebView2();
         private const string APP_VERSION = "0.9.7";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
-        private const string PANEL_VERSION = "0.8.0-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
+        private const string PANEL_VERSION = "0.8.1-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
         // GitHub API 结果的会话级缓存：避免每次插件列表刷新都同步打 API、离线时反复等 15s 超时
         private static readonly Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>> _githubCache =
             new Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>>();
@@ -836,12 +836,19 @@ namespace DSHHotplugHub
 
         // 部分 Windows 环境的 pnpm 访问 GitHub Release 会报 UNABLE_TO_VERIFY_LEAF_SIGNATURE，
         // 需要给 web profile 写 .npmrc 关闭严格 SSL，否则 dsh plugin add 必然失败。
+        // 上游适配（v5 审计）：profile 根优先 DSH_HOME 环境变量（缺省 ~/.dsh）——
+        // 与 JS 侧 resolveDshRoot 语义对齐，隔离/自定义根环境可用。
         private static void EnsureProfileNpmrc()
         {
             try
             {
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string profileDir = Path.Combine(home, ".dsh", "profiles", "web");
+                string dshRoot = Environment.GetEnvironmentVariable("DSH_HOME");
+                if (string.IsNullOrEmpty(dshRoot))
+                {
+                    string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                    dshRoot = Path.Combine(home, ".dsh");
+                }
+                string profileDir = Path.Combine(dshRoot, "profiles", "web");
                 Directory.CreateDirectory(profileDir);
                 string npmrc = Path.Combine(profileDir, ".npmrc");
                 const string line = "strict-ssl=false";
@@ -866,27 +873,30 @@ namespace DSHHotplugHub
         {
             string[] cmd = FindDshCommand();
             if (cmd == null) return null;
-            // URL 必须整体加引号（路径/查询里一旦出现空格或 & 会把参数拆坏），引号字符本身直接剔除
+            // H-7 端口（v5 阶段 4，PatchContract）：URL 进 argv 前过 shell 安全契约——
+            // 拒绝元字符/空白（曾仅剔除引号，& 等可拆坏参数）
+            try
+            {
+                PatchContract.AssertShellSafeUrl(tarballUrl, "tarballUrl");
+            }
+            catch (ArgumentException ex)
+            {
+                return "tarballUrl 非法：" + ex.Message;
+            }
             string args = cmd[1] + " plugin --profile web add \"" + (tarballUrl ?? "").Replace("\"", "") + "\"";
             return RunCliLong(cmd[0], args, 180000, extraEnv);
         }
 
-        // 安装插件包：部分 Windows 环境访问 GitHub Release 报 UNABLE_TO_VERIFY_LEAF_SIGNATURE，
-        // 此时先用进程级环境变量降级重试，仍失败才写 profile .npmrc（旧兜底）——
-        // 避免默认对整个 profile 关闭 strict-ssl，削弱所有后续安装的证书校验。
+        // 安装插件包：部分 Windows 环境访问 GitHub Release 报 UNABLE_TO_VERIFY_LEAF_SIGNATURE。
+        // M-47（v5 阶段 4）：TLS 默认开且不可 env 绕过——删除进程级 npm_config_strict_ssl=false
+        // 降级（blanket）；仅保留用户可见的 profile .npmrc 显式配置兜底（用户可自行移除）。
         private static string InstallPluginPackage(string tarballUrl)
         {
             string output = RunDshPluginAdd(tarballUrl, null);
             if (output != null && output.Contains("UNABLE_TO_VERIFY_LEAF_SIGNATURE"))
             {
-                Dictionary<string, string> env = new Dictionary<string, string>();
-                env["npm_config_strict_ssl"] = "false";
-                output = RunDshPluginAdd(tarballUrl, env);
-                if (output != null && output.Contains("UNABLE_TO_VERIFY_LEAF_SIGNATURE"))
-                {
-                    EnsureProfileNpmrc();
-                    output = RunDshPluginAdd(tarballUrl, null);
-                }
+                EnsureProfileNpmrc();
+                output = RunDshPluginAdd(tarballUrl, null);
             }
             return output;
         }
@@ -1236,6 +1246,8 @@ namespace DSHHotplugHub
                 string file = ApiConfigPath();
                 Directory.CreateDirectory(Path.GetDirectoryName(file));
                 File.WriteAllText(file, json);
+                // M-48（v5 阶段 4）：密钥文件 owner-only ACL（仅当前用户可读写）
+                PatchContract.ApplyOwnerOnlyAcl(file);
             }
             catch
             {
@@ -1488,6 +1500,8 @@ namespace DSHHotplugHub
                 {
                     File.AppendAllText(cred, (credText.Length == 0 || credText.EndsWith("\n") ? "" : Environment.NewLine) + keyLine + Environment.NewLine);
                 }
+                // M-48（v5 阶段 4）：凭据文件 owner-only ACL
+                PatchContract.ApplyOwnerOnlyAcl(cred);
             }
             catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
@@ -1519,6 +1533,8 @@ namespace DSHHotplugHub
                 {
                     File.AppendAllText(credPath, (credText.EndsWith("\n") || credText.Length == 0 ? "" : Environment.NewLine) + keyLine + Environment.NewLine);
                 }
+                // M-48（v5 阶段 4）：凭据文件 owner-only ACL
+                PatchContract.ApplyOwnerOnlyAcl(credPath);
 
                 // 2. 同步默认模型到 settings.yaml 的 agent-default-model
                 string settingsPath = Path.Combine(dshDir, "settings.yaml");
@@ -1873,10 +1889,11 @@ namespace DSHHotplugHub
             return Path.Combine(GetProfileDir(), "cordis.patch.yml");
         }
 
-        // loader id 白名单：与 DSH Desktop ID_RE 一致，防止非法字符被拼进 YAML / 正则
+        // loader id 白名单：与 PACK_ID_RE 对齐（v5 阶段 4，PatchContract.cs；
+        // 曾 `^[A-Za-z0-9_.-]+$`——允许前导 . _ - 且无 64 上限，一次性破坏性收紧）
         private static bool ValidPluginLoaderId(string id)
         {
-            return !string.IsNullOrEmpty(id) && System.Text.RegularExpressions.Regex.IsMatch(id, "^[A-Za-z0-9_.-]+$");
+            return PatchContract.IsValidLoaderId(id);
         }
 
         private static string RegexEscapeForPatch(string s)
@@ -1985,20 +2002,27 @@ namespace DSHHotplugHub
         private static string TogglePluginInPatch(string text, string id, bool enabled, string name)
         {
             if (text == null) text = "";
-            if (!ValidPluginLoaderId(id)) throw new ArgumentException("id 含非法字符（仅允许字母/数字/下划线/点/连字符）: " + id);
+            if (!ValidPluginLoaderId(id)) throw new ArgumentException("id 含非法字符（仅允许字母/数字开头，1-64 位，允许 . _ -）: " + id);
             string outText = text;
             string pkgName = string.IsNullOrEmpty(name) ? id : name;
+            const string desktopOwner = "desktop";
+            // 旧 `# 插件管理（设置页「插件」栏）：关闭 <id>` 标记块（迁移期识别，写时清理为 ## desktop:<id>）
+            string legacyMarkerPattern = @"(?:^|(?<=\n))# [^\n]*关闭 " + RegexEscapeForPatch(id) + @"[^\n]*(?:\n|$)";
+            // 顶层/块内无标记 disabled 条目（官方壳语义，双向兼容——保留识别）
+            string topEntryPattern = @"(?:^|\n)([ \t]{0,2})- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|(?:\n#)|\s*$)";
 
             if (!enabled)
             {
+                // 1) 从 insert 块移除内层条目（保持既有语义）
                 string innerPattern = @"(?:^|\n)[ \t]+- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]+- id:)|(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|\s*$)";
                 outText = System.Text.RegularExpressions.Regex.Replace(outText, innerPattern, delegate(System.Text.RegularExpressions.Match m) { return m.Value.StartsWith("\n") ? "\n" : ""; });
                 string emptyInsert = @"(?:^|\n)- insert:\s*\n(?![ \t]+-)";
                 outText = System.Text.RegularExpressions.Regex.Replace(outText, emptyInsert, delegate(System.Text.RegularExpressions.Match m) { return m.Value.StartsWith("\n") ? "\n" : ""; });
-                string topPattern = @"(?:^|\n)([ \t]{0,2})- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|(?:\n#)|\s*$)";
-                if (System.Text.RegularExpressions.Regex.IsMatch(outText, topPattern))
+
+                // 2) 已有顶层/块内无标记 disabled 条目 → 保证 disabled:true（官方语义，保留识别）
+                if (System.Text.RegularExpressions.Regex.IsMatch(outText, topEntryPattern))
                 {
-                    outText = System.Text.RegularExpressions.Regex.Replace(outText, topPattern, delegate(System.Text.RegularExpressions.Match m)
+                    outText = System.Text.RegularExpressions.Regex.Replace(outText, topEntryPattern, delegate(System.Text.RegularExpressions.Match m)
                     {
                         string block = m.Value;
                         if (System.Text.RegularExpressions.Regex.IsMatch(block, @"(?:^|\n)[ \t]{0,2}disabled\s*:")) return block;
@@ -2009,23 +2033,24 @@ namespace DSHHotplugHub
                 }
                 else
                 {
-                    string markerPattern = @"(?:^|(?<=\n))# [^\n]*关闭 " + RegexEscapeForPatch(id) + @"[^\n]*(?:\n|$)";
-                    outText = System.Text.RegularExpressions.Regex.Replace(outText, markerPattern, "");
-                    string block = "\n# 插件管理（设置页「插件」栏）：关闭 " + id + "\n- id: " + id + "\n  name: " + YamlSingleQuote(pkgName) + "\n  disabled: true\n";
-                    outText = System.Text.RegularExpressions.Regex.Replace(outText, @"\s*$", "") + block;
+                    // 3) 迁移：清理旧 `# 插件管理…` 标记块（下次写时清理为契约块）
+                    outText = System.Text.RegularExpressions.Regex.Replace(outText, legacyMarkerPattern, "");
+                    // 4) 分节保留合并：`## desktop:<id>` 块替换/追加；其余块/注释原样保留
+                    string blockYaml = "- id: " + id + "\n  name: " + YamlSingleQuote(pkgName) + "\n  disabled: true";
+                    outText = PatchContract.MergePatchSection(outText, desktopOwner, id, blockYaml);
                 }
                 return outText;
             }
 
-            string topPatternE = @"(?:^|\n)([ \t]{0,2})- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|(?:\n#)|\s*$)";
-            outText = System.Text.RegularExpressions.Regex.Replace(outText, topPatternE, delegate(System.Text.RegularExpressions.Match m)
+            // 启用：移除 `## desktop:<id>` 块 + 旧标记块 + 无标记 disabled 条目（其余原样保留）
+            outText = PatchContract.MergePatchSection(outText, desktopOwner, id, "");
+            outText = System.Text.RegularExpressions.Regex.Replace(outText, legacyMarkerPattern, "");
+            outText = System.Text.RegularExpressions.Regex.Replace(outText, topEntryPattern, delegate(System.Text.RegularExpressions.Match m)
             {
                 string withoutDisabled = System.Text.RegularExpressions.Regex.Replace(m.Value, @"\n[ \t]{0,2}disabled\s*:\s*(?:true|false)[^\n]*", "");
                 if (System.Text.RegularExpressions.Regex.IsMatch(withoutDisabled, @"(?:^|\n)[ \t]{0,2}config\s*:")) return withoutDisabled;
                 return m.Value.StartsWith("\n") ? "\n" : "";
             });
-            string markerPatternE = @"(?:^|(?<=\n))# [^\n]*关闭 " + RegexEscapeForPatch(id) + @"[^\n]*(?:\n|$)";
-            outText = System.Text.RegularExpressions.Regex.Replace(outText, markerPatternE, "");
             return outText;
         }
         private static string CheckPluginUpdates()
@@ -2134,21 +2159,39 @@ namespace DSHHotplugHub
 
         private static string SetPluginEnabled(string id, bool enabled)
         {
+            FileStream lockHandle = null;
             try
             {
                 if (string.IsNullOrEmpty(id)) return "插件 ID 为空";
                 string loaderId = GetLoaderIdForPackage(id);
                 if (!ValidPluginLoaderId(loaderId)) return "无法解析插件 loader id：" + id;
                 string patchFile = ProfilePatchPath();
+                // v5 阶段 4：四写者锁（<profile>/.dsh-patch.lock，CONTRACT.md §5）——
+                // 与 launcher/hotplug/dseam 同一把锁，读-改-写全程互斥
+                lockHandle = PatchContract.AcquirePatchLock(Path.GetDirectoryName(patchFile));
                 string text = File.Exists(patchFile) ? File.ReadAllText(patchFile).Replace("\r\n", "\n") : "";
-                if (text.Trim().Length == 0) text = "# dsh web profile patch（由 DSH Desktop 维护）\n";
+                if (text.Trim().Length == 0) text = "";
                 string patched = TogglePluginInPatch(text, loaderId, enabled, id);
-                if (patched != text) File.WriteAllText(patchFile, patched, new UTF8Encoding(false));
+                if (patched != text)
+                {
+                    // 原子写：随机临时名 + rename（与 shared fs/atomic 同语义；
+                    // net48 无 File.Move 覆盖重载 → 先删目标再 Move）
+                    string temp = Path.Combine(Path.GetDirectoryName(patchFile),
+                        ".cordis.patch.yml." + Process.GetCurrentProcess().Id + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp");
+                    File.WriteAllText(temp, patched, new UTF8Encoding(false));
+                    if (File.Exists(patchFile)) File.Delete(patchFile);
+                    File.Move(temp, patchFile);
+                }
                 return (enabled ? "已启用插件 " : "已停用插件 ") + id + "（重启 DSH 后生效）";
             }
             catch (Exception ex)
             {
                 return "切换失败：" + ex.Message;
+            }
+            finally
+            {
+                if (lockHandle != null)
+                    PatchContract.ReleasePatchLock(lockHandle, Path.GetDirectoryName(ProfilePatchPath()));
             }
         }
 
@@ -2782,20 +2825,46 @@ namespace DSHHotplugHub
                 if (File.Exists(patch))
                 {
                     string text = File.ReadAllText(patch);
-                    string begin = "# >>> dseam-skillmcp:mcp:begin";
-                    string end = "# <<< dseam-skillmcp:mcp:end";
-                    int b = text.IndexOf(begin);
-                    int e = text.IndexOf(end);
-                    if (b < 0 || e <= b)
+                    string block = null;
+                    // v5 阶段 4：先契约单行 marker（## <owner>:mcp），再旧 begin/end 形态（迁移期读兼容）
+                    string[] newMarkers = new string[] { "## dseam-skillmcp:mcp", "## dsh-skill-mcp-panel:mcp" };
+                    foreach (string marker in newMarkers)
                     {
-                        begin = "# >>> dsh-skill-mcp-panel:mcp:begin";
-                        end = "# <<< dsh-skill-mcp-panel:mcp:end";
-                        b = text.IndexOf(begin);
-                        e = text.IndexOf(end);
+                        int mb = text.IndexOf(marker);
+                        if (mb >= 0)
+                        {
+                            int blockStart = text.IndexOf('\n', mb);
+                            if (blockStart >= 0)
+                            {
+                                int me = text.Length;
+                                foreach (string m2 in newMarkers)
+                                {
+                                    int idx = text.IndexOf(m2, blockStart + 1);
+                                    if (idx >= 0 && idx < me) me = idx;
+                                }
+                                block = text.Substring(blockStart + 1, me - blockStart - 1);
+                            }
+                            break;
+                        }
                     }
-                    if (b >= 0 && e > b)
+                    if (block == null)
                     {
-                        string block = text.Substring(b + begin.Length, e - b - begin.Length);
+                        string begin = "# >>> dseam-skillmcp:mcp:begin";
+                        string end = "# <<< dseam-skillmcp:mcp:end";
+                        int b = text.IndexOf(begin);
+                        int e = text.IndexOf(end);
+                        if (b < 0 || e <= b)
+                        {
+                            begin = "# >>> dsh-skill-mcp-panel:mcp:begin";
+                            end = "# <<< dsh-skill-mcp-panel:mcp:end";
+                            b = text.IndexOf(begin);
+                            e = text.IndexOf(end);
+                        }
+                        if (b >= 0 && e > b)
+                            block = text.Substring(b + begin.Length, e - b - begin.Length);
+                    }
+                    if (block != null)
+                    {
                         System.Text.RegularExpressions.MatchCollection rows = System.Text.RegularExpressions.Regex.Matches(block, @"- id:\s*((?:dseam-mcp|panel-mcp)-[A-Za-z0-9_-]+)[\s\S]*?(?=\n\s*- id:|\z)");
                         foreach (System.Text.RegularExpressions.Match rowMatch in rows)
                         {

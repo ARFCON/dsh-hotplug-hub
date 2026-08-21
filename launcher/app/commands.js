@@ -2,8 +2,10 @@
 // app/commands.js — 8 命令实现（薄分发层，逻辑在 pipeline）
 //
 // 命令：assemble / check / install / launch / heal / status / rollback / logs
+// M-28（v5 阶段 5）：返回边界经 shared schemas 校验 CommandResult。
 const { runPipeline } = require('./pipeline');
 const { makeError, exitCodeForCode } = require('../contracts/errors');
+const { validateCommandResult } = require('../contracts/schemas');
 
 const COMMANDS = ['assemble', 'check', 'install', 'launch', 'heal', 'status', 'rollback', 'logs'];
 
@@ -65,13 +67,21 @@ async function dispatch(core, parsed) {
   }
   if (!parsed.id) return usageResult();
 
-  return runPipeline(core, parsed.command, {
+  const result = await runPipeline(core, parsed.command, {
     id: parsed.id,
     yes: Boolean(parsed.options.yes),
     wait: Boolean(parsed.options.wait),
-    timeoutMs: parsed.options.timeoutMs || undefined,
+    // M-27：0 为合法显式值（原样透传）；null 缺省
+    timeoutMs: parsed.options.timeoutMs === null ? undefined : parsed.options.timeoutMs,
     tail: parsed.options.tail
   });
+  // M-28：返回边界 schema 校验（契约违规显式报错，不静默透传）
+  const check = validateCommandResult(result);
+  if (!check.ok) {
+    const err = makeError('ERR_ENV_UNSUPPORTED', `CommandResult 不符合 schema：${check.errors.join('；')}`);
+    return { ok: false, code: err.code, message: err.message, data: null, exitCode: err.exitCode };
+  }
+  return result;
 }
 
 module.exports = { dispatch, COMMANDS, usageResult, helpResult };

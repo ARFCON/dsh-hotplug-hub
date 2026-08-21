@@ -1,0 +1,29 @@
+{
+  "name": "@dsh/shared-core",
+  "version": "0.1.0",
+  "description": "DSH-Hotplug-Hub 共享内核：被多个产物运行时执行的契约与工具（单一真源，零构建）",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "require": "./index.js",
+      "import": "./index.mjs"
+    },
+    "./*": "./*.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "yaml": "^2.5.1"
+  },
+  "devDependencies": {
+    "semver": "^7.6.3",
+    "vitest": "^2.1.8"
+  }
+}

@@ -31,18 +31,21 @@ async function runPipeline(core, command, args) {
   const roots = core.config.roots;
 
   // 统一 id 前置校验（D/N30/N31/N32/N43 修复）
-  const idCheck = core.domain.ids.normalizeAndAssert(id, roots.storeRoot);
+  // M-26 修复（v5 阶段 2）：绑定到根域（.dsh，store/profiles 的共同父级）而非
+  // store 子目录——id 将落盘于 assembly/sandbox/profile/store 多处，语义上属于根域。
+  const idCheck = core.domain.ids.normalizeAndAssert(id, path.dirname(roots.storeRoot));
   if (!idCheck.ok) return errResult(idCheck.error);
 
   const stateFile = stateFilePathFor(core, id);
 
-  // 写命令持目录锁（并发撕裂防护）；只读命令（check/status/logs）不持锁
+  // 写命令持文件锁（并发撕裂防护，H-4：shared fs/lock 文件锁 + v1→v2 迁移）；
+  // 只读命令（check/status/logs）不持锁
   const lockPath = path.join(roots.storeRoot, id, '.lock');
   let lock = null;
   if (WRITE_COMMANDS.has(command)) {
     lock = core.infra.lock.acquireLock(fsPort, lockPath, { now: core.ports.now.now });
     if (!lock.ok) return errResult(lock.error);
-    core._activeLock = lockPath; // FIX-12：暴露当前锁供信号处理器释放
+    core._activeLock = { ...lock, lockPath }; // FIX-12：暴露当前锁（含 fd/owner）供信号处理器释放
   }
 
   try {
@@ -71,7 +74,7 @@ async function runPipeline(core, command, args) {
     return result;
   } finally {
     if (lock) {
-      core.infra.lock.releaseLock(fsPort, lockPath);
+      core.infra.lock.releaseLock(fsPort, lockPath, { owner: lock.owner, pid: process.pid, fd: lock.fd });
       core._activeLock = null;
     }
   }

@@ -193,55 +193,62 @@ export class MemoryProtocolCore {
   }
 
   applyCreateOrUpdate(packId, entry) {
-    const normalized = this.normalizeEntry(entry)
-    this.validateEntryShape(normalized)
-    if (this.store.hasEntry(packId, normalized.name)) {
-      // 同名 = 更新（revision+1），subject 冲突检查跳过（同条目）
-      const prev = this.store.readEntry(packId, normalized.name)
-      const now = new Date().toISOString()
-      this.store.snapshotRevision(packId, prev)
-      const next = {
-        ...prev,
-        updatedAt: now,
-        revision: prev.revision + 1,
-        title: normalized.title ?? prev.title,
-        description: normalized.description ?? prev.description,
-        type: normalized.type ?? prev.type,
-        scope: normalized.scope ?? prev.scope,
-        activation: normalized.activation ?? prev.activation,
-        volatility: normalized.volatility ?? prev.volatility,
-        subjectKey: normalized.subjectKey ?? prev.subjectKey,
-        expiresAt: normalized.expiresAt ?? prev.expiresAt,
-        keywords: normalized.keywords ?? prev.keywords,
-        body: normalized.body ?? prev.body,
-        want: undefined,
+    // H-8（v5 阶段 4）：整个 read-check-write 周期持跨进程写锁——两进程并发
+    // 创建同 subjectKey 时，第二个在锁内重读 → SubjectConflictError（放大窗口回归）
+    return this.store.withWriteLock(() => {
+      const normalized = this.normalizeEntry(entry)
+      this.validateEntryShape(normalized)
+      if (this.store.hasEntry(packId, normalized.name)) {
+        // 同名 = 更新（revision+1），subject 冲突检查跳过（同条目）
+        const prev = this.store.readEntry(packId, normalized.name)
+        const now = new Date().toISOString()
+        this.store.snapshotRevision(packId, prev)
+        const next = {
+          ...prev,
+          updatedAt: now,
+          revision: prev.revision + 1,
+          title: normalized.title ?? prev.title,
+          description: normalized.description ?? prev.description,
+          type: normalized.type ?? prev.type,
+          scope: normalized.scope ?? prev.scope,
+          activation: normalized.activation ?? prev.activation,
+          volatility: normalized.volatility ?? prev.volatility,
+          subjectKey: normalized.subjectKey ?? prev.subjectKey,
+          expiresAt: normalized.expiresAt ?? prev.expiresAt,
+          keywords: normalized.keywords ?? prev.keywords,
+          body: normalized.body ?? prev.body,
+          want: undefined,
+        }
+        this.validatePinnedBudget(packId, next)
+        this.store.writeEntryFile(packId, next)
+        this.store.rebuildIndex(packId)
+        this.store.syncPackCount(packId)
+        this._postChange({ action: 'update', packId, name: next.name })
+        return next
       }
-      this.validatePinnedBudget(packId, next)
-      this.store.writeEntryFile(packId, next)
+      this.validatePinnedBudget(packId, normalized)
+      this.assertSubjectFree(packId, normalized)
+      this.store.writeEntryFile(packId, normalized)
       this.store.rebuildIndex(packId)
       this.store.syncPackCount(packId)
-      this._postChange({ action: 'update', packId, name: next.name })
-      return next
-    }
-    this.validatePinnedBudget(packId, normalized)
-    this.assertSubjectFree(packId, normalized)
-    this.store.writeEntryFile(packId, normalized)
-    this.store.rebuildIndex(packId)
-    this.store.syncPackCount(packId)
-    this._postChange({ action: 'create', packId, name: normalized.name })
-    return normalized
+      this._postChange({ action: 'create', packId, name: normalized.name })
+      return normalized
+    })
   }
 
   applyRemove(packId, id) {
-    const found = this.store.findById(id)
-    if (found === null || found.packId !== packId) throw new NotFoundError(`条目不存在：${id}（pack ${packId}）`)
-    this.store.snapshotRevision(found.packId, found.entry)
-    this.store.archiveEntry(found.packId, found.entry)
-    this.store.deleteEntryFile(found.packId, found.entry.name)
-    this.store.rebuildIndex(packId)
-    this.store.syncPackCount(packId)
-    this._postChange({ action: 'remove', packId, name: found.entry.name })
-    return { id: found.entry.id, name: found.entry.name }
+    // H-8：移除同样持写锁（与创建/更新串行化）
+    return this.store.withWriteLock(() => {
+      const found = this.store.findById(id)
+      if (found === null || found.packId !== packId) throw new NotFoundError(`条目不存在：${id}（pack ${packId}）`)
+      this.store.snapshotRevision(found.packId, found.entry)
+      this.store.archiveEntry(found.packId, found.entry)
+      this.store.deleteEntryFile(found.packId, found.entry.name)
+      this.store.rebuildIndex(packId)
+      this.store.syncPackCount(packId)
+      this._postChange({ action: 'remove', packId, name: found.entry.name })
+      return { id: found.entry.id, name: found.entry.name }
+    })
   }
 
   /** 统一条目规范化（补默认、校验）；生成 id/name/timestamps。 */

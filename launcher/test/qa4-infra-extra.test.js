@@ -238,7 +238,8 @@ describe('QA4 isolatedEnv（隔离红线基础）', () => {
     expect(env.LOCALAPPDATA).toBe('C:/iso');
     expect(env.ProgramFiles).toBe('C:/iso');
     expect(env.PATH).toBe('C:/iso');
-    expect(env.DSH_HOME).toBe('C:/iso');
+    // H-1 语义（v5）：DSH_HOME = .dsh 域目录本身 → home/.dsh
+    expect(env.DSH_HOME).toBe(path.join('C:/iso', '.dsh'));
     expect(env.NODE_OPTIONS).toBeUndefined();
   });
 });

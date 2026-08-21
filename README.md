@@ -44,14 +44,15 @@ DSH-Hotplug-Hub-Setup.exe --silent --dir "D:\MyApps\DseamWorld"
 
 ```text
 dsh-hotplug-hub-test/              # 仓库根目录
-├── release/                       # 桌面 EXE、安装程序、WebView2 DLL、内嵌包
+├── packages/shared-core/          # 共享内核（契约/纯逻辑单一真源，workspace 包）
+├── release/                       # 桌面 EXE、安装程序、WebView2 DLL、内嵌包、C# 契约测试
 ├── scripts/                       # 团队协作脚本（同步 / 检查 / 记忆 / 安装）
 ├── launcher/                      # 独立 CLI 启动器（assemble / check / launch / heal / status）
-├── dsh-hotplug-hub/               # hotplug-hub 插件源码 + dsh-pack-hub 原型页
+├── dsh-hotplug-hub/               # hotplug-hub 插件源码 + dsh-pack-hub 原型页 + memory-hub
 ├── vendor/dseam-skillmcp/         # 内置 Skill/MCP 管理器源码（MIT）
 ├── installer/                     # 历史安装程序工程
 ├── uninstaller/                   # 卸载程序工程
-├── assembly/                      # 组合描述与 resolvedAssembly
+├── assembly/                      # 组合描述（hotpack 1.0；dshpack 经单一桥接导入）
 ├── sandbox/                       # 临时 profile 工作区
 ├── 开发文档/                       # 团队文档与规范
 ├── README.md                      # 项目说明
