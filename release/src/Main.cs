@@ -44,7 +44,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.10.10";
+        private const string APP_VERSION = "0.10.11";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_VERSION = "0.8.1-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
         // GitHub API 结果的会话级缓存：避免每次插件列表刷新都同步打 API、离线时反复等 15s 超时
@@ -1601,10 +1601,11 @@ namespace DSHHotplugHub
                 "if(mi&&cfg&&cfg.defaultModel&&!mi.value){mi.value=cfg.defaultModel;}" +
                 "if(bi&&cfg&&cfg.baseUrl&&!bi.value){bi.value=cfg.baseUrl;}" +
                 "var note=document.getElementById('aiConnNote');" +
-                "if(note){var m0=(mi&&mi.value)||(cfg&&cfg.defaultModel)||'?';note.textContent='当前模型：'+m0+'（DSH API）';}" +
+                "var ki2=document.getElementById('aiKeyInput');var kt=((ki2&&ki2.value&&ki2.value.trim())||(cfg&&cfg.apiKey)||'');" +
+                "if(note){var m0=(mi&&mi.value)||(cfg&&cfg.defaultModel)||'?';note.textContent='当前模型：'+m0+(kt?'（DSH API）':'（未配置 Key，点「⚙ 模型」填写）');}" +
                 "};" +
                 "var origRenderAi=renderAi;renderAi=function(){origRenderAi();ensure();};" +
-                "var origRefresh=refreshConnNote;refreshConnNote=function(){var mi2=document.getElementById('aiModelInput');var n2=document.getElementById('aiConnNote');if(n2){n2.textContent='当前模型：'+((mi2&&mi2.value)||(cfg&&cfg.defaultModel)||'?')+'（DSH API）';}};" +
+                "var origRefresh=refreshConnNote;refreshConnNote=function(){var mi2=document.getElementById('aiModelInput');var ki3=document.getElementById('aiKeyInput');var kt2=((ki3&&ki3.value&&ki3.value.trim())||(cfg&&cfg.apiKey)||'');var n2=document.getElementById('aiConnNote');if(n2){n2.textContent='当前模型：'+((mi2&&mi2.value)||(cfg&&cfg.defaultModel)||'?')+(kt2?'（DSH API）':'（未配置 Key，点「⚙ 模型」填写）');}};" +
                 "if(document.readyState!=='loading'){ensure();}" +
                 "var origCompose=compose;" +
                 "compose=function(){" +
