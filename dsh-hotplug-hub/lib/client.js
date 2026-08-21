@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
 		let react = require("react");
 		const h = react.createElement;
 		const { useEffect, useRef, useState } = react;
-		const css = ".hp_section{width:100%;max-width:860px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:14px;display:flex}.hp_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:10px;padding:12px 14px;flex-direction:column;gap:8px;display:flex;min-width:0}.hp_heading{display:flex;align-items:baseline;gap:7px;margin:0}.hp_heading h3{margin:0;font-size:13px;font-weight:600;line-height:20px}.hp_heading span{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:12px}.hp_info{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.hp_bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hp_btn{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:34px;padding:0 14px;font-size:13px}.hp_btn:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_btn:disabled{opacity:.5;cursor:default}.hp_primary{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:0 0}.hp_notice{margin:0;font-size:13px;line-height:20px}.hp_notice[data-kind=error]{color:var(--dsw-alias-state-error-primary)}.hp_notice[data-kind=success]{color:var(--dsw-alias-state-success-primary)}.hp_textarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace}.hp_list{margin:0;padding:0;list-style:none;flex-direction:column;gap:8px;display:flex}.hp_row{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}.hp_row[data-active=true]{border-color:var(--dsw-alias-state-business-primary)}.hp_rowTop{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}.hp_name{font-weight:600;font-size:13px}.hp_meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_tag{font-size:11px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);padding:2px 8px;border-radius:10px;color:var(--dsw-alias-label-tertiary)}.hp_badge{font-size:11px;font-weight:600;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);padding:2px 8px;border-radius:10px}.hp_actions{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.hp_kv{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}.hp_code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:var(--dsw-alias-bg-layer-2);padding:2px 6px;border-radius:4px}.hp_empty{color:var(--dsw-alias-label-tertiary);font-size:13px;padding:8px 0}.hp_dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}.hp_dot[data-kind=reused]{background:var(--dsw-alias-state-success-primary)}.hp_dot[data-kind=download]{background:var(--dsw-alias-state-business-primary)}.hp_dot[data-kind=error]{background:var(--dsw-alias-state-error-primary)}.hp_preview{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}.hp_preview li{font-size:12px;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;gap:4px;flex-wrap:wrap}.hp_tabs{display:flex;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2);margin-bottom:14px;flex-wrap:wrap}.hp_tab{border:0;border-bottom:2px solid transparent;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;padding:8px 14px;cursor:pointer}.hp_tab:hover{color:var(--dsw-alias-label-primary)}.hp_tab[data-on=true]{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-state-business-primary)}.hp_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.hp_stat{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px}.hp_stat .hp_label{font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_stat .hp_num{font-size:22px;font-weight:700;margin-top:4px}.hp_log{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.7;padding:10px 12px;min-height:160px;max-height:300px;overflow-y:auto;white-space:pre-wrap}.hp_log .ok{color:var(--dsw-alias-state-success-primary)}.hp_log .warn{color:var(--dsw-alias-state-business-primary)}.hp_msg{display:flex;gap:8px;padding:8px 0;border-bottom:1px dashed var(--dsw-alias-border-l2)}.hp_msg:last-child{border-bottom:0}.hp_msgRole{flex:0 0 auto;width:24px;height:24px;line-height:24px;text-align:center;border-radius:50%;background:var(--dsw-alias-bg-layer-2);font-size:13px}.hp_msgBody{flex:1 1 auto;min-width:0;flex-direction:column;gap:4px;display:flex}.hp_msgText{font-size:13px;line-height:20px;white-space:pre-wrap;word-break:break-word}.hp_msgPack{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:8px;padding:6px 10px;font-size:12px;gap:6px;display:flex;flex-wrap:wrap;align-items:center}.hp_msg.err .hp_msgText{color:var(--dsw-alias-state-error-primary)}.hp_check{display:flex;align-items:center;gap:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px;font-size:13px}.hp_check .hp_val{margin-left:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_chip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer}.hp_chip[data-on=true]{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_input{flex:1;min-width:160px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px}.hp_input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.hp_select{flex:0 0 auto;min-width:118px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}.hp_topic{flex:0 0 160px}.hp_link{border:1px solid var(--dsw-alias-border-l2);background:0 0;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:30px;padding:0 12px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:5px}.hp_link:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_expand{margin:0;padding:8px 10px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}.hp_loading{color:var(--dsw-alias-label-tertiary);font-size:13px;margin:0;padding:10px 2px;display:flex;align-items:center;gap:8px}.hp_loading .hp_spin{width:14px;height:14px;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);border-radius:50%;animation:hp-rotate .8s linear infinite;display:inline-block}@keyframes hp-rotate{to{transform:rotate(360deg)}}";
+		const css = ".hp_section{width:100%;max-width:860px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:14px;display:flex}.hp_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:10px;padding:12px 14px;flex-direction:column;gap:8px;display:flex;min-width:0}.hp_heading{display:flex;align-items:baseline;gap:7px;margin:0}.hp_heading h3{margin:0;font-size:13px;font-weight:600;line-height:20px}.hp_heading span{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:12px}.hp_info{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.hp_bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hp_btn{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:34px;padding:0 14px;font-size:13px}.hp_btn:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_btn:disabled{opacity:.5;cursor:default}.hp_primary{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:0 0}.hp_notice{margin:0;font-size:13px;line-height:20px}.hp_notice[data-kind=error]{color:var(--dsw-alias-state-error-primary)}.hp_notice[data-kind=success]{color:var(--dsw-alias-state-success-primary)}.hp_textarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace}.hp_list{margin:0;padding:0;list-style:none;flex-direction:column;gap:8px;display:flex}.hp_row{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}.hp_row[data-active=true]{border-color:var(--dsw-alias-state-business-primary)}.hp_rowTop{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}.hp_name{font-weight:600;font-size:13px}.hp_meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_tag{font-size:11px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);padding:2px 8px;border-radius:10px;color:var(--dsw-alias-label-tertiary)}.hp_badge{font-size:11px;font-weight:600;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);padding:2px 8px;border-radius:10px}.hp_actions{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.hp_kv{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}.hp_code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:var(--dsw-alias-bg-layer-2);padding:2px 6px;border-radius:4px}.hp_empty{color:var(--dsw-alias-label-tertiary);font-size:13px;padding:8px 0}.hp_dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}.hp_dot[data-kind=reused]{background:var(--dsw-alias-state-success-primary)}.hp_dot[data-kind=download]{background:var(--dsw-alias-state-business-primary)}.hp_dot[data-kind=error]{background:var(--dsw-alias-state-error-primary)}.hp_preview{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}.hp_preview li{font-size:12px;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;gap:4px;flex-wrap:wrap}.hp_tabs{display:flex;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2);margin-bottom:14px;flex-wrap:wrap}.hp_tab{border:0;border-bottom:2px solid transparent;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;padding:8px 14px;cursor:pointer}.hp_tab:hover{color:var(--dsw-alias-label-primary)}.hp_tab[data-on=true]{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-state-business-primary)}.hp_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.hp_stat{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px}.hp_stat .hp_label{font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_stat .hp_num{font-size:22px;font-weight:700;margin-top:4px}.hp_log{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.7;padding:10px 12px;min-height:160px;max-height:300px;overflow-y:auto;white-space:pre-wrap}.hp_log .ok{color:var(--dsw-alias-state-success-primary)}.hp_log .warn{color:var(--dsw-alias-state-business-primary)}.hp_msg{display:flex;gap:8px;padding:8px 0;border-bottom:1px dashed var(--dsw-alias-border-l2)}.hp_msg:last-child{border-bottom:0}.hp_msgRole{flex:0 0 auto;width:24px;height:24px;line-height:24px;text-align:center;border-radius:50%;background:var(--dsw-alias-bg-layer-2);font-size:13px}.hp_msgBody{flex:1 1 auto;min-width:0;flex-direction:column;gap:4px;display:flex}.hp_msgText{font-size:13px;line-height:20px;white-space:pre-wrap;word-break:break-word}.hp_msgPack{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:8px;padding:6px 10px;font-size:12px;gap:6px;display:flex;flex-wrap:wrap;align-items:center}.hp_msg.err .hp_msgText{color:var(--dsw-alias-state-error-primary)}.hp_aiZone{display:flex;flex-direction:column;gap:10px}.hp_aiTop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.hp_aiTitle{font-size:13px;font-weight:600;display:flex;align-items:baseline;gap:7px;white-space:nowrap}.hp_aiTitle span{color:var(--dsw-alias-label-tertiary);font-size:12px;font-weight:400}.hp_aiSpacer{flex:1}.hp_aiTurn{font-size:12px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}.hp_aiChat{display:flex;flex-direction:column;gap:14px;min-height:320px;max-height:52vh;overflow-y:auto;padding:14px 4px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:12px}.hp_aiMsg{display:flex;gap:8px;align-items:flex-start;animation:hpAiIn .22s ease}.hp_aiMsg.user{flex-direction:row-reverse}@keyframes hpAiIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}.hp_aiAv{flex:0 0 28px;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:14px;background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l2);margin:0 4px}.hp_aiMsg.user .hp_aiAv{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);font-size:11px;font-weight:600}.hp_aiBub{max-width:78%;border-radius:13px;padding:9px 13px;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word}.hp_aiMsg.assistant .hp_aiBub{background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l2);border-top-left-radius:4px}.hp_aiMsg.user .hp_aiBub{background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);border-top-right-radius:4px}.hp_aiMsg.err .hp_aiBub{background:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-label-inverse,#fff);opacity:.92}.hp_aiTyping{display:inline-flex;gap:4px;align-items:center;padding:4px 2px}.hp_aiTyping i{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary);animation:hpAiDot 1.1s infinite}.hp_aiTyping i:nth-child(2){animation-delay:.18s}.hp_aiTyping i:nth-child(3){animation-delay:.36s}@keyframes hpAiDot{0%,60%,100%{opacity:.35}30%{opacity:1}}.hp_aiPack{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:9px;margin-left:36px;max-width:calc(100% - 36px);animation:hpAiIn .26s ease}.hp_aiPack .head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.hp_aiPack .name{font-weight:600;font-size:13px}.hp_aiPack .meta{font-size:12px;color:var(--dsw-alias-label-tertiary);display:flex;gap:6px;flex-wrap:wrap;align-items:center}.hp_aiDiff{display:flex;gap:6px}.hp_aiDiff b{font-weight:600;border-radius:7px;padding:2px 8px;font-size:11.5px}.hp_aiDiff .add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent)}.hp_aiDiff .del{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent)}.hp_aiDiff .chg{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)}.hp_aiPlugins{display:flex;flex-direction:column;gap:3px;font-size:12.5px}.hp_aiPlugins .p{display:flex;gap:7px;align-items:center}.hp_aiPlugins .dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-success-primary)}.hp_aiPlugins .pn{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_aiPlugins .pv{color:var(--dsw-alias-label-tertiary);font-size:11.5px}.hp_aiPack .acts{display:flex;gap:8px;flex-wrap:wrap;border-top:1px dashed var(--dsw-alias-border-l2);padding-top:9px}.hp_aiDock{display:flex;flex-direction:column;gap:8px}.hp_aiInputWrap{display:flex;align-items:flex-end;gap:8px;border:1.5px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-2);padding:8px 8px 8px 12px;transition:border-color .15s ease}.hp_aiInputWrap:focus-within{border-color:var(--dsw-alias-state-business-primary)}.hp_aiInputWrap textarea{flex:1;border:0;outline:0;resize:none;background:transparent;font:inherit;font-size:13px;line-height:1.6;max-height:120px;min-height:22px;padding:2px 0;color:var(--dsw-alias-label-primary)}.hp_aiSend{flex:0 0 34px;width:34px;height:34px;border-radius:50%;border:0;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);cursor:pointer;display:grid;place-items:center;transition:transform .12s ease,opacity .15s ease}.hp_aiSend:active{transform:scale(.94)}.hp_aiSend:disabled{opacity:.45;cursor:default}.hp_aiSend svg{width:16px;height:16px}.hp_aiDockNote{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dsw-alias-label-tertiary);flex-wrap:wrap}.hp_aiKeyRow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.hp_settings{border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2);padding:12px 14px;display:flex;flex-direction:column;gap:8px}.hp_welcome{border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:linear-gradient(150deg,color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent),transparent 55%);padding:24px 20px;display:flex;flex-direction:column;gap:10px;text-align:center}.hp_welcome .g{font-size:17px;font-weight:700}.hp_welcome .d{font-size:13px;line-height:1.8;color:var(--dsw-alias-label-secondary);max-width:420px;margin:0 auto}.hp_welcomeRow{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}.hp_check{display:flex;align-items:center;gap:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px;font-size:13px}.hp_check .hp_val{margin-left:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_chip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer}.hp_chip[data-on=true]{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_input{flex:1;min-width:160px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px}.hp_input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.hp_select{flex:0 0 auto;min-width:118px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}.hp_topic{flex:0 0 160px}.hp_link{border:1px solid var(--dsw-alias-border-l2);background:0 0;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:30px;padding:0 12px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:5px}.hp_link:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_expand{margin:0;padding:8px 10px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}.hp_loading{color:var(--dsw-alias-label-tertiary);font-size:13px;margin:0;padding:10px 2px;display:flex;align-items:center;gap:8px}.hp_loading .hp_spin{width:14px;height:14px;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);border-radius:50%;animation:hp-rotate .8s linear infinite;display:inline-block}@keyframes hp-rotate{to{transform:rotate(360deg)}}";
 		const tagId = "dsh-hotplug-hub/hotplug.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -96,7 +96,14 @@ window.__ModuleLoader__.load({
 			marketUpdated: "更新",
 			marketNote: "数据来源：GitHub 标签搜索（官方 API + 多镜像站全并发测速取最快），README 对比提取介绍与安装方法",
 			aiTitle: "小织女仆 · 装配间",
-			aiPlaceholder: "描述你的工作场景和需要的插件能力；装配完成后还能继续对话调整",
+			aiSubtitle: "人设化对话式装配",
+			aiSettings: "连接设置",
+			aiConnNote: "连接",
+			aiKeyMissing: "Key 未填（读服务端环境变量）",
+			aiEnterHint: "Enter 发送 · Shift+Enter 换行",
+			aiWelcomeTitle: "主人，欢迎来到装配间～",
+			aiWelcomeDesc: "描述您需要的工作流，小织会自动挑选真实可用的 npm 插件并织成 hotpack 包。不够满意？直接继续说「换个 xx」「加个功能」，我们边聊边改。",
+			aiPlaceholder: "描述您的需求，小织马上开工。例如：我要搭一套科研出论文的工作流…",
 			aiProviderLabel: "AI 服务商",
 			aiPersonaLabel: "装配女仆",
 			aiKeyPlaceholder: "API Key（可留空，走服务端对应环境变量）",
@@ -255,6 +262,8 @@ window.__ModuleLoader__.load({
 			});
 			const [aiMessages, setAiMessages] = useState([]); // {role: 'user'|'assistant', text, pack?, diff?, error?}
 			const [aiPack, setAiPack] = useState(null); // {name, tags, pack, readme, diff}
+			const [aiSettingsOpen, setAiSettingsOpen] = useState(false); // 连接设置折叠面板
+			const [aiTyping, setAiTyping] = useState(false); // 打字指示器
 			const [aiRunning, setAiRunning] = useState(false);
 			const fileRef = useRef(null);
 			const say = (kind, text) => setNotice({ kind, text });
@@ -421,6 +430,7 @@ window.__ModuleLoader__.load({
 				const text = aiInput.trim();
 				setAiInput("");
 				setAiMessages((prev) => [...prev, { role: "user", text }]);
+				setAiTyping(true);
 				setAiRunning(true);
 				const task = () => {
 					if (typeof api.aiChat !== "function") return Promise.reject(new Error(t("aiNoGatewayChat")));
@@ -451,15 +461,13 @@ window.__ModuleLoader__.load({
 						}
 						if (pack) {
 							setAiPack({ name: pack.name, tags: pack.tags || [], pack, readme: (d && d.readme) || "", diff });
-							say("success", t("aiDone") + pack.name);
 						}
 					})
 					.catch((e) => {
 						const msg = String(e && e.message ? e.message : e);
 						setAiMessages((prev) => [...prev, { role: "assistant", text: t("aiFail") + msg, pack: null, diff: null, error: true }]);
-						say("error", t("aiFail") + msg);
 					})
-					.finally(() => setAiRunning(false));
+					.finally(() => { setAiTyping(false); setAiRunning(false); });
 			};
 			const doAiNewSession = () => {
 				if (aiMessages.length === 0 && !aiSessionId) return;
@@ -676,20 +684,60 @@ window.__ModuleLoader__.load({
 				) : null,
 				marketData ? h("p", { className: "hp_info" }, t("marketNote")) : null
 			);
-			const renderAi = () => h("div", null,
-				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
-				h("div", { className: "hp_card" },
-					h("div", { className: "hp_heading" }, h("h3", null, t("aiTitle")), aiSessionId ? h("span", null, t("aiTurn") + String(Math.max(1, aiMessages.filter((m) => m.role === "user").length)) + t("aiTurnEnd")) : null),
-					h("div", { className: "hp_bar" },
-						h("label", null, t("aiPersonaLabel")),
-						h("select", { className: "hp_input", value: aiPersona, onChange: (e) => setAiPersona(e.target.value) },
-							AI_PERSONA_OPTIONS.map(([id, label]) =>
-								h("option", { key: id, value: id }, label)
-							)
-						),
-						h("button", { className: "hp_btn", disabled: busy || (aiMessages.length === 0 && !aiSessionId), onClick: doAiNewSession }, t("aiNewSession"))
+			const renderAiMsg = (m, index) => {
+				if (m.role === "user") {
+					return h("div", { key: index, className: "hp_aiMsg user" },
+						h("div", { className: "hp_aiAv" }, "您"),
+						h("div", { className: "hp_aiBub" }, m.text)
+					);
+				}
+				return h("div", { key: index, className: "hp_aiMsg" + (m.error ? " err" : ""), style: m.pack ? { marginBottom: 0 } : null },
+					h("div", { className: "hp_aiAv" }, m.error ? "⚠️" : (AI_PERSONA_EMOJI[aiPersona] || "🤖")),
+					h("div", { className: "hp_aiBub" }, m.text),
+					m.pack ? renderPackCard(m.pack, m.diff) : null
+				);
+			};
+			const renderPackCard = (pack, diff) => {
+				const d = diff || { added: [], removed: [], changed: [] };
+				const diffEl = (d.added.length + d.removed.length + d.changed.length) > 0
+					? h("div", { className: "hp_aiDiff" },
+						d.added.length ? h("b", { className: "add" }, "+ 新增 " + d.added.length) : null,
+						d.removed.length ? h("b", { className: "del" }, "- 移除 " + d.removed.length) : null,
+						d.changed.length ? h("b", { className: "chg" }, "~ 调整 " + d.changed.length) : null
+					) : null;
+				return h("div", { className: "hp_aiPack" },
+					h("div", { className: "head" },
+						h("span", { className: "name" }, "📦 " + pack.name),
+						h("span", { className: "meta" }, (pack.plugins || []).length + t("pluginsCount"), diffEl)
 					),
-					h("div", { className: "hp_bar" },
+					h("div", { className: "hp_aiPlugins" }, (pack.plugins || []).map((p) =>
+						h("div", { key: p.id ?? p.name, className: "p" },
+							h("span", { className: "dot" }),
+							h("span", { className: "pn" }, p.name + "@" + p.version),
+							h("span", { className: "pv" }, p.id)
+						)
+					)),
+					h("div", { className: "acts" },
+						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: doAiImport }, t("aiImport")),
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(pack, null, 2)); } catch { /* 尽力而为 */ } } }, t("aiCopyManifest")),
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(aiPack && aiPack.readme || ""); } catch { /* 尽力而为 */ } } }, t("aiCopyReadme"))
+					)
+				);
+			};
+			const renderAi = () => h("div", { className: "hp_aiZone" },
+				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
+				h("div", { className: "hp_aiTop" },
+					h("div", { className: "hp_aiTitle" }, "🧹 " + t("aiTitle"), h("span", null, t("aiSubtitle"))),
+					h("div", { className: "hp_aiSpacer" }),
+					h("select", { className: "hp_input", style: { width: "auto" }, value: aiPersona, title: "切换装配女仆", onChange: (e) => setAiPersona(e.target.value) },
+						AI_PERSONA_OPTIONS.map(([id, label]) => h("option", { key: id, value: id }, label))
+					),
+					h("button", { className: "hp_btn", onClick: () => setAiSettingsOpen(!aiSettingsOpen) }, "⚙️ " + t("aiSettings")),
+					h("span", { className: "hp_aiTurn" }, aiSessionId ? t("aiTurn") + String(Math.max(1, aiMessages.filter((m) => m.role === "user").length)) + t("aiTurnEnd") : ""),
+					h("button", { className: "hp_btn", disabled: busy || (aiMessages.length === 0 && !aiSessionId), onClick: doAiNewSession }, t("aiNewSession"))
+				),
+				aiSettingsOpen ? h("div", { className: "hp_settings" },
+					h("div", { className: "hp_aiKeyRow" },
 						h("label", null, t("aiProviderLabel")),
 						h("select", { className: "hp_input", value: aiProvider, onChange: (e) => {
 							const preset = AI_PROVIDER_OPTIONS.find((p) => p.id === e.target.value);
@@ -699,53 +747,41 @@ window.__ModuleLoader__.load({
 							AI_PROVIDER_OPTIONS.map((p) => h("option", { key: p.id, value: p.id }, p.label))
 						)
 					),
-					h("input", { type: "password", className: "hp_input", placeholder: t("aiKeyPlaceholder"), value: aiKey, onChange: (e) => setAiKey(e.target.value), autoComplete: "off", spellCheck: false }),
-					h("input", { className: "hp_input", placeholder: t("aiBaseUrlPlaceholder"), value: aiBaseURL, onChange: (e) => setAiBaseURL(e.target.value), spellCheck: false }),
-					h("input", { className: "hp_input", placeholder: t("aiModelPlaceholder"), value: aiModel, onChange: (e) => setAiModel(e.target.value), spellCheck: false }),
+					h("div", { className: "hp_aiKeyRow" },
+						h("input", { type: "password", className: "hp_input", style: { flex: 1 }, placeholder: t("aiKeyPlaceholder"), value: aiKey, onChange: (e) => setAiKey(e.target.value), autoComplete: "off", spellCheck: false }),
+						h("input", { className: "hp_input", style: { flex: 1 }, placeholder: t("aiBaseUrlPlaceholder"), value: aiBaseURL, onChange: (e) => setAiBaseURL(e.target.value), spellCheck: false }),
+						h("input", { className: "hp_input", style: { flex: 1 }, placeholder: t("aiModelPlaceholder"), value: aiModel, onChange: (e) => setAiModel(e.target.value), spellCheck: false })
+					),
 					h("p", { className: "hp_info" }, t("aiKeyHint")),
 					h("p", { className: "hp_info" }, t("aiPersonaHint"))
-				),
-				h("div", { className: "hp_card" },
-					h("div", { className: "hp_heading" }, h("h3", null, t("aiLog"))),
+				) : null,
+				h("div", { className: "hp_aiChat" },
 					aiMessages.length === 0
-						? h("p", { className: "hp_info" }, t("aiWelcome"))
-						: h("div", { className: "hp_log" }, aiMessages.map((m, index) =>
-							h("div", { key: index, className: m.role === "user" ? "hp_msg" : "hp_msg" + (m.error ? " err" : "") },
-								h("div", { className: "hp_msgRole" }, m.role === "user" ? "🧑" : (m.error ? "⚠️" : (AI_PERSONA_EMOJI[aiPersona] || "🤖"))),
-								h("div", { className: "hp_msgBody" },
-									h("div", { className: "hp_msgText" }, m.text),
-									m.pack ? h("div", { className: "hp_msgPack" },
-										h("b", null, m.pack.name),
-										h("span", null, " · " + (m.pack.plugins ? m.pack.plugins.length : 0) + t("pluginsCount")),
-										m.diff && (m.diff.added || []).length + (m.diff.removed || []).length + (m.diff.changed || []).length > 0
-											? h("span", null, " · " + t("aiDiffTitle") + " +" + (m.diff.added || []).length + " -" + (m.diff.removed || []).length + " ~" + (m.diff.changed || []).length)
-											: null
-									) : null
-								)
-							)
-						))
+						? h("div", { className: "hp_welcome" },
+							h("div", { className: "g" }, t("aiWelcomeTitle")),
+							h("div", { className: "d" }, t("aiWelcomeDesc")),
+							h("div", { className: "hp_welcomeRow" }, t("aiSamples").map((sample) =>
+								h("button", { key: sample, className: "hp_chip", onClick: () => setAiInput(sample) }, sample)
+							))
+						)
+						: h("div", null, aiMessages.map(renderAiMsg), aiTyping ? h("div", { key: "typing", className: "hp_aiMsg" },
+							h("div", { className: "hp_aiAv" }, AI_PERSONA_EMOJI[aiPersona] || "🤖"),
+							h("div", { className: "hp_aiBub" }, h("span", { className: "hp_aiTyping" }, h("i"), h("i"), h("i")))
+						) : null)
 				),
-				h("div", { className: "hp_card" },
-					h("textarea", { className: "hp_textarea", placeholder: t("aiPlaceholder"), value: aiInput, onChange: (e) => setAiInput(e.target.value), spellCheck: false, onKeyDown: (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) doAiSend(); } }),
-					h("div", { className: "hp_bar" },
-						t("aiSamples").map((sample) => h("button", { key: sample, className: "hp_chip", onClick: () => setAiInput(sample) }, sample))
+				h("div", { className: "hp_aiDock" },
+					h("div", { className: "hp_aiInputWrap" },
+						h("textarea", { placeholder: t("aiPlaceholder"), value: aiInput, onChange: (e) => setAiInput(e.target.value), onKeyDown: (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doAiSend(); } }, rows: 1, spellCheck: false }),
+						h("button", { className: "hp_aiSend", title: t("aiSend"), disabled: aiRunning || !aiInput.trim(), onClick: doAiSend },
+							h("svg", { viewBox: "0 0 20 20", fill: "none" }, h("path", { d: "M3.5 10L16.5 3.5L12.5 16.5L9.5 11.5L3.5 10Z", stroke: "currentColor", strokeWidth: 1.6, strokeLinejoin: "round" }))
+						)
 					),
-					h("div", { className: "hp_bar" },
-						h("button", { className: "hp_btn hp_primary", disabled: aiRunning || !aiInput.trim(), onClick: doAiSend }, aiRunning ? t("aiSending") : t("aiSend"))
+					h("div", { className: "hp_aiDockNote" },
+						h("span", null, t("aiConnNote") + "：" + (aiProvider === "custom" ? (aiBaseURL || "自定义端点") : aiProvider) + " · " + aiModel + (aiKey ? "" : " · " + t("aiKeyMissing"))),
+						h("span", { style: { flex: 1 } }),
+						h("span", null, t("aiEnterHint"))
 					)
-				),
-				aiPack ? h("div", { className: "hp_card" },
-					h("div", { className: "hp_heading" }, h("h3", null, t("aiResult")), h("span", null, aiPack.name)),
-					h("p", { className: "hp_info" }, t("aiDone") + aiPack.name),
-					h("div", { className: "hp_meta" }, aiPack.tags.map((tag) => h("span", { key: tag, className: "hp_tag" }, tag))),
-					renderAiDiff(aiPack.diff),
-					h("div", { className: "hp_bar" },
-						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(aiPack.pack, null, 2)); } catch { /* 尽力而为 */ } } }, t("aiCopyManifest")),
-						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(aiPack.readme); } catch { /* 尽力而为 */ } } }, t("aiCopyReadme")),
-						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: doAiImport }, t("aiImport"))
-					),
-					h("pre", { className: "hp_code", style: { whiteSpace: "pre-wrap", maxHeight: 200, overflow: "auto" } }, JSON.stringify(aiPack.pack, null, 2))
-				) : null
+				)
 			);
 			const renderMemory = () => h("div", null,
 				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
