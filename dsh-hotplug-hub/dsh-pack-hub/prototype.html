@@ -476,24 +476,13 @@ const CATALOG = [
   }
 ];
 
-const MCP_CATALOG = [
-  { id: 'mcp-filesystem', name: 'Filesystem MCP', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-filesystem', desc: '读写本地文件', tags: ['官方','文件'] },
-  { id: 'mcp-fetch', name: 'Fetch MCP', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-fetch', desc: '抓取网页', tags: ['官方','网络'] },
-  { id: 'mcp-memory', name: 'Memory MCP', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-memory', desc: '知识图谱记忆', tags: ['官方','记忆'] },
-  { id: 'mcp-git', name: 'Git MCP', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-git', desc: 'Git 操作', tags: ['官方','Git'] },
-  { id: 'mcp-sequential-thinking', name: 'Sequential Thinking', repo: 'modelcontextprotocol/servers', command: 'npx', args: '-y @modelcontextprotocol/server-sequential-thinking', desc: '逐步推理', tags: ['官方','推理'] },
-  { id: 'mcp-awesome', name: 'Awesome MCP Servers', repo: 'punkpeye/awesome-mcp-servers', desc: '社区 MCP 服务器大全', tags: ['社区','MCP'] }
-];
 const DEFAULT_STATE = {
   dshVersion: '0.1.0-rc.7',
   latestVersion: '0.1.0-rc.8',
   nodeVersion: '22.19.0',
   pnpmVersion: '11.7.0',
   pendingRestart: 0,
-  installed: [
-    { packId: 'pack-research', active: true, installedAt: '2026-08-18', status: 'healthy' },
-    { packId: 'pack-notes', active: true, installedAt: '2026-08-18', status: 'healthy' }
-  ],
+  installed: [],
   imported: [],
   aiCount: 0,
   memories: [],
@@ -517,6 +506,14 @@ try {
 } catch (e) {
   state = JSON.parse(JSON.stringify(DEFAULT_STATE));
 }
+// v0.9.6 修复：清掉原型演示用的假插座包；记住当前页，页面刷新后不跳回中枢
+if (!state || typeof state !== 'object') state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+const DEMO_PACK_IDS = ['pack-research', 'pack-notes'];
+if (!Array.isArray(state.installed)) state.installed = [];
+state.installed = state.installed.filter((i) => i && DEMO_PACK_IDS.indexOf(i.packId) === -1);
+if (!Array.isArray(state.imported)) state.imported = [];
+state.imported = state.imported.filter((i) => i && DEMO_PACK_IDS.indexOf(i.packId || i.id) === -1);
+if (typeof state.currentView !== 'string' || !NAV.some((n) => n.id === state.currentView)) state.currentView = 'hub';
 function save() {
   try { localStorage.setItem('dsh-pack-hub-prototype', JSON.stringify(state)); } catch (e) { /* file:// mode */ }
 }
@@ -527,7 +524,7 @@ const packOf = (id) => CATALOG.find((p) => p.id === id) || state.imported.find((
 const isInstalled = (id) => state.installed.some((i) => i.packId === id);
 const installedRow = (id) => state.installed.find((i) => i.packId === id);
 
-let currentView = 'hub';
+let currentView = (state && state.currentView) || 'hub';
 let marketQuery = '';
 let marketFilters = []; // 多选标签筛选（空 = 全部）
 let aiRunning = false;
@@ -1030,9 +1027,9 @@ async function loadMarket(params) {
   return { ok: true, cached: false, entries: marketData, total: search.total, sources, cachedAt: null, fetchedVia: marketFetchedVia };
 }
 
-function doMarketSearch() { marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: true }); }
-function doMarketRefresh() { marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: true }); }
-function doMarketMore() { marketPage += 1; loadMarket({ topic: marketTopic, q: marketQuery, page: marketPage, sources: marketSources, refresh: true }); }
+function doMarketSearch() { currentView = 'market'; marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: true }); }
+function doMarketRefresh() { currentView = 'market'; marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: true }); }
+function doMarketMore() { currentView = 'market'; marketPage += 1; loadMarket({ topic: marketTopic, q: marketQuery, page: marketPage, sources: marketSources, refresh: true }); }
 
 // 多选标签筛选：空数组=全部；否则命中任一选中标签即通过
 function matchFilters(tags) {
@@ -1108,6 +1105,8 @@ function renderShell() {
 
 function switchView(id) {
   currentView = id;
+  state.currentView = id;
+  save();
   document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
   $('view-' + id).classList.remove('hidden');
   renderShell(); renderCurrent();
@@ -1262,9 +1261,7 @@ function renderMarketCard(e) {
 }
 
 function renderMarket() {
-  const cats = marketData.length
-    ? [...new Set(marketData.flatMap((e) => e.topics || []))]
-    : [...new Set(CATALOG.flatMap((p) => p.tags))];
+  const cats = marketData.length ? [...new Set(marketData.flatMap((e) => e.topics || []))] : [];
   const q = marketQuery.trim().toLowerCase();
   const srcLabel = (marketSources && marketSources.length ? marketSources.join('+') : '官方+全部镜像');
 
@@ -1277,14 +1274,12 @@ function renderMarket() {
     statusLine = `<div class="mkt-banner err">${ICONS.warn} ${esc(marketError)} <button class="btn sm" id="retryMarket">重试</button></div>`;
     body = marketData.length
       ? marketData.filter((e) => matchFilters(e.topics) && (!q || (e.name || '').toLowerCase().includes(q) || (e.intro || '').toLowerCase().includes(q))).map(renderMarketCard).join('')
-      : `<div class="empty">网络不可用，已回退到内置示例目录。</div>` + CATALOG.map((p) => packCard(p, false)).join('');
+      : '<div class="empty">网络不可用，暂无市场数据。</div>';
   } else {
-    const list = marketData.length
-      ? marketData.filter((e) => matchFilters(e.topics) && (!q || (e.name || '').toLowerCase().includes(q) || (e.intro || '').toLowerCase().includes(q)))
-      : CATALOG.filter((p) => matchFilters(p.tags) && (!q || p.name.toLowerCase().includes(q) || p.desc.toLowerCase().includes(q)));
+    const list = marketData.filter((e) => matchFilters(e.topics) && (!q || (e.name || '').toLowerCase().includes(q) || (e.intro || '').toLowerCase().includes(q)));
     body = marketData.length
       ? (list.length ? list.map(renderMarketCard).join('') : '<div class="empty">没有匹配的插座包</div>')
-      : list.map((p) => packCard(p, false)).join('');
+      : '<div class="empty">暂无市场数据，请检查网络后点击刷新重试。</div>';
     if (marketLoading && marketAppending) body += `<div class="empty muted" style="padding:8px">正在加载更多…</div>`;
     if (marketData.length) statusLine = `<div class="footnote">共 ${marketTotal} 个仓库 · 已加载 ${marketData.length} · 数据源 ${marketFetchedVia || srcLabel}${marketCachedAt ? ' · 更新于 ' + new Date(marketCachedAt).toLocaleString() : ''}</div>`;
   }
@@ -1300,9 +1295,9 @@ function renderMarket() {
         <button class="chip ${!marketSources ? 'on' : ''}" data-src="__all">官方+全部</button>
         ${MARKET_SOURCE_OPTIONS.map((s) => `<button class="chip ${!marketSources || marketSources.includes(s) ? 'on' : ''}" data-src="${s}">${s === MARKET_SOURCE_GITHUB ? 'GitHub 官方' : s}</button>`).join('')}
       </div>
-      <button class="btn primary" id="doSearchMarket">${ICONS.search} 搜索</button>
-      <button class="btn" id="refreshMarket">${ICONS.refresh} 刷新</button>
-      <button class="btn" id="importBtn2">${ICONS.upload} 导入文件</button>
+      <button type="button" class="btn primary" id="doSearchMarket">${ICONS.search} 搜索</button>
+      <button type="button" class="btn" id="refreshMarket">${ICONS.refresh} 刷新</button>
+      <button type="button" class="btn" id="importBtn2">${ICONS.upload} 导入文件</button>
     </div>
     ${statusLine}
     <div class="mkt-tags">
@@ -1320,7 +1315,7 @@ function renderMarket() {
       ${body}
     </div>
     ${marketData.length && !marketError ? `<div style="text-align:center;margin:14px 0"><button class="btn" id="moreMarket">${ICONS.refresh} 加载更多</button></div>` : ''}
-    ${marketData.length ? '' : '<div class="footnote">示例目录数据，用于原型演示</div>'}`;
+    ${marketData.length ? '' : ''}`;
 
   $('marketSearch').addEventListener('input', (e) => { marketQuery = e.target.value; });
   $('marketSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') doMarketSearch(); });
@@ -1788,11 +1783,10 @@ function renderPlugins() {
 
 function renderMcp() {
   const rows = (window.chrome && window.chrome.webview && window.__mcpsData) || state.mcps || [];
-  const market = MCP_CATALOG || [];
-  const installedIds = new Set(rows.map((m) => m.id));
+
   $('view-mcp').innerHTML = `
     <div class="section-head">
-      <div><h2>MCP 管理</h2><div class="sub">统一读写 dsh-skill-mcp-panel 受管块 · 支持 STDIO / streamable-http</div></div>
+      <div><h2>MCP 管理</h2><div class="sub">统一读写 dseam-skillmcp 受管块 · 支持 STDIO / streamable-http</div></div>
     </div>
     <div class="pack-list">
       ${rows.length ? rows.map(mcpRowHtml).join('') : '<div class="empty">还没有 MCP 服务器</div>'}
@@ -1807,21 +1801,8 @@ function renderMcp() {
       <input class="search" id="newMcpArgs" placeholder="参数（空格分隔，STDIO 用）">
       <button class="btn primary" id="addMcpBtn">＋ 新增 MCP</button>
     </div>
-    <div class="section-head" style="margin-top:18px"><div><h2>MCP 市场</h2><div class="sub">一键添加到本地</div></div></div>
-    <div class="pack-grid">
-      ${market.map((m) => `
-        <div class="pack">
-          <div class="pack-top">
-            <div class="pack-icon" style="background:#1d5f9e">${esc(m.name.slice(0, 1))}</div>
-            <div class="pack-title"><h3>${esc(m.name)}</h3><div class="meta">${esc(m.command)} ${esc(m.args || '')}</div></div>
-          </div>
-          <div class="tags">${(m.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
-          <div class="pack-foot">
-            <div class="spacer"></div>
-            ${installedIds.has(m.id) ? '<span class="badge ok">已安装</span>' : `<button class="btn sm primary" data-add-mcp="${esc(m.id)}">＋ 添加</button>`}
-          </div>
-        </div>`).join('')}
-    </div>`;
+    <div class="section-head" style="margin-top:18px"><div><h2>MCP 市场</h2><div class="sub">暂无内置示例，可手动新增本地 MCP</div></div></div>
+    <div class="empty">暂无 MCP 市场条目</div>`;
   const add = $('addMcpBtn');
   if (add) add.addEventListener('click', () => {
     const name = $('newMcpName').value.trim();
@@ -1835,15 +1816,7 @@ function renderMcp() {
     state.mcps.push({ id: name, name, enabled: false, transport, command, args: payload.args, url: command });
     save(); renderMcp();
   });
-  document.querySelectorAll('[data-add-mcp]').forEach((b) => b.addEventListener('click', () => {
-    const item = market.find((x) => x.id === b.dataset.addMcp);
-    if (!item) return;
-    const payload = { name: item.name, transport: 'stdio', command: item.command, args: item.args ? item.args.split(/\s+/) : [] };
-    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('addMcp:' + JSON.stringify(payload)); return; }
-    state.mcps = state.mcps || [];
-    if (!state.mcps.some((m) => m.id === item.id)) state.mcps.push({ id: item.id, name: item.name, enabled: false, transport: 'stdio', command: item.command, args: payload.args });
-    save(); renderMcp();
-  }));
+
 
   document.querySelectorAll('[data-test-mcp]').forEach((b) => b.addEventListener('click', () => {
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('startMcp:' + b.dataset.testMcp); return; }
