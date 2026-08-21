@@ -1605,7 +1605,11 @@ function renderMarket() {
 }
 
 function renderAi() {
-  const sample = ['我要搭一套科研出论文的工作流', '帮我组一个视频剪辑加字幕的包', '考研背单词、刷真题、导闪卡'];
+  const sample = [
+    '我要整理读书笔记：双链引用、全文搜索、自动背卡',
+    '我写技术博客：Markdown 编辑、代码高亮、语法检查',
+    '我做自媒体：热点选题、文案初稿、发布清单',
+  ];
   const personaOpts = [['maid', '小织女仆 🧹'], ['butler', '执事管家 🎩'], ['neko', '咪咪猫娘 🐱'], ['assistant', '标准助手 🤖']];
   const curPersona = (aiSession && aiSession.persona) || 'maid';
   const personaGreet = {
@@ -1617,7 +1621,7 @@ function renderAi() {
   const chatHtml = aiMessages.length === 0
     ? `<div class="ai-welcome">
          <div class="greet" id="aiGreet">${esc(personaGreet)}</div>
-         <div class="desc">描述您需要的工作流，小织会自动挑选真实可用的 npm 插件并织成 hotpack 包。不够满意？直接继续说「换个 xx」「加个功能」，我们边聊边改。</div>
+         <div class="desc" id="aiDesc">${esc(personaDescOf(curPersona))}</div>
          <div class="pv-row">
            ${sample.map((s) => `<button class="pv" data-sample="${esc(s)}"><svg viewBox="0 0 20 20" fill="none"><path d="M10 3v14M3 10h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>${esc(s)}</button>`).join('')}
          </div>
@@ -1690,7 +1694,7 @@ function renderAi() {
     aiPersist(); // 人设变更随会话续接
     const titleName = $('aiTitleName');
     if (titleName) titleName.textContent = personaNameOf(e.target.value);
-    // 空态欢迎卡：问候语原位更新（不重建 DOM，保留输入框内容与聚焦）
+    // 空态欢迎卡：问候语与描述原位更新（不重建 DOM，保留输入框内容与聚焦）
     const g = $('aiGreet');
     if (g && aiMessages.length === 0) {
       const greet = {
@@ -1701,6 +1705,8 @@ function renderAi() {
       }[e.target.value] || '欢迎使用 AI 装配间。';
       g.textContent = greet;
     }
+    const dd = $('aiDesc');
+    if (dd && aiMessages.length === 0) dd.textContent = personaDescOf(e.target.value);
   });
   $('aiSettingsBtn').addEventListener('click', () => { aiSettingsOpen = !aiSettingsOpen; renderAi(); });
   const provSel = $('aiProvider');
@@ -1796,6 +1802,16 @@ function personaBadge(persona) {
 /** 人设展示名（顶栏标题随人设变化；保留产品名逻辑以「· 装配间」收尾）。 */
 function personaNameOf(persona) {
   return ({ maid: '小织女仆', butler: '执事管家', neko: '咪咪猫娘', assistant: '标准助手' }[persona] || '小织女仆');
+}
+
+/** 空态欢迎卡描述（随人设语气，与问候语配套）。 */
+function personaDescOf(persona) {
+  return ({
+    maid: '小织为您挑选真实可用的 npm 插件，织成完整的 hotpack 包～不满意就说「换个 xx」「加个功能」，我们边聊边改。',
+    butler: '描述您的工作流需求，我将为您甄选成熟可靠的 npm 插件并装配为完整清单；如不满意，随时吩咐调整。',
+    neko: '告诉咪咪你的工作流，咪咪会挑出好用的插件，织成漂漂亮亮的包喵～不满意的主意，直接跟咪咪说喵！',
+    assistant: '描述您的工作流需求，系统将挑选真实可用的 npm 插件生成 hotpack 包；装配完成后仍可继续对话调整。',
+  }[persona] || '');
 }
 
 function buildAiSystem(persona, mode) {

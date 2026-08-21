@@ -73,10 +73,12 @@ try {
   const filled = await page.$eval('#reqInput', (el) => el.value)
   check('示例按钮预填输入框', filled.length > 0, filled.slice(0, 30))
 
-  // 3) 人设切换 → 问候语变化
+  // 3) 人设切换 → 问候语与描述都随之变化
   await page.select('#aiPersona', 'neko')
   const greetNeko = await page.$eval('.ai-welcome .greet', (el) => el.textContent)
+  const descNeko = await page.$eval('.ai-welcome .desc', (el) => el.textContent)
   check('人设切换后问候语变化（neko）', greetNeko.includes('喵'), greetNeko)
+  check('人设切换后描述变化（neko 喵语气）', descNeko.includes('咪咪') && descNeko.includes('喵'), descNeko.slice(0, 30))
   await page.select('#aiPersona', 'maid')
 
   // 4) 连接设置面板

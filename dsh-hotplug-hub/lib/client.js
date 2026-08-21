@@ -137,7 +137,7 @@ window.__ModuleLoader__.load({
 			aiDiffChanged: "调整",
 			aiTurn: "第 ",
 			aiTurnEnd: " 轮",
-			aiSamples: ["我要搭一套科研出论文的工作流", "帮我组一个视频剪辑加字幕的包", "考研背单词、刷真题、导闪卡"],
+			aiSamples: ["我要整理读书笔记：双链引用、全文搜索、自动背卡", "我写技术博客：Markdown 编辑、代码高亮、语法检查", "我做自媒体：热点选题、文案初稿、发布清单"],
 			memTitle: "记忆中枢",
 			memIntro: "全局记忆包，与 profile 解耦。切换包不影响记忆。",
 			memPacks: "全局记忆包",
@@ -228,6 +228,12 @@ window.__ModuleLoader__.load({
 		// 人设 → 头像徽标（文字优先：不依赖 emoji 字体，渲染稳定）；展示名随标题变化
 		const AI_PERSONA_BADGE = { maid: "织", butler: "管", neko: "喵", assistant: "助" };
 		const AI_PERSONA_NAME = { maid: "小织女仆", butler: "执事管家", neko: "咪咪猫娘", assistant: "标准助手" };
+		const AI_PERSONA_DESC = {
+			maid: "小织为您挑选真实可用的 npm 插件，织成完整的 hotpack 包～不满意就说「换个 xx」「加个功能」，我们边聊边改。",
+			butler: "描述您的工作流需求，我将为您甄选成熟可靠的 npm 插件并装配为完整清单；如不满意，随时吩咐调整。",
+			neko: "告诉咪咪你的工作流，咪咪会挑出好用的插件，织成漂漂亮亮的包喵～不满意的主意，直接跟咪咪说喵！",
+			assistant: "描述您的工作流需求，系统将挑选真实可用的 npm 插件生成 hotpack 包；装配完成后仍可继续对话调整。",
+		};
 		const AI_PERSONA_OPTIONS = [
 			["maid", "小织女仆"], ["butler", "执事管家"], ["neko", "咪咪猫娘"], ["assistant", "标准助手"]
 		];
@@ -760,7 +766,7 @@ window.__ModuleLoader__.load({
 					aiMessages.length === 0
 						? h("div", { className: "hp_welcome" },
 							h("div", { className: "g" }, t("aiWelcomeTitle")),
-							h("div", { className: "d" }, t("aiWelcomeDesc")),
+							h("div", { className: "d" }, AI_PERSONA_DESC[aiPersona] || t("aiWelcomeDesc")),
 							h("div", { className: "hp_welcomeRow" }, t("aiSamples").map((sample) =>
 								h("button", { key: sample, className: "hp_chip", onClick: () => setAiInput(sample) }, sample)
 							))
