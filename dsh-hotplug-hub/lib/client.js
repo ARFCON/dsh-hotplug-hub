@@ -99,11 +99,12 @@ window.__ModuleLoader__.load({
 			aiSubtitle: "人设化对话式装配",
 			aiSettings: "连接设置",
 			aiConnNote: "连接",
-			aiKeyMissing: "Key 未填（读服务端环境变量）",
+			aiModelNow: "当前模型",
+			aiKeyMissing: "本地模拟",
 			aiEnterHint: "Enter 发送 · Shift+Enter 换行",
 			aiWelcomeTitle: "主人，欢迎来到装配间～",
 			aiWelcomeDesc: "描述您需要的工作流，小织会自动挑选真实可用的 npm 插件并织成 hotpack 包。不够满意？直接继续说「换个 xx」「加个功能」，我们边聊边改。",
-			aiPlaceholder: "描述您的需求，小织马上开工。例如：我要搭一套科研出论文的工作流…",
+			aiPlaceholder: "描述您的需求，小织马上开工。",
 			aiProviderLabel: "AI 服务商",
 			aiPersonaLabel: "装配女仆",
 			aiKeyPlaceholder: "API Key（可留空，走服务端对应环境变量）",
@@ -214,10 +215,11 @@ window.__ModuleLoader__.load({
 			{ id: "pack-notes", name: "知识管理插座包", tags: ["笔记", "知识库", "整理"], desc: "网页收藏、笔记整理、书摘提取与双链", plugins: 3, accent: "#237a57" }
 		];
 		// AI 服务商预设（与后端 lib/core/ai.js AI_PROVIDERS 注册表一致的默认值；
-		// 后端为权威，此处仅作 UI 快捷填充）
+		// 后端为权威，此处仅作 UI 快捷填充。label 只写平台名，模型名由模型输入框体现，
+		// 避免「服务商下拉 + 模型输入框」出现两处模型名造成困惑）
 		const AI_PROVIDER_OPTIONS = [
 			{ id: "deepseek", label: "DeepSeek", baseURL: "https://api.deepseek.com", model: "deepseek-chat" },
-			{ id: "opencode", label: "OpenCode（DeepSeek V4 Flash 等）", baseURL: "https://opencode.ai/zen/go/v1", model: "deepseek-v4-flash" },
+			{ id: "opencode", label: "OpenCode", baseURL: "https://opencode.ai/zen/go/v1", model: "deepseek-v4-flash" },
 			{ id: "openrouter", label: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", model: "deepseek/deepseek-chat" },
 			{ id: "siliconflow", label: "硅基流动", baseURL: "https://api.siliconflow.cn/v1", model: "deepseek-ai/DeepSeek-V3" },
 			{ id: "moonshot", label: "Moonshot（Kimi）", baseURL: "https://api.moonshot.cn/v1", model: "kimi-k2" },
@@ -225,6 +227,7 @@ window.__ModuleLoader__.load({
 			{ id: "minimax", label: "MiniMax", baseURL: "https://api.minimaxi.com/v1", model: "MiniMax-M2.7" },
 			{ id: "custom", label: "自定义（OpenAI 兼容）", baseURL: "", model: "" },
 		];
+		const AI_PROVIDER_LABEL = Object.fromEntries(AI_PROVIDER_OPTIONS.map((p) => [p.id, p.label]));
 		// 人设 → 头像徽标（文字优先：不依赖 emoji 字体，渲染稳定）；展示名随标题变化
 		const AI_PERSONA_BADGE = { maid: "织", butler: "管", neko: "喵", assistant: "助" };
 		const AI_PERSONA_NAME = { maid: "小织女仆", butler: "执事管家", neko: "咪咪猫娘", assistant: "标准助手" };
@@ -784,7 +787,7 @@ window.__ModuleLoader__.load({
 						)
 					),
 					h("div", { className: "hp_aiDockNote" },
-						h("span", null, t("aiConnNote") + "：" + (aiProvider === "custom" ? (aiBaseURL || "自定义端点") : aiProvider) + " · " + aiModel + (aiKey ? "" : " · " + t("aiKeyMissing"))),
+						h("span", null, t("aiModelNow") + "：" + aiModel + "（" + (AI_PROVIDER_LABEL[aiProvider] || aiProvider) + "）" + (aiKey ? "" : " · " + t("aiKeyMissing"))),
 						h("span", { style: { flex: 1 } }),
 						h("span", null, t("aiEnterHint"))
 					)

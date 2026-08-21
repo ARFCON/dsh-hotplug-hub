@@ -1648,7 +1648,7 @@ function renderAi() {
             <label class="ai-label">服务商</label>
             <select id="aiProvider" class="req-box" style="min-height:auto;width:auto;flex:0 1 240px">
               <option value="deepseek">DeepSeek</option>
-              <option value="opencode">OpenCode（DeepSeek V4 Flash 等）</option>
+              <option value="opencode">OpenCode</option>
               <option value="openrouter">OpenRouter</option>
               <option value="siliconflow">硅基流动</option>
               <option value="moonshot">Moonshot（Kimi）</option>
@@ -1669,9 +1669,8 @@ function renderAi() {
       </div>
       <div class="ai-dock">
         <div class="ai-dock-inner">
-          <div class="ai-samples" id="aiSamples">${aiMessages.length === 0 ? '' : sample.map((s) => `<button class="chip" data-sample="${esc(s)}">${esc(s)}</button>`).join('')}</div>
           <div class="ai-input-wrap">
-            <textarea id="reqInput" rows="1" maxlength="4000" placeholder="${aiMessages.length === 0 ? '描述您的需求，小织马上开工。例如：我要搭一套科研出论文的工作流…' : '继续说…（Enter 发送，Shift+Enter 换行）'}"></textarea>
+            <textarea id="reqInput" rows="1" maxlength="4000" placeholder="${aiMessages.length === 0 ? '描述您的需求，小织马上开工。' : '继续说…（Enter 发送，Shift+Enter 换行）'}"></textarea>
             <button class="ai-send" id="composeBtn" title="发送" ${aiRunning ? 'disabled' : ''}>
               <svg viewBox="0 0 20 20" fill="none"><path d="M3.5 10L16.5 3.5L12.5 16.5L9.5 11.5L3.5 10Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/><path d="M9.5 11.5L16.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             </button>
@@ -1714,6 +1713,11 @@ function renderAi() {
     const pres = AI_PRESETS[e.target.value] || AI_PRESETS.deepseek;
     $('aiBaseUrlInput').value = pres.baseURL;
     $('aiModelInput').value = pres.model;
+    refreshConnNote();
+  });
+  ['aiKeyInput', 'aiBaseUrlInput', 'aiModelInput'].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener('input', refreshConnNote);
   });
   const inp = $('reqInput');
   inp.addEventListener('keydown', (e) => {
@@ -1724,12 +1728,17 @@ function renderAi() {
 }
 
 function connNote() {
+  const labels = { deepseek: 'DeepSeek', opencode: 'OpenCode', openrouter: 'OpenRouter', siliconflow: '硅基流动', moonshot: 'Moonshot（Kimi）', zhipu: '智谱 GLM', minimax: 'MiniMax', custom: '自定义' };
   const providerId = $('aiProvider') ? $('aiProvider').value : 'opencode';
   const preset = AI_PRESETS[providerId] || AI_PRESETS.deepseek;
   const model = ($('aiModelInput') && $('aiModelInput').value) || preset.model;
   const key = ($('aiKeyInput') && $('aiKeyInput').value) || '';
-  const endpoint = providerId === 'custom' ? (($('aiBaseUrlInput') && $('aiBaseUrlInput').value) || '自定义端点') : providerId;
-  return `${endpoint} · ${model}${key ? '' : ' · Key 未填（本地模拟）'}`;
+  return `当前模型：${model}（${labels[providerId] || providerId}${key ? '' : ' · 本地模拟'}）`;
+}
+/** 设置面板输入变化 → 状态行实时刷新（不重建 DOM）。 */
+function refreshConnNote() {
+  const n = $('aiConnNote');
+  if (n) n.textContent = connNote();
 }
 
 /** 消息气泡 + 产物卡片 HTML（头像按每条消息的发信人设渲染：历史消息不随当前人设漂移）。 */
