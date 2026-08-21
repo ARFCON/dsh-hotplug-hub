@@ -362,13 +362,14 @@ namespace DSHHotplugHub
                                 latestCheck = GetLatestReleaseVersion();
                                 panelInstalledCheck = GetInstalledPanelVersion();
                             });
-                            if (!_updateNotified && !string.IsNullOrEmpty(latestCheck) && NormalizeVersion(latestCheck) != NormalizeVersion(APP_VERSION))
+                            if (!_updateNotified && !string.IsNullOrEmpty(latestCheck) && IsNewerVersion(latestCheck, APP_VERSION))
                             {
                                 _updateNotified = true;
                                 await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('发现新版本 v" + latestCheck + "，请到 自检更新 下载');");
                             }
                             string panelLatestCheck = PANEL_VERSION;
-                            if (!_panelUpdateNotified && !string.IsNullOrEmpty(panelLatestCheck) && NormalizeVersion(panelInstalledCheck) != NormalizeVersion(panelLatestCheck))
+                            if (!_panelUpdateNotified && !string.IsNullOrEmpty(panelLatestCheck)
+                                && !string.IsNullOrEmpty(panelInstalledCheck) && IsNewerVersion(panelLatestCheck, panelInstalledCheck))
                             {
                                 _panelUpdateNotified = true;
                                 await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('内置 Skill/MCP 管理器可更新到 v" + panelLatestCheck + "，请到 自检更新 安装');");
@@ -444,10 +445,6 @@ namespace DSHHotplugHub
             string pnpm = GetPnpmVersion();
             string dshDesktop = FindOfficialHarness();
             string dshVersion = GetDshCoreVersion();
-            if (string.IsNullOrEmpty(dshVersion) && dshDesktop != null)
-            {
-                try { dshVersion = FileVersionInfo.GetVersionInfo(dshDesktop).FileVersion; } catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
-            }
             string wv = null;
             try { wv = CoreWebView2Environment.GetAvailableBrowserVersionString(); } catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             string profiles = DetectProfiles();
@@ -468,20 +465,22 @@ namespace DSHHotplugHub
                 "panelInstalled:" + JsString(panelInstalled) + "," +
                 "panelLatest:" + JsString(panelLatest) +
                 "};" +
-                "if(window.__nativeSelfCheck.dshVersion){state.dshVersion=window.__nativeSelfCheck.dshVersion;state.latestVersion=window.__nativeSelfCheck.dshVersion;if(typeof renderShell==='function')renderShell();}" +
+                "if(window.__nativeSelfCheck.dshVersion){state.dshVersion=window.__nativeSelfCheck.dshVersion;if(window.__nativeSelfCheck.latestVersion){state.latestVersion=window.__nativeSelfCheck.latestVersion;}if(typeof renderShell==='function')renderShell();}" +
                 "if(window.__nativeSelfCheck.panelInstalled||window.__nativeSelfCheck.panelLatest){state.panelInstalled=window.__nativeSelfCheck.panelInstalled||state.panelInstalled||null;state.panelLatest=window.__nativeSelfCheck.panelLatest||state.panelLatest||null;}" +
                 "(function(){window.__baseGetChecks=window.__baseGetChecks||getChecks;getChecks=function(){var r=window.__baseGetChecks();" +
+                // semver 比较（数值段，pre 后缀剔除）：latest > app 才算「可更新」——本地领先（如 0.9.8 未发布）不误报
+                "var nv=function(a,b){var A=String(a||'').replace(/^v/i,'').split('-')[0].split('.'),B=String(b||'').replace(/^v/i,'').split('-')[0].split('.');for(var i=0;i<Math.max(A.length,B.length);i++){var x=parseInt(A[i]||'0',10),y=parseInt(B[i]||'0',10);if(x!==y)return x-y;}return 0;};" +
                 "for(var i=0;i<r.length;i++){" +
                 "if(r[i].name==='Node.js'){r[i].val=window.__nativeSelfCheck.node||'未检测到';r[i].text=window.__nativeSelfCheck.node?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.node?'ok':'err';}" +
                 "if(r[i].name==='pnpm'){r[i].val=window.__nativeSelfCheck.pnpm||'未检测到';r[i].text=window.__nativeSelfCheck.pnpm?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.pnpm?'ok':'err';}" +
-                "if(r[i].name==='DSH 版本'){r[i].val=window.__nativeSelfCheck.dshVersion||r[i].val;r[i].text=window.__nativeSelfCheck.dshDesktop?'官方 Harness 已安装':'未找到官方 Harness';r[i].status=window.__nativeSelfCheck.dshDesktop?'ok':'warn';}" +
+                "if(r[i].name==='DSH 版本'){var dv=window.__nativeSelfCheck.dshVersion||'';r[i].val=dv||r[i].val;if(window.__nativeSelfCheck.dshDesktop){r[i].text='官方 Harness 已安装';r[i].status='ok';}else if(dv){r[i].text='本地 DSH（CLI/全局安装）';r[i].status='ok';}else{r[i].text='未检测到 DSH';r[i].status='warn';}}" +
                 "if(r[i].name==='官方 Skill/MCP 面板'){var pi=window.__nativeSelfCheck.panelInstalled;var pl=window.__nativeSelfCheck.panelLatest;r[i].val=pi||'未安装';if(!pi){r[i].status='warn';r[i].text='可安装 v'+(pl||'?');}else if(pl&&pi!==pl){r[i].status='update';r[i].text='可更新至 v'+pl;}else{r[i].status='ok';r[i].text='已最新';}}" +
                 "}" +
                 "if(window.__nativeSelfCheck.webview2){r.push({name:'WebView2',desc:'桌面渲染内核',val:window.__nativeSelfCheck.webview2,status:'ok',text:'可用'});}" +
                 "if(window.__nativeSelfCheck.profiles){r.push({name:'本地 DSH Profile',desc:'~/.dsh/profiles 探测',val:window.__nativeSelfCheck.profiles,status:'ok',text:'已探测'});}" +
                 "if(window.__nativeSelfCheck.dshDesktop){r.push({name:'官方 Harness 路径',desc:'当前启动器',val:window.__nativeSelfCheck.dshDesktop,status:'ok',text:'已选择'});}" +
                 "if(window.__nativeSelfCheck.appVersion){r.push({name:'本程序版本',desc:'当前安装版本',val:window.__nativeSelfCheck.appVersion,status:'ok',text:'v'+window.__nativeSelfCheck.appVersion});}" +
-                "if(window.__nativeSelfCheck.latestVersion){r.push({name:'最新版本',desc:'GitHub 最新发布',val:window.__nativeSelfCheck.latestVersion,status:window.__nativeSelfCheck.latestVersion===window.__nativeSelfCheck.appVersion?'ok':'warn',text:window.__nativeSelfCheck.latestVersion===window.__nativeSelfCheck.appVersion?'已是最新':'可更新'});}" +
+                "if(window.__nativeSelfCheck.latestVersion){var nCmp=nv(window.__nativeSelfCheck.latestVersion,window.__nativeSelfCheck.appVersion);r.push({name:'最新版本',desc:'GitHub 最新发布',val:window.__nativeSelfCheck.latestVersion,status:nCmp>0?'warn':'ok',text:nCmp>0?'可更新':'已最新'});}" +
                 "return r;};" +
                 "if(typeof renderCheck==='function'){renderCheck();}" +
                 "var drs=document.querySelectorAll('.check-row');for(var i=0;i<drs.length;i++){var dn=drs[i].querySelector('.name');if(dn&&dn.textContent==='DSH 版本'){var db=document.createElement('button');db.className='btn sm primary';db.style.marginLeft='8px';db.textContent='⬇ 下载官方客户端';db.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('downloadHarness');}};drs[i].appendChild(db);}}" +
@@ -739,6 +738,32 @@ namespace DSHHotplugHub
             if (string.IsNullOrEmpty(v)) return null;
             string s = v.Trim();
             return s.Length > 0 && (s[0] == 'v' || s[0] == 'V') ? s.Substring(1) : s;
+        }
+
+        // semver 语义比较（数值段逐个比对，pre 后缀（如 -pre）剥离后比较）：
+        // 仅当 candidate（远程/最新）严格大于 current（本地）时返回 true——
+        // 修复「本地构建版本领先 GitHub 发布时（如 0.9.8 尚未发布）每次启动误报发现新版本」。
+        private static bool IsNewerVersion(string candidate, string current)
+        {
+            string a = NormalizeVersion(candidate);
+            string b = NormalizeVersion(current);
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+            string[] pa = a.Split('.');
+            string[] pb = b.Split('.');
+            for (int i = 0; i < Math.Max(pa.Length, pb.Length); i++)
+            {
+                int x = 0, y = 0;
+                int.TryParse(i < pa.Length ? StripPreSuffix(pa[i]) : "0", out x);
+                int.TryParse(i < pb.Length ? StripPreSuffix(pb[i]) : "0", out y);
+                if (x != y) return x > y;
+            }
+            return false;
+        }
+
+        private static string StripPreSuffix(string s)
+        {
+            int idx = s.IndexOf('-');
+            return idx > 0 ? s.Substring(0, idx) : s;
         }
 
         // 必须请求 releases/latest：请求 releases/tags/v{当前版本} 拿到的永远是自身 tag，更新提示永远不会触发
@@ -1006,64 +1031,147 @@ namespace DSHHotplugHub
                 return "安装异常：" + ex.Message;
             }
         }
-        // 读取官方 DSH Desktop 内置的核心 dsh 版本（resources/app/package.json 的 @deepseek-ai/dsh）
+        // 读取 DSH 核心版本，按真实来源优先级（避免把「DSH Desktop.exe 文件版本」当 DSH 版本）：
+        //   1) 官方 DSH Desktop 的 resources/app/package.json（dependencies["@deepseek-ai/dsh"]，缺省取其根 version）
+        //   2) 官方 Desktop 内置 node_modules/@deepseek-ai/dsh/package.json
+        //   3) 全局 Node 安装（node-v*/nodejs）下的 node_modules/@deepseek-ai/dsh/package.json
+        //   4) PATH 中 dsh CLI（cmd /c dsh --version，排除 cmd 横幅误判）
+        // 全部失败返回 null（UI 显示「未检测到 DSH」），不再回退 exe 文件版本号。
+        private static string ReadPackageJsonVersion(string pkgPath)
+        {
+            try
+            {
+                if (!File.Exists(pkgPath)) return null;
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkgPath));
+                if (root != null && root.ContainsKey("version"))
+                {
+                    string v = Convert.ToString(root["version"]);
+                    if (!string.IsNullOrEmpty(v)) return v.Trim();
+                }
+            }
+            catch { /* 有意吞掉：尽力而为的探测，失败继续下一来源 */ }
+            return null;
+        }
+
         private static string GetDshCoreVersion()
         {
             try
             {
+                // 1. 官方 DSH Desktop：resources/app/package.json 的 @deepseek-ai/dsh 依赖版本
                 string appDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "Programs", "DSH Desktop", "resources", "app");
                 string pkg = Path.Combine(appDir, "package.json");
-                if (!File.Exists(pkg)) return null;
-                JavaScriptSerializer ser = new JavaScriptSerializer();
-                Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkg));
-                if (root != null && root.ContainsKey("dependencies"))
+                if (File.Exists(pkg))
                 {
-                    Dictionary<string, object> deps = root["dependencies"] as Dictionary<string, object>;
-                    if (deps != null && deps.ContainsKey("@deepseek-ai/dsh"))
+                    JavaScriptSerializer ser = new JavaScriptSerializer();
+                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkg));
+                    if (root != null && root.ContainsKey("dependencies"))
                     {
-                        return Convert.ToString(deps["@deepseek-ai/dsh"]);
+                        Dictionary<string, object> deps = root["dependencies"] as Dictionary<string, object>;
+                        if (deps != null && deps.ContainsKey("@deepseek-ai/dsh"))
+                        {
+                            string v = Convert.ToString(deps["@deepseek-ai/dsh"]);
+                            if (!string.IsNullOrEmpty(v)) return v.Trim();
+                        }
+                    }
+                    if (root != null && root.ContainsKey("version"))
+                    {
+                        string v = Convert.ToString(root["version"]);
+                        if (!string.IsNullOrEmpty(v)) return v.Trim();
                     }
                 }
-                if (root != null && root.ContainsKey("version"))
+                // 2. 官方 Desktop 内置 dsh 包（结构差异兜底）
+                string binPkg = Path.Combine(appDir, "node_modules", "@deepseek-ai", "dsh", "package.json");
+                string binV = ReadPackageJsonVersion(binPkg);
+                if (!string.IsNullOrEmpty(binV)) return binV;
+                // 3. 全局 Node 安装目录（node-v24.18.0-win-x64 / nodejs 等）
+                string[] roots = new string[]
                 {
-                    return Convert.ToString(root["version"]);
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs"),
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
+                };
+                foreach (string root in roots)
+                {
+                    if (!Directory.Exists(root)) continue;
+                    string[] dirs;
+                    try { dirs = Directory.GetDirectories(root); }
+                    catch { continue; }
+                    foreach (string dir in dirs)
+                    {
+                        string name = Path.GetFileName(dir).ToLowerInvariant();
+                        if (!name.StartsWith("node")) continue;
+                        string globalV = ReadPackageJsonVersion(
+                            Path.Combine(dir, "node_modules", "@deepseek-ai", "dsh", "package.json"));
+                        if (!string.IsNullOrEmpty(globalV)) return globalV;
+                    }
                 }
+                // 4. PATH 中的 dsh CLI
+                string cli = RunCli("cmd.exe", "/c dsh --version");
+                if (!string.IsNullOrEmpty(cli) && cli.Contains(".")
+                    && !cli.Contains("Microsoft") && !cli.Contains("Windows"))
+                {
+                    return cli.Trim();
+                }
+            }
+            catch { /* 有意吞掉：尽力而为的探测，失败返回 null */ }
+            return null;
+        }
+
+        // 官方 Harness 判据：同目录存在 resources/app 结构（package.json 或内置 @deepseek-ai/dsh）；
+        // 无官方结构时至少拒绝 Node.js 壳（曾有 Programs\DSH Desktop 目录只放了 node.exe 改名壳，
+        // 被误认成「官方 Harness 已安装」，其 FileVersion（如 24.18.0）还被误当 DSH 版本）。
+        private static bool IsOfficialHarnessExe(string exe)
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(exe);
+                if (string.IsNullOrEmpty(dir)) return false;
+                string appPkg = Path.Combine(dir, "resources", "app", "package.json");
+                string binJs = Path.Combine(dir, "resources", "app", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+                if (File.Exists(appPkg) || File.Exists(binJs)) return true;
+                string product = FileVersionInfo.GetVersionInfo(exe).ProductName ?? "";
+                return product.Length > 0 && product.IndexOf("Node", StringComparison.OrdinalIgnoreCase) < 0;
             }
             catch
             {
+                return false;
             }
-            return null;
         }
 
         private static string FindOfficialHarness()
         {
-            // 1. 用户手动选择过的路径优先
+            // 1. 用户手动选择过的路径优先（同样须通过官方判据；残留的假路径清空重测）
             string saved = LoadHarnessPath();
-            if (saved != null && File.Exists(saved)) return saved;
+            if (saved != null && File.Exists(saved))
+            {
+                if (IsOfficialHarnessExe(saved)) return saved;
+                try { File.WriteAllText(HarnessSettingsPath(), ""); } catch { /* 有意吞掉：清理失败不影响主流程 */ }
+            }
 
-            // 2. 常见安装位置
+            // 2. 常见安装位置（命中须通过官方判据）
             string[] candidates = new string[]
             {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "DSH Desktop", "DSH Desktop.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "DSH Desktop", "DSH Desktop.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "DSH Desktop", "DSH Desktop.exe"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "DeepSeek Harness", "DSH Desktop.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "DeepSeek Harness", "DSH Desktop.exe")
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "DSH Desktop", "DSH Desktop.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "DeepSeek Harness", "DSH Desktop.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "DSH Desktop", "DSH Desktop.exe")
             };
             foreach (string candidate in candidates)
             {
                 try
                 {
-                    if (File.Exists(candidate)) return candidate;
+                    if (File.Exists(candidate) && IsOfficialHarnessExe(candidate)) return candidate;
                 }
                 catch
                 {
                 }
             }
 
-            // 3. 自动扫描常见程序目录里的 DSH / DeepSeek 相关桌面端
+            // 3. 自动扫描常见程序目录里的 DSH / DeepSeek 相关桌面端（命中须通过官方判据）
             string[] roots = new string[]
             {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs"),
@@ -1084,7 +1192,7 @@ namespace DSHHotplugHub
                     foreach (string exeName in exeNames)
                     {
                         string full = Path.Combine(dir, exeName);
-                        if (File.Exists(full))
+                        if (File.Exists(full) && IsOfficialHarnessExe(full))
                         {
                             SaveHarnessPath(full);
                             return full;
