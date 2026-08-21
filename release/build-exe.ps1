@@ -9,6 +9,8 @@ if (-not (Test-Path $csc)) { throw "找不到 csc.exe: $csc" }
 $protoHtml = Join-Path $root '..\dsh-hotplug-hub\dsh-pack-hub\prototype.html'
 $embeddedSkillmcpTgz = Join-Path $root 'embedded/dseam-skillmcp-0.8.1-pre.tgz'
 $main = Join-Path $srcDir 'Main.cs'
+# v5（crosslang 重构）：Main.cs 引用 PatchContract（锁/分节/字符集契约），必须同编译单元
+$patchContract = Join-Path $srcDir 'PatchContract.cs'
 $out = Join-Path $root 'DSH-Hotplug-Hub.exe'
 
 # WebView2 托管 DLL 与原生 Loader（从本机 Office/OfficePLUS 复制，避免联网）
@@ -41,7 +43,8 @@ $args = @(
   '/reference:System.Windows.Forms.dll',
   '/reference:System.Drawing.dll',
   '/reference:System.Web.Extensions.dll',
-  $main
+  $main,
+  $patchContract
 )
 & $csc $args
 if ($LASTEXITCODE -ne 0) { throw "编译失败，exit=$LASTEXITCODE" }

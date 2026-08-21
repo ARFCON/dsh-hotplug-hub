@@ -84,12 +84,12 @@ describe('resolveAiProvider（多平台解析）', () => {
     expect(r.model).toBe(AI_PROVIDERS.deepseek.model)
     expect(r.apiKey).toBe(KEY)
   })
-  it('内置 opencode：baseURL 指向 OpenCode Go，模型 hy3-preview（不带前缀，实测口径），key 读 DSH_OPENCODE_API_KEY', () => {
+  it('内置 opencode：baseURL 指向 OpenCode Go，模型 deepseek-v4-flash（不带前缀，实测口径），key 读 DSH_OPENCODE_API_KEY', () => {
     process.env.DSH_OPENCODE_API_KEY = KEY
     const r = resolveAiProvider({ provider: 'opencode' })
     expect(r.ok).toBe(true)
     expect(r.baseURL).toBe('https://opencode.ai/zen/go/v1')
-    expect(r.model).toBe('hy3-preview')
+    expect(r.model).toBe('deepseek-v4-flash')
     expect(r.apiKey).toBe(KEY)
   })
   it('内置注册表覆盖主流厂商（OpenRouter/硅基流动/Moonshot/智谱/MiniMax）', () => {
@@ -148,7 +148,7 @@ describe('AI_PROVIDERS 注册表', () => {
   it('deepseek 与 opencode 均指向 OpenAI 兼容端点', () => {
     expect(AI_PROVIDERS.deepseek.baseURL).toMatch(/^https:\/\//)
     expect(AI_PROVIDERS.opencode.baseURL).toBe('https://opencode.ai/zen/go/v1')
-    expect(AI_PROVIDERS.opencode.model).toBe('hy3-preview')
+    expect(AI_PROVIDERS.opencode.model).toBe('deepseek-v4-flash')
   })
 })
 
@@ -208,14 +208,14 @@ describe('aiAssemble（mock fetch）', () => {
     expect(calls[0].init.headers.Authorization).toBe('Bearer ' + KEY)
   })
 
-  it('多平台：provider=opencode 请求 OpenCode Go 端点与 hy3-preview 模型', async () => {
+  it('多平台：provider=opencode 请求 OpenCode Go 端点与 deepseek-v4-flash 模型', async () => {
     process.env.DSH_OPENCODE_API_KEY = KEY
     const calls = stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
     const r = await aiAssemble('做笔记', { provider: 'opencode' })
     expect(r.ok).toBe(true)
     expect(calls[0].url).toBe('https://opencode.ai/zen/go/v1/chat/completions')
     const body = JSON.parse(calls[0].init.body)
-    expect(body.model).toBe('hy3-preview')
+    expect(body.model).toBe('deepseek-v4-flash')
     expect(calls[0].init.headers.Authorization).toBe('Bearer ' + KEY)
     // key 不出现在任何结果字段
     expect(JSON.stringify(r)).not.toContain(KEY)

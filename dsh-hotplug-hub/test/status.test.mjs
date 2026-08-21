@@ -23,8 +23,9 @@ function fakePnpm() {
   if (process.platform === 'win32') {
     copyFileSync(process.execPath, exe)
   } else {
-    // POSIX：sh 包装（node 不可复制为可执行脚本名，用 sh 脚本 exec node）
-    writeFileSync(exe, `#!/bin/sh\nnode -e "console.log('v9.99.9')"\n`)
+    // POSIX：sh 包装（node 不可复制为可执行脚本名，用 sh 脚本 exec node 绝对路径
+    // ——PATH 已隔离无 node，`node -e` 会 ENOENT，CI 红根因之一）
+    writeFileSync(exe, `#!/bin/sh\nexec "${process.execPath}" -e "console.log('v9.99.9')"\n`)
     chmodSync(exe, 0o755)
   }
 }

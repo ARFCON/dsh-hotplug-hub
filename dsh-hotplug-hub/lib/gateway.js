@@ -144,7 +144,7 @@ class HotplugGateway extends TypertRemoteService {
 
   // AI 组装（v5 阶段 5）：需求 → LLM → 权威校验产物。
   // 多平台：默认 deepseek；可传 provider/baseURL/model 接任意 OpenAI 兼容端点
-  // （如 opencode-go/hy3-preview：provider='opencode'）。
+  // （如 deepseek-v4-flash：provider='opencode'）。
   // 安全：apiKey 仅内存传递（不落盘、不进日志/序列化）；缺省读服务端
   // DSH_AI_API_KEY / DSH_DEEPSEEK_API_KEY / DSH_OPENCODE_API_KEY 环境变量。
   // 响应仅含 {ok, pack, readme}，绝不含 key。

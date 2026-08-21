@@ -82,19 +82,31 @@ function writeAssembly(plugins) {
  * - win32：node.exe 副本（REPL EOF 正常退出 0）；
  * - POSIX：sh 包装脚本 exec 真实 node（NODE_OPTIONS 注入的 recorder/keepalive 仍生效；
  *   stageLaunch 传入的 --profile 参数被忽略——假 harness 不校验参数）。
+ * H-1（v5 阶段 1）：DSH_HOTPLUG_ROOT=QA_ROOT 时整个根域落 QA_ROOT 下，CLI 的
+ * config.home = QA_ROOT → findHarness 候选路径基于 QA_ROOT（Linux/macOS 的
+ * `<home>/.local/bin/dsh` 等）——只放 HOME 会在 CI（无真实 DSH）上找不到
+ * （本机 Windows 靠 LOCALAPPDATA 候选命中而假绿）。POSIX 双放：HOME 与 QA_ROOT。
  */
 function writeFakeHarness() {
-  const hpath = process.platform === 'win32'
-    ? path.join(HOME, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe')
-    : process.platform === 'darwin'
-      ? path.join(HOME, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')
-      : path.join(HOME, '.local', 'bin', 'dsh');
-  fs.mkdirSync(path.dirname(hpath), { recursive: true });
-  if (process.platform === 'win32') {
-    fs.copyFileSync(process.execPath, hpath);
-  } else {
-    fs.writeFileSync(hpath, '#!/bin/sh\nexec "' + process.execPath + '"\n');
-    fs.chmodSync(hpath, 0o755);
+  const winPath = path.join(HOME, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe');
+  const posixHome = process.platform === 'darwin'
+    ? [path.join(HOME, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
+    : [path.join(HOME, '.local', 'bin', 'dsh'), path.join(HOME, 'Applications', 'DSH Desktop', 'dsh')];
+  const posixRoot = process.platform === 'darwin'
+    ? [path.join(QA_ROOT, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
+    : [path.join(QA_ROOT, '.local', 'bin', 'dsh'), path.join(QA_ROOT, 'Applications', 'DSH Desktop', 'dsh')];
+  const targets = process.platform === 'win32'
+    ? [winPath]
+    : [...posixHome, ...posixRoot];
+  let hpath = targets[0];
+  for (const t of targets) {
+    fs.mkdirSync(path.dirname(t), { recursive: true });
+    if (process.platform === 'win32') {
+      fs.copyFileSync(process.execPath, t);
+    } else {
+      fs.writeFileSync(t, '#!/bin/sh\nexec "' + process.execPath + '"\n');
+      fs.chmodSync(t, 0o755);
+    }
   }
   return hpath;
 }

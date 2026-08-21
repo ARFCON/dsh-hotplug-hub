@@ -17,15 +17,17 @@ beforeEach(() => {
   if (process.platform === 'win32') {
     copyFileSync(process.execPath, join(iso.dshHome, 'pnpm.exe'))
   } else {
-    writePnpmPosix('#!/usr/bin/env node\nprocess.exit(1)\n')
+    writePnpmPosix('#!__NODE_BIN__\nprocess.exit(1)\n')
   }
 })
 afterEach(() => { if (restoreEnv) restoreEnv(); if (iso) iso.cleanup() })
 
-/** POSIX 假 pnpm：node shebang 脚本 + 可执行位（spawn 直接 exec 需要）。 */
+/** POSIX 假 pnpm：node shebang 脚本 + 可执行位（spawn 直接 exec 需要）。
+ * 注意 shebang 必须用 process.execPath 绝对路径：测试把 PATH 隔离成临时目录
+ * （无 node），`#!/usr/bin/env node` 会 ENOENT——CI 红根因之一。 */
 function writePnpmPosix(script) {
   const exe = join(iso.dshHome, 'pnpm')
-  writeFileSync(exe, script)
+  writeFileSync(exe, script.replace('__NODE_BIN__', process.execPath))
   chmodSync(exe, 0o755)
 }
 
@@ -50,7 +52,7 @@ function fakePnpmAdd(version) {
   if (process.platform === 'win32') {
     writeFileSync(join(iso.profile, 'add'), addScript)
   } else {
-    writePnpmPosix('#!/usr/bin/env node\n' + addScript)
+    writePnpmPosix('#!__NODE_BIN__\n' + addScript)
   }
 }
 

@@ -1494,7 +1494,7 @@ function renderAi() {
           </select>
           <select id="aiProvider" class="req-box" style="min-height:auto;width:auto;flex:0 0 auto">
             <option value="deepseek">DeepSeek</option>
-            <option value="opencode">OpenCode（hy3 / Kimi 等）</option>
+            <option value="opencode">OpenCode（DeepSeek V4 Flash 等）</option>
             <option value="openrouter">OpenRouter</option>
             <option value="siliconflow">硅基流动</option>
             <option value="moonshot">Moonshot（Kimi）</option>
@@ -1504,7 +1504,7 @@ function renderAi() {
           </select>
           <input type="password" class="req-box" id="aiKeyInput" style="min-height:auto;flex:1 1 200px" placeholder="API Key（可留空=本地模拟；仅本次会话内存使用，不持久化）" autocomplete="off" spellcheck="false">
           <input type="text" class="req-box" id="aiBaseUrlInput" style="min-height:auto;flex:1 1 240px" placeholder="Base URL（OpenAI 兼容，如 https://api.deepseek.com）" spellcheck="false">
-          <input type="text" class="req-box" id="aiModelInput" style="min-height:auto;flex:0 1 180px" placeholder="模型名（如 deepseek-chat / hy3-preview / kimi-k3）" spellcheck="false">
+          <input type="text" class="req-box" id="aiModelInput" style="min-height:auto;flex:0 1 180px" placeholder="模型名（如 deepseek-chat / deepseek-v4-flash / kimi-k3）" spellcheck="false">
         </div>
         <div class="ai-chat" id="chatBox">${chatHtml}</div>
         <textarea class="req-box" id="reqInput" placeholder="描述你的工作场景和需要的插件能力；装配完成后继续对话调整（Ctrl+Enter 发送）"></textarea>
@@ -1616,7 +1616,7 @@ function extractJson(text) {
  */
 const AI_PRESETS = {
   deepseek: { baseURL: 'https://api.deepseek.com', model: 'deepseek-chat' },
-  opencode: { baseURL: 'https://opencode.ai/zen/go/v1', model: 'hy3-preview' },
+  opencode: { baseURL: 'https://opencode.ai/zen/go/v1', model: 'deepseek-v4-flash' },
   openrouter: { baseURL: 'https://openrouter.ai/api/v1', model: 'deepseek/deepseek-chat' },
   siliconflow: { baseURL: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
   moonshot: { baseURL: 'https://api.moonshot.cn/v1', model: 'kimi-k2' },
@@ -1665,6 +1665,9 @@ async function compose() {
     aiMessages.push({ role: 'assistant', text, pack: packHp || null, diff: diff || null });
     aiRunning = false;
     renderAi();
+    // 聊天区滚动到底（新消息可见）
+    const cb = $('chatBox');
+    if (cb) cb.scrollTop = cb.scrollHeight;
     const exp = $('exportPack');
     if (exp) exp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
@@ -1672,6 +1675,8 @@ async function compose() {
     aiMessages.push({ role: 'assistant', text, error: true });
     aiRunning = false;
     renderAi();
+    const cb = $('chatBox');
+    if (cb) cb.scrollTop = cb.scrollHeight;
   };
   const reaction = (name, n) => ({
     maid: '主人，插件已经为您织好啦：' + name + '（' + n + ' 个插件），请过目～',

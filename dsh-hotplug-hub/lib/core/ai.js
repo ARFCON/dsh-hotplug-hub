@@ -47,13 +47,13 @@ export const AI_PROVIDERS = {
   opencode: {
     // OpenCode Go（订阅 credits）：https://opencode.ai/zen/go/v1/chat/completions
     // 模型 ID 不带 provider 前缀（实测：'opencode-go/kimi-k3' 返回 401 not supported，
-    // 'kimi-k3' 返回 200）。hy3-preview 为 Hy3 Preview（上游 Console Go 侧可用性
-    // 以订阅为准；kimi-k3 等同一订阅下模型可作对照验证）。
-    // temperature=1：实测 kimi-k3 等 Go 目录模型仅接受 temperature=1（0.3 被
-    // 上游拒绝 "only 1 is allowed"）——厂商差异在此登记，配合 callCompletions
-    // 的温度自适应重试兜底。
+    // 'kimi-k3' 返回 200）。默认 deepseek-v4-flash（Go 目录 DeepSeek V4 Flash，实测
+    // 可用；hy3-preview 上游当前 "Model is unavailable"、kimi-k3 亦可用作对照）。
+    // temperature=1：实测 Go 目录模型仅接受 temperature=1（0.3 被上游拒绝
+    // "only 1 is allowed"）——厂商差异在此登记，配合 callCompletions 的温度
+    // 自适应重试兜底。
     baseURL: 'https://opencode.ai/zen/go/v1',
-    model: 'hy3-preview',
+    model: 'deepseek-v4-flash',
     envKey: 'DSH_OPENCODE_API_KEY',
     temperature: 1,
   },
@@ -295,6 +295,7 @@ function safeMessages(messages, apiKey) {
   return (Array.isArray(messages) ? messages : []).map((m) => ({
     role: m && m.role === 'assistant' ? 'assistant' : 'user',
     content: redactKey(m && m.content, apiKey),
+    ...(m && m.kind === 'pack' ? { kind: 'pack' } : {}),
   }))
 }
 
@@ -398,6 +399,9 @@ export async function aiChat(input, opts = {}) {
   session.messages = trimMessages([...session.messages, { role: 'user', content: text }])
   const requestMessages = [{ role: 'system', content: buildSystemPrompt(persona.id, isFirstTurn ? 'assembly' : 'chat') }]
   for (const m of session.messages.slice(0, -1)) {
+    // 跳过产物轮原始响应（kind='pack'）：旧产物 JSON 会干扰后续轮——多轮修改后
+    // 历史里的 JSON 已过期，权威的当前清单由最新指令消息的 packCtx 提供
+    if (m.kind === 'pack') continue
     requestMessages.push({ role: m.role, content: redactKey(m.content, cfg.apiKey) })
   }
   if (isFirstTurn) {
@@ -416,7 +420,8 @@ export async function aiChat(input, opts = {}) {
     session.pack = r.pack
     session.turn = 1
     session.updatedAt = new Date().toISOString()
-    session.messages = trimMessages([...session.messages, { role: 'assistant', content: r.raw }])
+    // kind='pack'：产物轮原始响应（历史透传时跳过，防旧 JSON 干扰后续轮）
+    session.messages = trimMessages([...session.messages, { role: 'assistant', content: r.raw, kind: 'pack' }])
     if (persist) saveSession({ ...session, messages: safeMessages(session.messages, cfg.apiKey) })
     const reply = personaReaction(persona, 'success', r.pack)
     return {
@@ -460,7 +465,8 @@ export async function aiChat(input, opts = {}) {
   if (reply === null) reply = content.trim() // 纯对话回复（LLM 自带人设语气）
   session.turn += 1
   session.updatedAt = new Date().toISOString()
-  session.messages = trimMessages([...session.messages, { role: 'assistant', content }])
+  // 产物轮原始响应打 kind='pack'（历史透传时跳过）；闲聊轮纯文本保留透传
+  session.messages = trimMessages([...session.messages, { role: 'assistant', content, ...(pack ? { kind: 'pack' } : {}) }])
   if (persist) saveSession({ ...session, messages: safeMessages(session.messages, cfg.apiKey) })
   return {
     ok: true,

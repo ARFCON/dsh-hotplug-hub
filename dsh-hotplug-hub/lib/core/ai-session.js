@@ -36,8 +36,10 @@ export function sessionPath(id) {
 
 /**
  * 裁剪会话消息：保留最近 SESSION_MAX_MESSAGES 条，单条截断超长。
- * @param {Array<{role: string, content: string}>} messages
- * @returns {Array<{role: string, content: string}>}
+ * kind='pack' 表示产物轮原始响应（透传给 LLM 时跳过——旧产物 JSON 会干扰
+ * 后续轮，权威的当前清单由最新指令消息的 packCtx 提供）。
+ * @param {Array<{role: string, content: string, kind?: string}>} messages
+ * @returns {Array<{role: string, content: string, kind?: string}>}
  */
 export function trimMessages(messages) {
   if (!Array.isArray(messages)) return []
@@ -46,6 +48,7 @@ export function trimMessages(messages) {
     .map((m) => ({
       role: m && m.role === 'assistant' ? 'assistant' : 'user',
       content: typeof m.content === 'string' ? m.content.slice(0, SESSION_MAX_MESSAGE_CHARS) : String(m.content ?? ''),
+      ...(m && m.kind === 'pack' ? { kind: 'pack' } : {}),
     }))
 }
 

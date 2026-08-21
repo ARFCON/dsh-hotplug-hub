@@ -101,7 +101,7 @@ window.__ModuleLoader__.load({
 			aiPersonaLabel: "装配女仆",
 			aiKeyPlaceholder: "API Key（可留空，走服务端对应环境变量）",
 			aiBaseUrlPlaceholder: "Base URL（OpenAI 兼容，如 https://api.deepseek.com）",
-			aiModelPlaceholder: "模型名（如 deepseek-chat / hy3-preview / kimi-k3）",
+			aiModelPlaceholder: "模型名（如 deepseek-chat / deepseek-v4-flash / kimi-k3）",
 			aiKeyHint: "支持 DeepSeek / OpenCode（hy3、Kimi 等）/ OpenRouter / 硅基流动 / Moonshot / 智谱 GLM / MiniMax 及任意 OpenAI 兼容端点。Key 仅本次会话内存使用，不持久化、不上传日志；建议通过服务端环境变量（DSH_*_API_KEY）配置。",
 			aiPersonaHint: "人设只影响语气与情绪价值，不影响装配质量与安全。",
 			aiCompose: "开始组装",
@@ -210,13 +210,18 @@ window.__ModuleLoader__.load({
 		// 后端为权威，此处仅作 UI 快捷填充）
 		const AI_PROVIDER_OPTIONS = [
 			{ id: "deepseek", label: "DeepSeek", baseURL: "https://api.deepseek.com", model: "deepseek-chat" },
-			{ id: "opencode", label: "OpenCode（hy3 / Kimi 等）", baseURL: "https://opencode.ai/zen/go/v1", model: "hy3-preview" },
+			{ id: "opencode", label: "OpenCode（DeepSeek V4 Flash 等）", baseURL: "https://opencode.ai/zen/go/v1", model: "deepseek-v4-flash" },
 			{ id: "openrouter", label: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", model: "deepseek/deepseek-chat" },
 			{ id: "siliconflow", label: "硅基流动", baseURL: "https://api.siliconflow.cn/v1", model: "deepseek-ai/DeepSeek-V3" },
 			{ id: "moonshot", label: "Moonshot（Kimi）", baseURL: "https://api.moonshot.cn/v1", model: "kimi-k2" },
 			{ id: "zhipu", label: "智谱 GLM", baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4.5" },
 			{ id: "minimax", label: "MiniMax", baseURL: "https://api.minimaxi.com/v1", model: "MiniMax-M2.7" },
 			{ id: "custom", label: "自定义（OpenAI 兼容）", baseURL: "", model: "" },
+		];
+		// 人设 → 头像 emoji（与后端 PERSONAS 对应；消息气泡按当前人设展示）
+		const AI_PERSONA_EMOJI = { maid: "🧹", butler: "🎩", neko: "🐱", assistant: "🤖" };
+		const AI_PERSONA_OPTIONS = [
+			["maid", "小织女仆 🧹"], ["butler", "执事管家 🎩"], ["neko", "咪咪猫娘 🐱"], ["assistant", "标准助手 🤖"]
 		];
 		function HotplugTab(props) {
 			const api = props.inject ?? {};
@@ -436,6 +441,8 @@ window.__ModuleLoader__.load({
 							setAiSessionId(sess.id);
 							try { window.localStorage.setItem("dshHotplug.aiSessionId", sess.id); } catch { /* 尽力而为 */ }
 						}
+						// 刷新恢复/续接场景：人设下拉与服务端会话 persona 对齐（会话为准）
+						if (sess.persona) setAiPersona(sess.persona);
 						const reply = d && d.reply ? String(d.reply) : "";
 						const pack = d && d.pack ? d.pack : null;
 						const diff = (d && d.diff) || null;
@@ -676,7 +683,7 @@ window.__ModuleLoader__.load({
 					h("div", { className: "hp_bar" },
 						h("label", null, t("aiPersonaLabel")),
 						h("select", { className: "hp_input", value: aiPersona, onChange: (e) => setAiPersona(e.target.value) },
-							[["maid", "小织女仆 🧹"], ["butler", "执事管家 🎩"], ["neko", "咪咪猫娘 🐱"], ["assistant", "标准助手 🤖"]].map(([id, label]) =>
+							AI_PERSONA_OPTIONS.map(([id, label]) =>
 								h("option", { key: id, value: id }, label)
 							)
 						),
@@ -704,7 +711,7 @@ window.__ModuleLoader__.load({
 						? h("p", { className: "hp_info" }, t("aiWelcome"))
 						: h("div", { className: "hp_log" }, aiMessages.map((m, index) =>
 							h("div", { key: index, className: m.role === "user" ? "hp_msg" : "hp_msg" + (m.error ? " err" : "") },
-								h("div", { className: "hp_msgRole" }, m.role === "user" ? "🧑" : (m.error ? "⚠️" : "🧹")),
+								h("div", { className: "hp_msgRole" }, m.role === "user" ? "🧑" : (m.error ? "⚠️" : (AI_PERSONA_EMOJI[aiPersona] || "🤖"))),
 								h("div", { className: "hp_msgBody" },
 									h("div", { className: "hp_msgText" }, m.text),
 									m.pack ? h("div", { className: "hp_msgPack" },
