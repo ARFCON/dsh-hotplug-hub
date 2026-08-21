@@ -78,6 +78,10 @@ export interface MemoryHubService {
   submit(intent: { action: 'create' | 'update' | 'remove'; packId?: string; entry?: unknown; reason?: string }): Promise<{ approved: boolean; entry?: MemoryEntry; removed?: { id: string; name: string }; proposalId?: string }>
   adopt(packId: string, proposalId: string): Promise<{ adopted: string; result?: unknown }>
   reject(packId: string, proposalId: string, reason?: string): void
+  /** GUI/用户直接编辑（绕过 ask 提案，操作者=user；面板编辑按钮专用）。 */
+  updateDirect(payload: { id: string; title?: string; body?: string; description?: string; keywords?: string[]; type?: 'user' | 'feedback' | 'project' | 'reference' }): MemoryEntry
+  /** GUI/用户直接删除（归档 + 移除活跃条目，操作者=user）。 */
+  removeDirect(id: string): { id: string; name: string }
 }
 
 declare module '@deepseek-ai/cordis' {
