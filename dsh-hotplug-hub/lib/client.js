@@ -166,10 +166,12 @@ window.__ModuleLoader__.load({
 		};
 		function unwrap(result) {
 			if (result && result.ok !== false) return result.value;
-			const detail = result?.error?.message ?? String(result?.error ?? "remote failed");
+			// R-v5-10（v5 阶段 3）：网关错误序列化 {ok, code, message, exitCode}；
+			// message 优先，error 字符串字段废弃（兼容回退）
+			const detail = result?.message ?? result?.error?.message ?? String(result?.error ?? "remote failed");
 			throw new Error(detail);
 		}
-		// 市场抓取来源通道：'github'=官方，其余为镜像站域名（需与 lib/index.js GITHUB_MIRRORS 一致）
+		// 市场抓取来源通道：'github'=官方，其余为镜像站域名（与 lib/core/paths.js GITHUB_MIRRORS 一致）
 		const MARKET_SOURCE_OPTIONS = ["github", "ghfast.top", "gh-proxy.com", "ghproxy.net", "mirror.ghproxy.com", "ghproxy.cc", "gh-proxy.net"];
 		const MARKET_DETAIL_CONCURRENCY = 6;
 		const CATALOG = [
@@ -239,7 +241,7 @@ window.__ModuleLoader__.load({
 				try {
 					const result = unwrap(await task());
 					if (result && result.ok === false) {
-						say("error", t(label + "Failed") + String(result.error ?? ""));
+						say("error", t(label + "Failed") + String(result.message ?? result.error ?? ""));
 						return result;
 					}
 					await load();
@@ -277,7 +279,7 @@ window.__ModuleLoader__.load({
 				if (previewId === packId) { setPreviewId(null); setPreviewData(null); return; }
 				try {
 					const result = unwrap(await api.preview(packId));
-					if (result && result.ok === false) { say("error", result.error); return; }
+					if (result && result.ok === false) { say("error", result.message ?? result.error); return; }
 					setPreviewId(packId);
 					setPreviewData(result);
 				} catch (error) {
@@ -315,7 +317,7 @@ window.__ModuleLoader__.load({
 				try {
 					const result = unwrap(await api.marketList(params));
 					if (result && result.ok === false) {
-						setMarketError(String(result.error ?? "?"));
+						setMarketError(String(result.message ?? result.error ?? "?"));
 					} else if (result && Array.isArray(result.entries)) {
 						const listEntries = result.entries;
 						setMarketData((prev) => {
@@ -650,7 +652,7 @@ window.__ModuleLoader__.load({
 					h("p", { className: "hp_info" }, t("memIntro")),
 					data ? h("div", { className: "hp_kv" },
 						h("span", null, t("checkMemory") + ":"),
-						h("span", { className: "hp_code" }, data.home + "/memory")
+						h("span", { className: "hp_code" }, data.memoryDir || (data.home + "/memory-hub"))
 					) : null
 				),
 				h("div", { className: "hp_card" },
@@ -664,7 +666,7 @@ window.__ModuleLoader__.load({
 								)
 							)
 						))
-						: h("p", { className: "hp_empty" }, t("memEmpty") + (data ? data.home + "/memory" : "…"))
+						: h("p", { className: "hp_empty" }, t("memEmpty") + (data ? (data.memoryDir || (data.home + "/memory-hub")) : "…"))
 				)
 			);
 			const renderCheck = () => h("div", null,

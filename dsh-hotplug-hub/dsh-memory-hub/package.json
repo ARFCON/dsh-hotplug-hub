@@ -20,8 +20,8 @@
   },
   "files": [
     "lib",
+    "vendor-shared",
     "schema",
-    "test",
     "README.md",
     "cordis.patch.yml"
   ],
@@ -42,6 +42,9 @@
     "@deepseek-ai/cordis": "^4.0.1"
   },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-tools": "^0.0.1-rc.1"
   }
 }

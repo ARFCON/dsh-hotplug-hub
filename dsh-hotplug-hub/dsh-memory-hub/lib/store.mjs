@@ -20,29 +20,32 @@
  *  - 并发写互斥（进程内链式 promise，跨进程由原子 rename 兜底）。
  */
 import {
-  existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync,
-  writeFileSync, openSync, closeSync, fsyncSync, statSync,
+  existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync,
+  writeFileSync, openSync, closeSync, fsyncSync, ftruncateSync, writeSync, statSync, symlinkSync,
 } from 'node:fs'
 import { join, dirname, basename, resolve, sep } from 'node:path'
-import { homedir } from 'node:os'
+import { randomBytes } from 'node:crypto'
+import { resolveDshRoot, acquireLock, releaseLock } from '../vendor-shared/index.mjs'
 import {
   FILES, PACK_SCHEMA_VERSION, PACK_KEYS, SCOPES, TYPES, ACTIVATIONS,
-  DEFAULTS, VOLATILITIES, NAME_RE, REF_RE, REVIEW_FILE,
+  DEFAULTS, VOLATILITIES, NAME_RE, REF_RE, REVIEW_FILE, PACK_ID_RE,
 } from './constants.mjs'
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter.mjs'
 import { newMemoryId, revisionFileName } from './id.mjs'
 import {
-  InvalidInputError, NotFoundError, SubjectConflictError, BudgetExceededError,
+  InvalidInputError, NotFoundError, SubjectConflictError, BudgetExceededError, MemoryHubError,
 } from './errors.mjs'
 
 // ---------- 路径与目录 ----------
 
-/** 默认记忆中枢根：$DSH_HOME/memory-hub（无 DSH_HOME 时 ~/.dsh/memory-hub）。 */
+// M-40 / R-v5-14（v5 阶段 4）：记忆根 = resolveDshRoot()/memory-hub（单一真源；
+// 优先级 DSH_HOTPLUG_ROOT > DSH_HOME > ~/.dsh；DSH_HOME 即 .dsh 域目录）
+const MEMORY_DIR_NAME = 'memory-hub'
+
+/** 默认记忆中枢根：resolveDshRoot()/memory-hub。 */
 export function defaultHubDir() {
-  const env = typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME.trim() !== ''
-    ? process.env.DSH_HOME.trim()
-    : join(homedir(), '.dsh')
-  return join(env, 'memory-hub')
+  const root = resolveDshRoot(process.env)
+  return join(root.dshRoot, MEMORY_DIR_NAME)
 }
 
 function safeJoin(root, ...parts) {
@@ -63,11 +66,12 @@ function readJson(path, fallback = null) {
   }
 }
 
-/** 原子写文本：临时文件 + fsync + rename（Windows rename 覆盖 OK）。 */
+/** 原子写文本：随机临时名 + O_EXCL + fsync + rename（M-44：tmp 名不可预测，
+ *  防符号链接预置劫持；'wx' 独占创建拒绝已存在文件）。 */
 function atomicWriteText(path, text) {
   mkdirSync(dirname(path), { recursive: true })
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`
-  const fd = openSync(tmp, 'w')
+  const tmp = `${path}.${process.pid}.${Date.now()}.${randomBytes(4).toString('hex')}.tmp`
+  const fd = openSync(tmp, 'wx')
   try {
     writeFileSync(fd, text, 'utf8')
     fsyncSync(fd)
@@ -205,14 +209,71 @@ export function deserializeEntryFile(text, name) {
 
 // ---------- Store ----------
 
+// H-8（v5 阶段 4）：跨进程写锁——共享 fs/lock 文件锁协议（与 launcher/dseam/C# 契约
+// 一致的 token/探活/过期语义）；锁文件 <hubDir>/.dsh-memory.lock 串行化全部写操作。
+const WRITE_LOCK_FILE = '.dsh-memory.lock'
+const WRITE_LOCK_WAIT_MS = 10000
+
+const nodeFsPort = {
+  readFileSync, writeFileSync, existsSync, mkdirSync, statSync, openSync, closeSync,
+  fsyncSync, ftruncateSync, writeSync, unlinkSync, rmSync, readdirSync, symlinkSync,
+}
+
+/**
+ * C2：旧 `memory` 目录 → `memory-hub` 迁移（软链形态，§9"不丢数据"）。
+ * 仅当 hubDir 缺省名（memory-hub）且自身不存在、同级 legacy 存在时执行；
+ * 链接失败（权限/平台）静默降级为新空目录（数据仍留在 legacy 路径，不删除）。
+ * @param {string} hubDir 目标（memory-hub）路径
+ * @returns {boolean} 是否已建链接
+ */
+function linkLegacyMemoryDir(hubDir) {
+  try {
+    if (basename(hubDir) !== MEMORY_DIR_NAME) return false
+    const parent = dirname(hubDir)
+    const legacy = join(parent, 'memory')
+    if (!existsSync(legacy)) return false
+    mkdirSync(parent, { recursive: true })
+    symlinkSync(legacy, hubDir, process.platform === 'win32' ? 'junction' : 'dir')
+    return true
+  } catch {
+    // 链接不可用：不阻断（数据保留在 legacy；hub 以新目录独立运行）
+    try { if (existsSync(hubDir)) rmSync(hubDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    return false
+  }
+}
+
 export class MemoryStore {
   /**
    * @param {string} hubDir 记忆中枢根目录。
+   * C2（兼容性审计，§9）：构造时执行旧 `memory` 目录迁移——hubDir（memory-hub）
+   * 不存在而同级 `memory` 目录存在（升级用户遗留）时，建 junction/symlink
+   * memory-hub → memory：数据（含 legacy memories.jsonl）原址保留、零拷贝，
+   * 新代码经 memory-hub 路径即可读写旧数据（"或软链"承诺落地）。
    */
   constructor(hubDir) {
     this.hubDir = hubDir
-    this.mutations = Promise.resolve()
-    if (!existsSync(hubDir)) mkdirSync(hubDir, { recursive: true })
+    if (!existsSync(hubDir)) {
+      const linked = linkLegacyMemoryDir(hubDir)
+      if (!linked) mkdirSync(hubDir, { recursive: true })
+    }
+  }
+
+  /**
+   * H-8：跨进程写锁包裹（check+write 原子化；两进程并发同 subjectKey 时
+   * 第二个在锁内重读 → 冲突拒绝）。锁失败抛 MemoryHubError('WRITE_LOCK')。
+   * @template T
+   * @param {() => T} fn 锁内执行（同步）
+   * @returns {T}
+   */
+  withWriteLock(fn) {
+    const lockPath = join(this.hubDir, WRITE_LOCK_FILE)
+    const a = acquireLock(nodeFsPort, lockPath, { waitMs: WRITE_LOCK_WAIT_MS, refreshMs: 5000 })
+    if (!a.ok) throw new MemoryHubError('WRITE_LOCK', `记忆写锁获取失败：${a.error.message}`)
+    try {
+      return fn()
+    } finally {
+      releaseLock(nodeFsPort, lockPath, { pid: process.pid, fd: a.fd })
+    }
   }
 
   // ----- 路由 -----
@@ -258,7 +319,8 @@ export class MemoryStore {
 
   /** 读包清单；不存在返回 null。 */
   readPack(packId) {
-    if (typeof packId !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(packId)) return null
+    // v5 重构（R-v5-6）：复用 constants 单一真源（vendor-shared），删除内联副本
+    if (typeof packId !== 'string' || !PACK_ID_RE.test(packId)) return null
     const manifest = readJson(join(this.packDir(packId), FILES.pack), null)
     if (manifest === null) return null
     return manifest
