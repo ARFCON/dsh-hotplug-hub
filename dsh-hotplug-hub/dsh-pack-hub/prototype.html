@@ -550,7 +550,7 @@ const MARKET_SOURCE_OPTIONS = [MARKET_SOURCE_GITHUB, ...MARKET_MIRRORS.map((m) =
 const MARKET_PACK_CANDIDATES = ['hotpack.json', '.dshpack.json', 'dshpack.json'];
 const MARKET_README_CANDIDATES = ['README.zh.md', 'README.md', 'readme.md', 'README_CN.md', 'README_ZH.md', 'Readme.md', 'README.txt'];
 const MARKET_PAGE_SIZE = 10;
-const MARKET_DETAIL_CONCURRENCY = 4;
+const MARKET_DETAIL_CONCURRENCY = 6;
 const MARKET_DEFAULT_TOPIC = 'dsh-plugin';
 let marketData = [];          // 抓取的条目 {repo,ref,name,author,stars,forks,license,description,topics,version,npmName,hasPack,intro,install,importable,importError,manifest}
 let marketTotal = 0;          // 搜索命中总数
@@ -809,6 +809,32 @@ function buildGithubPluginPack(repo, ref, npmName, version, meta) {
   };
 }
 
+// 搜索结果的列表元数据条目：详情尚未抓取，由并发 fetchRepoDetail 逐条补齐
+function metaEntry(m) {
+  return {
+    id: packIdOf(m.repo), repo: m.repo, ref: m.ref, repoUrl: 'https://github.com/' + m.repo,
+    name: m.name, author: m.author, stars: m.stars, forks: m.forks, license: m.license,
+    description: m.description, topics: m.topics || [], updatedAt: m.updatedAt,
+    detailPending: true, importable: false, importError: '', intro: '', install: '',
+    version: '', npmName: '', hasPack: false, manifest: null
+  };
+}
+
+// 单条详情返回后，只替换对应卡片 DOM，不动工具栏/滚动位置（渐进式填充）
+function patchMarketCard(entry) {
+  if (!entry || !entry.repo) return;
+  const sel = '#view-market [data-repo="' + String(entry.repo).replace(/"/g, '\\"') + '"]';
+  const el = document.querySelector(sel);
+  if (!el) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = renderMarketCard(entry).trim();
+  const fresh = tmp.firstElementChild;
+  if (!fresh) return;
+  el.replaceWith(fresh);
+  const btn = fresh.querySelector('[data-mkt-install]');
+  if (btn) btn.addEventListener('click', () => installMarketEntry(btn.dataset.mktInstall));
+}
+
 // 拉取单个仓库的详情：包清单 + package.json + README，生成可导入 manifest
 async function fetchRepoDetail(repo, ref, meta, sources) {
   const entry = {
@@ -826,14 +852,32 @@ async function fetchRepoDetail(repo, ref, meta, sources) {
   const pkgUrl = rawFileUrls(repo, entry.ref, 'package.json', sources);
   const readmeUrls = MARKET_README_CANDIDATES.map((f) => rawFileUrls(repo, entry.ref, f, sources));
 
+  // 竞速取第一个成功的候选文件：各候选（含其镜像 URL）并发发起，任一命中立即结算，
+  // 不必等其余候选（否则 7 个 README 候选逐个串行会拖慢整页）。
+  const fetchFirstOkAny = (candidateUrlLists, budgetMs) => {
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+      const budget = setTimeout(() => done(null), budgetMs);
+      let pending = 0;
+      for (const urls of candidateUrlLists) {
+        pending += 1;
+        raceFilesAny(urls, {}).then((r) => {
+          if (settled) return;
+          if (r.ok) { done(r); return; }
+          pending -= 1;
+          if (pending === 0) done(null);
+        });
+      }
+    });
+  };
+
   const runPack = async () => {
-    for (const urls of packScans) {
-      const r = await raceFilesAny(urls, {});
-      if (!r.ok) continue;
-      const hp = parseHotpackJson(r.text) || dshpackToHotpack(r.text);
-      if (hp) { manifest = hp; entry.hasPack = true; return; }
-      manifestErr = 'hotpack/.dshpack 解析失败';
-    }
+    const r = await fetchFirstOkAny(packScans, FETCH_TIMEOUT_MS);
+    if (!r || !r.ok) return;
+    const hp = parseHotpackJson(r.text) || dshpackToHotpack(r.text);
+    if (hp) { manifest = hp; entry.hasPack = true; return; }
+    manifestErr = 'hotpack/.dshpack 解析失败';
   };
   const runPkg = async () => {
     const r = await raceFilesAny(pkgUrl, {});
@@ -845,8 +889,8 @@ async function fetchRepoDetail(repo, ref, meta, sources) {
     }
   };
   const runReadme = async () => {
-    const r = await raceFilesAny(readmeUrls, {});
-    if (r.ok) {
+    const r = await fetchFirstOkAny(readmeUrls, FETCH_TIMEOUT_MS);
+    if (r && r.ok) {
       entry.intro = extractIntro(r.text);
       entry.install = extractInstall(r.text);
     }
@@ -951,39 +995,39 @@ async function loadMarket(params) {
   // 分页去重：只抓取尚未加载的仓库，已加载的不再重复抓取
   const loadedRepos = new Set(marketData.map((e) => e.repo));
   const metas = search.items.slice(0, 12).filter((m) => !loadedRepos.has(m.repo));
-  const entries = [];
-  const seen = new Set();
-  let idx = 0;
-  const worker = async () => {
-    while (idx < metas.length) {
-      const m = metas[idx++];
-      if (seen.has(m.repo)) continue;
-      seen.add(m.repo);
-      try { entries.push(await fetchRepoDetail(m.repo, m.ref, m, sources)); }
-      catch (e) { /* 单条失败跳过 */ }
-    }
-  };
-  const workers = [];
-  for (let i = 0; i < Math.min(MARKET_DETAIL_CONCURRENCY, metas.length || 1); i++) workers.push(worker());
-  await Promise.all(workers);
-  // 合并去重（防止搜索分页在多次调用间条目漂移导致重复）
-  const merged = new Map();
-  marketData.forEach((e) => merged.set(e.repo, e));
-  entries.forEach((e) => { if (e) merged.set(e.repo, e); });
-  marketData = [...merged.values()].sort((a, b) => b.stars - a.stars);
 
+  // 立即渲染元数据卡片（详情占位），不等待详情返回
+  const metaEntries = metas.map(metaEntry);
+  marketData = page === 1 ? metaEntries : [...marketData, ...metaEntries];
   marketTotal = search.total;
   marketFetchedVia = search.fetchedVia || '';
   marketLoading = false;
   marketAppending = false;
-  marketCachedAt = new Date().toISOString();
-  if (page === 1) {
-    try {
-      localStorage.setItem(cacheKey, JSON.stringify({ topic: marketTopic, sources, entries, total: search.total, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia }));
-    } catch (e) { /* file:// 模式无 localStorage */ }
-  }
-  renderMarket();
-  return { ok: true, cached: false, entries: marketData, total: search.total, sources, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia };
+  renderMarket(); // 列表已展示
+
+  // 并发抓详情：谁先返回谁先填入对应卡片，不等待其余
+  let idx = 0;
+  const worker = async () => {
+    while (idx < metas.length) {
+      const m = metas[idx++];
+      try {
+        const entry = await fetchRepoDetail(m.repo, m.ref, m, sources);
+        const i = marketData.findIndex((e) => e.repo === m.repo);
+        if (i >= 0) marketData[i] = { ...marketData[i], ...entry, detailPending: false };
+        patchMarketCard(marketData[i]);
+      } catch (e) { /* 单条详情失败：保留列表占位，不阻塞其他 */ }
+    }
+  };
+  const workers = [];
+  for (let i = 0; i < Math.min(MARKET_DETAIL_CONCURRENCY, metas.length || 1); i++) workers.push(worker());
+  Promise.all(workers).then(() => {
+    if (page === 1) {
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify({ topic: marketTopic, sources, entries: marketData, total: search.total, cachedAt: new Date().toISOString(), fetchedVia: marketFetchedVia }));
+      } catch (e) { /* file:// 模式无 localStorage */ }
+    }
+  });
+  return { ok: true, cached: false, entries: marketData, total: search.total, sources, cachedAt: null, fetchedVia: marketFetchedVia };
 }
 
 function doMarketSearch() { marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: true }); }
@@ -1179,20 +1223,25 @@ function marketEntryToImport(entry) {
 function renderMarketCard(e) {
   const accent = '#0e7c6b';
   const letter = (e.name || e.repo).trim().slice(0, 1);
+  const pending = e.detailPending === true;
   const metaBits = [];
   metaBits.push(e.author || '—');
   metaBits.push('⭐ ' + (e.stars || 0));
   if (e.version) metaBits.push('v' + e.version);
   if (e.license) metaBits.push(e.license);
-  const hasPackBadge = e.hasPack ? '<span class="badge ok">内置清单</span>' : '<span class="badge neutral">单插件</span>';
-  const installBtn = e.importable
-    ? `<button class="btn sm primary" data-mkt-install="${esc(e.repo)}">${ICONS.plus} 导入</button>`
-    : `<button class="btn sm" disabled title="${esc(e.importError || '无法生成导入包')}">${ICONS.plus} 不可导入</button>`;
+  const hasPackBadge = pending
+    ? '<span class="badge neutral">加载中</span>'
+    : (e.hasPack ? '<span class="badge ok">内置清单</span>' : '<span class="badge neutral">单插件</span>');
+  const installBtn = pending
+    ? `<button class="btn sm" disabled>${ICONS.plus} 详情加载中…</button>`
+    : (e.importable
+      ? `<button class="btn sm primary" data-mkt-install="${esc(e.repo)}">${ICONS.plus} 导入</button>`
+      : `<button class="btn sm" disabled title="${esc(e.importError || '无法生成导入包')}">${ICONS.plus} 不可导入</button>`);
   const installHtml = e.install
     ? `<details class="mkt-details"><summary>安装方法</summary><pre class="mkt-pre">${esc(e.install)}</pre></details>`
     : '';
   return `
-    <div class="pack">
+    <div class="pack" data-repo="${esc(e.repo)}">
       <div class="pack-top">
         <div class="pack-icon" style="background:${accent}">${esc(letter)}</div>
         <div class="pack-title">
@@ -1202,7 +1251,7 @@ function renderMarketCard(e) {
         ${hasPackBadge}
       </div>
       ${(e.topics || []).length ? `<div class="tags">${e.topics.slice(0, 6).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
-      <div class="mkt-desc">${esc(e.intro || e.description || '暂无简介')}</div>
+      <div class="mkt-desc">${esc(pending ? '详情加载中…' : (e.intro || e.description || '暂无简介'))}</div>
       ${installHtml}
       <div class="pack-foot">
         <a class="mkt-link" href="https://github.com/${esc(e.repo)}" target="_blank" rel="noopener">${esc(e.repo)} ↗</a>

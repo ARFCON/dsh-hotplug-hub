@@ -83,6 +83,7 @@ window.__ModuleLoader__.load({
 			marketMore: "加载更多",
 			marketNoIntro: "（无 README 介绍）",
 			marketNoInstall: "README 未找到安装方法",
+			marketDetailLoading: "详情加载中…",
 			marketFetchError: "获取市场失败：",
 			marketRetry: "重试",
 			marketOffline: "无法连接 GitHub（官方与镜像均失败），显示内置示例目录",
@@ -159,7 +160,8 @@ window.__ModuleLoader__.load({
 				descriptor("deactivate", []),
 				descriptor("removePack", ["packId"]),
 				descriptor("check", []),
-				descriptor("marketList", ["params"])
+				descriptor("marketList", ["params"]),
+				descriptor("marketDetail", ["params"])
 			]
 		};
 		function unwrap(result) {
@@ -169,6 +171,7 @@ window.__ModuleLoader__.load({
 		}
 		// 市场抓取来源通道：'github'=官方，其余为镜像站域名（需与 lib/index.js GITHUB_MIRRORS 一致）
 		const MARKET_SOURCE_OPTIONS = ["github", "ghfast.top", "gh-proxy.com", "ghproxy.net", "mirror.ghproxy.com", "ghproxy.cc", "gh-proxy.net"];
+		const MARKET_DETAIL_CONCURRENCY = 6;
 		const CATALOG = [
 			{ id: "pack-research", name: "科研插座包", tags: ["科研", "论文", "文献"], desc: "文献检索、综述、论文写作、引用与审稿建议", plugins: 4, accent: "#0e7c6b" },
 			{ id: "pack-video", name: "视频制作插座包", tags: ["视频", "剪辑", "字幕"], desc: "脚本、分镜、剪辑清单、字幕与封面生成", plugins: 4, accent: "#b45309" },
@@ -314,13 +317,16 @@ window.__ModuleLoader__.load({
 					if (result && result.ok === false) {
 						setMarketError(String(result.error ?? "?"));
 					} else if (result && Array.isArray(result.entries)) {
+						const listEntries = result.entries;
 						setMarketData((prev) => {
 							if (!prev || (params.page ?? 1) === 1) {
-								return { entries: result.entries, total: result.total ?? result.entries.length, sources: result.sources ?? params.sources ?? null, cachedAt: result.cachedAt ?? null, cached: result.cached === true };
+								return { entries: listEntries, total: result.total ?? listEntries.length, sources: result.sources ?? params.sources ?? null, cachedAt: result.cachedAt ?? null, cached: result.cached === true };
 							}
 							const seen = new Set(prev.entries.map((e) => e.id));
-							return { ...prev, entries: [...prev.entries, ...result.entries.filter((e) => !seen.has(e.id))], total: result.total ?? prev.total };
+							return { ...prev, entries: [...prev.entries, ...listEntries.filter((e) => !seen.has(e.id))], total: result.total ?? prev.total };
 						});
+						// 列表已渲染；逐条并发抓详情，谁先返回谁先填进卡片，不等待其余。
+						hydrateMarketDetails(listEntries, result.sources ?? params.sources ?? null);
 					} else {
 						setMarketError("marketList 返回异常");
 					}
@@ -329,6 +335,27 @@ window.__ModuleLoader__.load({
 				} finally {
 					setMarketLoading(false);
 				}
+			};
+			// 并发抓取每条详情（受限并发），返回即覆盖对应卡片；不阻塞列表展示。
+			const hydrateMarketDetails = (entries, sources) => {
+				const pending = entries.filter((e) => e && e.detailPending !== false);
+				if (pending.length === 0) return;
+				let index = 0;
+				const worker = async () => {
+					while (index < pending.length) {
+						const e = pending[index++];
+						try {
+							const result = unwrap(await api.marketDetail({ repo: e.repo, ref: e.ref, sources, meta: e }));
+							const entry = result && result.entry;
+							if (!entry) continue;
+							setMarketData((prev) => {
+								if (!prev) return prev;
+								return { ...prev, entries: prev.entries.map((x) => (x.id === e.id ? { ...x, ...entry, detailPending: false } : x)) };
+							});
+						} catch { /* 单条详情失败：保留列表占位，标记不可导入，不阻塞其他条目 */ }
+					}
+				};
+				Array.from({ length: Math.min(MARKET_DETAIL_CONCURRENCY, pending.length) }, () => worker());
 			};
 			const marketParams = (page, refresh) => ({ topic: marketTopic, q: marketQuery, sources: marketSources, page, refresh });
 			const doMarketSearch = () => { setMarketPage(1); loadMarket(marketParams(1, false)); };
@@ -510,7 +537,8 @@ window.__ModuleLoader__.load({
 			const renderMarketCard = (p) => {
 				const tags = p.topics ?? p.tags ?? [];
 				const desc = p.intro || p.description || p.desc || "";
-				const installable = p.importable !== false;
+				const pending = p.detailPending === true;
+				const installable = !pending && p.importable !== false;
 				return h("div", { key: p.id, className: "hp_card" },
 					h("div", { className: "hp_rowTop" },
 						h("div", null,
@@ -526,9 +554,9 @@ window.__ModuleLoader__.load({
 						importedIds.has(p.id) ? h("span", { className: "hp_tag" }, t("marketInstalled")) : null
 					),
 					tags.length ? h("div", { className: "hp_meta" }, tags.map((tag) => h("span", { key: tag, className: "hp_tag" }, tag))) : null,
-					h("p", { className: "hp_info" }, desc || t("marketNoIntro")),
+					h("p", { className: "hp_info" }, pending ? t("marketDetailLoading") : (desc || t("marketNoIntro"))),
 					h("div", { className: "hp_bar" },
-						h("button", { className: "hp_btn", disabled: !p.install, onClick: () => setMarketOpen(marketOpen === p.id ? null : p.id) }, t("marketInstallMethod")),
+						h("button", { className: "hp_btn", disabled: pending || !p.install, onClick: () => setMarketOpen(marketOpen === p.id ? null : p.id) }, t("marketInstallMethod")),
 						p.repoUrl ? h("a", { className: "hp_link", href: p.repoUrl, target: "_blank", rel: "noreferrer" }, t("marketRepo")) : null,
 						typeof p.plugins === "number" ? h("span", { className: "hp_stat" }, p.plugins + t("pluginsCount")) : null,
 						p.hasPack ? h("span", { className: "hp_tag" }, "hotpack") : null,
@@ -537,7 +565,7 @@ window.__ModuleLoader__.load({
 					marketOpen === p.id ? h("pre", { className: "hp_expand" }, p.install || t("marketNoInstall")) : null,
 					importedIds.has(p.id) ? null : h("div", { className: "hp_bar" },
 						h("button", { className: "hp_btn hp_primary", disabled: busy || !installable, title: p.importError ?? "", onClick: () => doMarketInstall(p) },
-							installable ? t("marketInstall") : t("marketUnavailable"))
+							pending ? t("marketDetailLoading") : (installable ? t("marketInstall") : t("marketUnavailable")))
 					)
 				);
 			};
@@ -759,7 +787,8 @@ window.__ModuleLoader__.load({
 				deactivate: () => remote().then((face) => face.deactivate()),
 				removePack: (packId) => remote().then((face) => face.removePack(packId)),
 				check: () => remote().then((face) => face.check()),
-				marketList: (params) => remote().then((face) => face.marketList(params))
+				marketList: (params) => remote().then((face) => face.marketList(params)),
+				marketDetail: (params) => remote().then((face) => face.marketDetail(params))
 			});
 			ctx.slots.inject("settings.section", () => ctx.slots.register({
 				name: "settings.section",
