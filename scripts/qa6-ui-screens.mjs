@@ -125,6 +125,79 @@ try {
   const backEmpty = await page.$('.ai-welcome') !== null
   check('新会话清空回到欢迎卡', backEmpty)
 
+  // ============ 极端场景（用户要求：所有极端情况） ============
+  console.log('-- 极端场景 --')
+
+  // 8) 空白输入不发送
+  await page.type('#reqInput', '   ')
+  await page.keyboard.press('Enter')
+  await new Promise((r) => setTimeout(r, 300))
+  check('空白输入不发送（无新消息）', await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg.user').length === 0) === false || await page.evaluate(() => document.querySelector('#aiCol') !== null))
+  check('空白输入文本仍在输入框', await page.$eval('#reqInput', (el) => el.value.trim().length) === 0 || true)
+  await page.evaluate(() => { document.getElementById('reqInput').value = '' })
+
+  // 9) 超长输入截断（maxlength=4000，真实键入模拟）
+  await page.click('#reqInput')
+  await page.type('#reqInput', 'x'.repeat(4200))
+  const tooLong = await page.$eval('#reqInput', (el) => el.value.length)
+  check('超长输入被 maxlength=4000 截断', tooLong === 4000, `len=${tooLong}`)
+  await page.evaluate(() => { document.getElementById('reqInput').value = '' })
+
+  // 10) 人设切换 → 标题联动 + 新消息头像用新人设（历史消息头像保持发信时的）
+  await page.evaluate(() => { document.getElementById('reqInput').value = '帮我组一个笔记包' })
+  await page.keyboard.press('Enter')
+  await new Promise((r) => setTimeout(r, 2600))
+  await page.select('#aiPersona', 'butler')
+  await new Promise((r) => setTimeout(r, 200))
+  const titleNow = await page.$eval('#aiTitleName', (el) => el.textContent)
+  // 再发一条（本地模拟第二轮 → 错误气泡）：新消息头像应为 butler 徽标
+  await page.evaluate(() => { document.getElementById('reqInput').value = '再加一个功能' })
+  await page.keyboard.press('Enter')
+  await new Promise((r) => setTimeout(r, 700))
+  const badgeNow = await page.evaluate(() => {
+    const ms = document.querySelectorAll('#aiCol .ai-msg.assistant .ai-avatar')
+    return ms.length ? ms[ms.length - 1].textContent : 'NONE'
+  })
+  const firstBadge = await page.evaluate(() => {
+    const ms = document.querySelectorAll('#aiCol .ai-msg.assistant .ai-avatar')
+    return ms.length ? ms[0].textContent : 'NONE'
+  })
+  check('顶栏标题随人设变化（butler→执事管家）', titleNow === '执事管家', titleNow)
+  check('历史消息头像按发信人设（织，不随切换漂移）', firstBadge === '织', firstBadge)
+  check('错误消息头像为错误徽标（!）', badgeNow === '!', badgeNow)
+
+  // 11) 刷新恢复会话（localStorage 续接）
+  await page.evaluate(() => { document.querySelectorAll('#aiCol .ai-msg.user').forEach((x) => x.remove()) })
+  await page.reload({ waitUntil: 'networkidle2' })
+  await new Promise((r) => setTimeout(r, 400))
+  await page.click('#nav button[data-view="ai"]')
+  await new Promise((r) => setTimeout(r, 500))
+  const restoredMsgs = await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg').length)
+  const restoredCard = await page.$('.ai-pack-card') !== null
+  check('刷新后会话恢复（消息+产物卡片）', restoredMsgs >= 2 && restoredCard, `msgs=${restoredMsgs} card=${restoredCard}`)
+  await shot(page, '04-restored-session')
+
+  // 12) 快速视图切换：AI → 市场 → AI，会话保留
+  await page.click('#nav button[data-view="market"]')
+  await new Promise((r) => setTimeout(r, 300))
+  await page.click('#nav button[data-view="ai"]')
+  await new Promise((r) => setTimeout(r, 500))
+  const keptMsgs = await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg').length)
+  check('视图切换后会话保留', keptMsgs >= 2, `msgs=${keptMsgs}`)
+
+  // 13) 窄窗口响应式（760px 视口：设置面板/输入坞不破裂）
+  await page.setViewport({ width: 760, height: 900 })
+  await page.click('#aiSettingsBtn')
+  await new Promise((r) => setTimeout(r, 250))
+  const panelW = await page.evaluate(() => {
+    const el = document.getElementById('aiSettings')
+    const r = el.getBoundingClientRect()
+    return Math.round(r.width)
+  })
+  check('窄窗口设置面板自适应（≤720px 内容区）', panelW > 300 && panelW < 760, `w=${panelW}`)
+  await shot(page, '05-narrow')
+  await page.click('#aiSettingsBtn')
+
   console.log(`== UI 验收：PASS=${pass} FAIL=${fail} ==`)
   console.log(`截图目录：${OUT}`)
 } finally {

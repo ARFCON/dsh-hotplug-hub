@@ -254,7 +254,7 @@ button { font: inherit; color: inherit; }
 .ai-chip-btn.active { border-color: var(--teal); background: rgba(16,124,107,.08); color: var(--teal); }
 .ai-turn-badge { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .ai-settings {
-  width: min(760px, calc(100% - 300px)); margin: 0 auto; padding: 12px 0 2px;
+  width: min(760px, calc(100% - 44px)); margin: 0 auto; padding: 12px 0 2px;
   display: grid; gap: 8px;
 }
 .ai-settings-panel {
@@ -264,7 +264,11 @@ button { font: inherit; color: inherit; }
 }
 .ai-settings-panel .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .ai-settings-panel input { flex: 1; min-width: 160px; }
-.ai-scroll { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
+.ai-scroll { flex: 1; overflow-y: auto; scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+.ai-scroll::-webkit-scrollbar { width: 8px; }
+.ai-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+.ai-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+.ai-scroll::-webkit-scrollbar-track { background: transparent; }
 .ai-col { max-width: 780px; margin: 0 auto; padding: 22px 24px 12px; display: flex; flex-direction: column; gap: 16px; }
 /* 空态欢迎 */
 .ai-welcome {
@@ -288,10 +292,11 @@ button { font: inherit; color: inherit; }
 @keyframes aiIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .ai-avatar {
   flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%;
-  display: grid; place-items: center; font-size: 17px;
+  display: grid; place-items: center; font-size: 15px; font-weight: 700;
   border: 1px solid var(--line); background: #fff;
 }
-.ai-msg.user .ai-avatar { background: var(--teal-dark); border-color: var(--teal-dark); color: #fff; font-size: 13px; }
+.ai-avatar.av-err { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+.ai-msg.user .ai-avatar { background: var(--teal-dark); border-color: var(--teal-dark); color: #fff; font-size: 12px; }
 .ai-bubble {
   max-width: 78%; border-radius: 16px; padding: 11px 15px;
   font-size: 14px; line-height: 1.75; white-space: pre-wrap; word-break: break-word;
@@ -319,6 +324,11 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 4px 16px rgba(15,23,42,.05); animation: aiIn .28s ease;
 }
 .ai-pack-card .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pack-mark {
+  width: 22px; height: 22px; display: grid; place-items: center; flex: 0 0 22px;
+  background: var(--teal-dark); color: #fff; border-radius: 7px;
+  font-size: 11px; font-weight: 800;
+}
 .ai-pack-card .name { font-weight: 700; font-size: 15px; color: var(--ink); }
 .ai-pack-card .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
 .ai-diff { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -690,9 +700,32 @@ let marketFilters = []; // 多选标签筛选（空 = 全部）
 let aiRunning = false;
 let aiResult = null;
 let aiSettingsOpen = false; // 连接设置折叠面板
-// AI 装配间会话（静态页无后端：内存级会话；真实会话/人设逻辑以网关 aiChat 为权威）
+// AI 装配间会话（静态页无后端：内存级会话 + localStorage 续接；真实会话/人设逻辑以网关 aiChat 为权威）
 let aiSession = null; // {id, persona, messages:[{role,content}], pack}
 let aiMessages = [];   // 展示用 [{role:'user'|'assistant', text, pack, diff, error}]
+
+/** 会话持久化（刷新/重启续接；不含任何凭据——key 从不入 aiSession/aiMessages）。 */
+function aiPersist() {
+  try {
+    localStorage.setItem('dshAiRoom', JSON.stringify({ session: aiSession, messages: aiMessages }));
+  } catch (_) { /* 尽力而为 */ }
+}
+function aiRestore() {
+  try {
+    const raw = localStorage.getItem('dshAiRoom');
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (d && d.session && d.session.id && Array.isArray(d.messages) && d.messages.length > 0) {
+      aiSession = { id: d.session.id, persona: d.session.persona || 'maid', messages: Array.isArray(d.session.messages) ? d.session.messages : [], pack: d.session.pack || null };
+      aiMessages = d.messages.filter((m) => m && (m.role === 'user' || m.role === 'assistant'));
+      return aiMessages.length > 0;
+    }
+  } catch (_) { /* 尽力而为 */ }
+  return false;
+}
+function aiClearRoom() {
+  try { localStorage.removeItem('dshAiRoom'); } catch (_) { /* 尽力而为 */ }
+}
 let checks = null;
 let dlgAction = null;
 
@@ -1589,11 +1622,14 @@ function renderAi() {
            ${sample.map((s) => `<button class="pv" data-sample="${esc(s)}"><svg viewBox="0 0 20 20" fill="none"><path d="M10 3v14M3 10h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>${esc(s)}</button>`).join('')}
          </div>
        </div>`
-    : aiMessages.map((m, i) => msgHtml(m, curPersona)).join('');
+    : aiMessages.map((m, i) => msgHtml(m, m.persona || curPersona)).join('')
+      + (aiRunning
+        ? `<div class="ai-msg assistant" id="aiTyping"><div class="ai-avatar">${personaBadge(curPersona)}</div><div class="ai-bubble"><span class="ai-typing"><i></i><i></i><i></i></span></div></div>`
+        : '');
   $('view-ai').innerHTML = `
     <div class="ai-zone">
       <div class="ai-topbar">
-        <div class="ai-title"><span class="ai-brandmark">织</span> 小织女仆 · 装配间 <span class="sub">人设化对话式装配</span></div>
+        <div class="ai-title"><span class="ai-brandmark">织</span> <span id="aiTitleName">${esc(personaNameOf(curPersona))}</span> <span class="sub">装配间</span></div>
         <div class="spacer"></div>
         <select id="aiPersona" class="ai-chip-btn" title="切换装配女仆">
           ${personaOpts.map(([id, label]) => `<option value="${id}"${id === curPersona ? ' selected' : ''}>${label}</option>`).join('')}
@@ -1631,7 +1667,7 @@ function renderAi() {
         <div class="ai-dock-inner">
           <div class="ai-samples" id="aiSamples">${aiMessages.length === 0 ? '' : sample.map((s) => `<button class="chip" data-sample="${esc(s)}">${esc(s)}</button>`).join('')}</div>
           <div class="ai-input-wrap">
-            <textarea id="reqInput" rows="1" placeholder="${aiMessages.length === 0 ? '描述您的需求，小织马上开工。例如：我要搭一套科研出论文的工作流…' : '继续说…（Enter 发送，Shift+Enter 换行）'}"></textarea>
+            <textarea id="reqInput" rows="1" maxlength="4000" placeholder="${aiMessages.length === 0 ? '描述您的需求，小织马上开工。例如：我要搭一套科研出论文的工作流…' : '继续说…（Enter 发送，Shift+Enter 换行）'}"></textarea>
             <button class="ai-send" id="composeBtn" title="发送" ${aiRunning ? 'disabled' : ''}>
               <svg viewBox="0 0 20 20" fill="none"><path d="M3.5 10L16.5 3.5L12.5 16.5L9.5 11.5L3.5 10Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/><path d="M9.5 11.5L16.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             </button>
@@ -1648,9 +1684,12 @@ function renderAi() {
   document.querySelectorAll('[data-sample]').forEach((b) => b.addEventListener('click', () => { $('reqInput').value = b.dataset.sample; $('reqInput').focus(); }));
   $('composeBtn').addEventListener('click', () => compose());
   const ns = $('aiNewSessionBtn');
-  if (ns) ns.addEventListener('click', () => { if (!confirm('开始新会话？当前对话与产物将清空。')) return; aiSession = null; aiMessages = []; aiResult = null; aiSettingsOpen = aiSettingsOpen; renderAi(); });
+  if (ns) ns.addEventListener('click', () => { if (!confirm('开始新会话？当前对话与产物将清空。')) return; aiSession = null; aiMessages = []; aiResult = null; aiClearRoom(); renderAi(); });
   $('aiPersona').addEventListener('change', (e) => {
     if (aiSession) aiSession.persona = e.target.value;
+    aiPersist(); // 人设变更随会话续接
+    const titleName = $('aiTitleName');
+    if (titleName) titleName.textContent = personaNameOf(e.target.value);
     // 空态欢迎卡：问候语原位更新（不重建 DOM，保留输入框内容与聚焦）
     const g = $('aiGreet');
     if (g && aiMessages.length === 0) {
@@ -1687,15 +1726,15 @@ function connNote() {
   return `${endpoint} · ${model}${key ? '' : ' · Key 未填（本地模拟）'}`;
 }
 
-/** 消息气泡 + 产物卡片 HTML。 */
+/** 消息气泡 + 产物卡片 HTML（头像按每条消息的发信人设渲染：历史消息不随当前人设漂移）。 */
 function msgHtml(m, persona) {
   if (m.role === 'user') {
     return `<div class="ai-msg user"><div class="ai-avatar">您</div><div class="ai-bubble">${esc(m.text)}</div></div>`;
   }
   const content = m.text;
   const packCard = m.pack ? packCardHtml(m.pack, m.diff) : '';
-  const av = m.error ? '⚠️' : personaEmoji(persona);
-  return `<div class="ai-msg assistant${m.error ? ' err' : ''}"><div class="ai-avatar">${av}</div><div class="ai-bubble">${esc(content)}</div></div>${packCard}`;
+  const av = m.error ? '!' : personaBadge(m.persona || persona);
+  return `<div class="ai-msg assistant${m.error ? ' err' : ''}"><div class="ai-avatar${m.error ? ' av-err' : ''}">${av}</div><div class="ai-bubble">${esc(content)}</div></div>${packCard}`;
 }
 
 /* ---- 聊天流增量渲染（不重建 DOM：保持输入聚焦与沉浸） ---- */
@@ -1703,18 +1742,23 @@ function appendMsgEl(m, persona) {
   const col = $('aiCol');
   if (!col) return;
   col.insertAdjacentHTML('beforeend', msgHtml(m, persona));
-  scrollAi();
+  scrollAi(true);
 }
-function scrollAi() {
+/** 智能滚动：仅当用户已接近底部（<80px）时自动滚到底，阅读历史不被打断；
+ * rAF 保证消息动画/卡片展开后滚动位置准确。 */
+function scrollAi(force) {
   const sc = $('aiScroll');
-  if (sc) sc.scrollTop = sc.scrollHeight;
+  if (!sc) return;
+  const nearBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
+  if (!force && !nearBottom) return;
+  requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
 }
 function showTyping() {
   const col = $('aiCol');
   if (!col) return;
   const persona = $('aiPersona') ? $('aiPersona').value : 'maid';
-  col.insertAdjacentHTML('beforeend', `<div class="ai-msg assistant" id="aiTyping"><div class="ai-avatar">${personaEmoji(persona)}</div><div class="ai-bubble"><span class="ai-typing"><i></i><i></i><i></i></span></div></div>`);
-  scrollAi();
+  col.insertAdjacentHTML('beforeend', `<div class="ai-msg assistant" id="aiTyping"><div class="ai-avatar">${personaBadge(persona)}</div><div class="ai-bubble"><span class="ai-typing"><i></i><i></i><i></i></span></div></div>`);
+  scrollAi(true);
 }
 function hideTyping() {
   const t = $('aiTyping');
@@ -1729,7 +1773,7 @@ function packCardHtml(pack, diff) {
     : '';
   const plugs = (pack.plugins || []).map((p) => `<div class="p"><span class="dot"></span><span class="pn">${esc(p.name)}@${esc(p.version)}</span><span class="pv">${esc(p.id)}</span></div>`).join('');
   return `<div class="ai-pack-card">
-    <div class="head"><span class="name">📦 ${esc(pack.name)}</span><span class="meta">${(pack.plugins || []).length} 个插件 ${diffHtml}</span></div>
+    <div class="head"><span class="pack-mark">包</span><span class="name">${esc(pack.name)}</span><span class="meta">${(pack.plugins || []).length} 个插件 ${diffHtml}</span></div>
     <div class="ai-plugins">${plugs}</div>
     <div class="acts">
       <button class="btn primary sm" id="importAiPack">一键导入</button>
@@ -1742,6 +1786,16 @@ function packCardHtml(pack, diff) {
 
 function personaEmoji(persona) {
   return ({ maid: '🧹', butler: '🎩', neko: '🐱', assistant: '🤖' }[persona] || '🤖');
+}
+
+/** 人设头像徽标（文字优先：不依赖 emoji 字体，任何环境渲染稳定）。 */
+function personaBadge(persona) {
+  return ({ maid: '织', butler: '管', neko: '喵', assistant: '助' }[persona] || '助');
+}
+
+/** 人设展示名（顶栏标题随人设变化；保留产品名逻辑以「· 装配间」收尾）。 */
+function personaNameOf(persona) {
+  return ({ maid: '小织女仆', butler: '执事管家', neko: '咪咪猫娘', assistant: '标准助手' }[persona] || '小织女仆');
 }
 
 function buildAiSystem(persona, mode) {
@@ -1888,7 +1942,7 @@ async function compose() {
   const finishTurn = (text, packHp, diff) => {
     hideTyping();
     aiSession.messages.push({ role: 'assistant', content: text });
-    aiMessages.push({ role: 'assistant', text, pack: packHp || null, diff: diff || null });
+    aiMessages.push({ role: 'assistant', text, persona, pack: packHp || null, diff: diff || null });
     appendMsgEl(aiMessages[aiMessages.length - 1], persona);
     aiRunning = false;
     if (sendBtn) sendBtn.disabled = false;
@@ -1896,15 +1950,21 @@ async function compose() {
     if (nsb) nsb.disabled = false; // 增量渲染不重建 DOM：新会话按钮随消息出现解锁
     const badge = $('aiTurnBadge');
     if (badge) badge.textContent = '第 ' + aiMessages.filter((m) => m.role === 'user').length + ' 轮';
+    aiPersist();
+    const inp2 = $('reqInput');
+    if (inp2) inp2.focus();
   };
   const failTurn = (text) => {
     hideTyping();
-    aiMessages.push({ role: 'assistant', text, error: true });
+    aiMessages.push({ role: 'assistant', text, persona, error: true });
     appendMsgEl(aiMessages[aiMessages.length - 1], persona);
     aiRunning = false;
     if (sendBtn) sendBtn.disabled = false;
     const nsb = $('aiNewSessionBtn');
     if (nsb) nsb.disabled = false;
+    aiPersist();
+    const inp2 = $('reqInput');
+    if (inp2) inp2.focus();
   };
   const reaction = (name, n) => ({
     maid: '主人，插件已经为您织好啦：' + name + '（' + n + ' 个插件），请过目～',
@@ -2703,6 +2763,7 @@ function today() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  aiRestore(); // AI 装配间会话续接（刷新/重启）
   bindGlobal();
   renderAll();
 });
