@@ -276,8 +276,7 @@ body.ai-view-active .topbar { display: none; }
   background: var(--teal-dark); color: #fff; border-radius: 6px;
   font-size: 11px; font-weight: 800;
 }
-.ai-cfg-note { margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 400; }
-.ai-settings-panel .row {
+.ai-cfg-note { margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 400; }.ai-settings-panel .row {
   display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; align-items: center;
 }
 .ai-settings-panel .row .ai-label { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; }
@@ -301,11 +300,7 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .ai-ctl-btn:disabled { opacity: .55; cursor: default; }
 .ai-ctl-btn.primary { background: var(--teal); border-color: var(--teal); color: #fff; }
 .ai-ctl-btn.primary:hover { background: var(--teal-dark); }
-.ai-shell-row {
-  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
-  background: #f6f8f3; border: 1px solid #e9ece4; border-radius: 9px;
-  font-size: 12px; color: var(--ink-dim); flex-wrap: wrap;
-}
+.ai-shell-note { font-size: 12px; color: var(--muted); }
 .ai-hint { font-size: 11.5px; color: var(--muted); line-height: 1.7; padding: 0 2px; }
 .ai-hint b { color: var(--teal-dark); font-weight: 600; }
 .ai-scroll { flex: 1; overflow-y: auto; scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
@@ -1700,26 +1695,29 @@ function renderAi() {
       </div>
       <div class="ai-settings" id="aiSettings" style="display:${aiSettingsOpen ? 'grid' : 'none'}">
         <div class="ai-settings-panel">
-          <div class="ai-cfg-title"><span class="k">⚙</span>模型配置<span class="ai-cfg-note">Key 仅本次会话内存 · 留空 = 本地模拟</span></div>
           <div class="row">
             <label class="ai-label">服务商</label>
             <div class="ctl-line">
-              <select id="aiProvider" class="ai-ctl" style="flex:0 1 190px">
-                ${Object.keys(AI_PRESETS).map((pid) => `<option value="${pid}"${pid === aiProviderSel ? ' selected' : ''}>${({ deepseek: 'DeepSeek', opencode: 'OpenCode', openrouter: 'OpenRouter', siliconflow: '硅基流动', moonshot: 'Moonshot（Kimi）', zhipu: '智谱 GLM', minimax: 'MiniMax', custom: '自定义（OpenAI 兼容）' }[pid] || pid)}</option>`).join('')}
+              <select id="aiProvider" class="ai-ctl" style="flex:0 1 170px">
+                ${Object.keys(AI_PRESETS).map((pid) => `<option value="${pid}"${pid === aiProviderSel ? ' selected' : ''}>${({ deepseek: 'DeepSeek', opencode: 'OpenCode', openrouter: 'OpenRouter', siliconflow: '硅基流动', moonshot: 'Moonshot（Kimi）', zhipu: '智谱 GLM', minimax: 'MiniMax', custom: '自定义' }[pid] || pid)}</option>`).join('')}
               </select>
-              <input type="text" class="ai-ctl" id="aiModelInput" style="flex:1 1 200px;min-width:130px" placeholder="模型名，如 deepseek-chat / deepseek-v4-flash" spellcheck="false" value="${esc(aiModelMem)}">
+              <input type="text" class="ai-ctl" id="aiModelInput" style="flex:1 1 180px;min-width:120px" placeholder="模型名，如 deepseek-chat / deepseek-v4-flash" spellcheck="false" value="${esc(aiModelMem)}">
               <button class="ai-ctl-btn" id="aiTestBtn" title="用当前配置发起一次最小请求验证">测试连接</button>
             </div>
           </div>
           <div class="row">
-            <label class="ai-label">API Key</label>
+            <label class="ai-label">Key</label>
             <div class="ctl-line">
-              <input type="password" class="ai-ctl" id="aiKeyInput" style="flex:1 1 300px" placeholder="API Key（留空 = 本地模拟；仅本次会话内存，不持久化）" autocomplete="off" spellcheck="false" value="${esc(aiKeyMem)}">
-              <input type="text" class="ai-ctl" id="aiBaseUrlInput" style="flex:1 1 300px" placeholder="Base URL（OpenAI 兼容，如 https://api.deepseek.com/v1）" spellcheck="false" value="${esc(aiBaseUrlMem)}">
+              <input type="password" class="ai-ctl" id="aiKeyInput" style="flex:1 1 280px" placeholder="API Key（留空 = 本地模拟，仅本次会话内存）" autocomplete="off" spellcheck="false" value="${esc(aiKeyMem)}">
             </div>
           </div>
-          <div class="ai-hint">预设端点已实测校正：<b>OpenCode</b> = OpenCode Go（需 Go credits 的 Key，模型名不带前缀）；<b>自定义</b> 需自行填写 https:// Base URL。切换服务商自动填充端点；不确定时先点「测试连接」。</div>
-          <div id="aiShellRow" style="display:none"></div>
+          <div class="row">
+            <label class="ai-label">端点</label>
+            <div class="ctl-line">
+              <input type="text" class="ai-ctl" id="aiBaseUrlInput" style="flex:1 1 280px" placeholder="Base URL（OpenAI 兼容，如 https://api.deepseek.com/v1）" spellcheck="false" value="${esc(aiBaseUrlMem)}">
+            </div>
+          </div>
+          <div class="ai-hint">留空 Key = 本地模拟 · Key 仅本次会话内存 · 预设端点已实测校正（OpenCode 需 Go credits Key）。</div>
         </div>
       </div>
       <div class="ai-scroll" id="aiScroll">
@@ -1843,8 +1841,8 @@ async function aiTestConnection() {
   const btn = $('aiTestBtn');
   if (btn) btn.disabled = true;
   if (window.chrome && window.chrome.webview) {
-    window.chrome.webview.postMessage('aiTest:' + JSON.stringify({ model }));
-    return; // 结果经 __aiTestResult 回传（外壳侧给出 Key/URL 的准确诊断）
+    window.chrome.webview.postMessage('aiTest:' + JSON.stringify({ model, apiKey, baseURL }));
+    return; // 结果经 __aiTestResult 回传（外壳用页面 Key/端点，未填时以外壳配置兜底）
   }
   if (!apiKey) { toast('未填写 API Key：无法测试（本地模拟不需要端点）'); if (btn) btn.disabled = false; return; }
   if (!/^https:\/\//i.test(baseURL)) { toast('Base URL 必须以 https:// 开头（TLS 铁律）'); if (btn) btn.disabled = false; return; }

@@ -107,23 +107,26 @@ try {
   const page = await newPage()
   await gotoAi(page)
   await page.evaluate(injectWith(mockCfg))
-  // 面板（EXE 模式）：外壳行注入 / Key 输入禁用 / 模型端点填充自外壳配置
+  // 面板（EXE 模式）：Key 直接填写（无「外壳提供」UI）；模型/端点留空时由外壳配置兜底填充
   await page.click('#aiSettingsBtn')
   await new Promise((r) => setTimeout(r, 300))
-  check('EXE 模式外壳行注入（Key 由 DSH 外壳提供）', await page.evaluate(() => {
-    const sr = document.getElementById('aiShellRow')
-    return !!sr && sr.style.display === 'flex' && sr.textContent.includes('外壳已提供') && !!sr.querySelector('button')
+  check('EXE 面板可直填 Key（无禁用/无外壳行）', await page.evaluate(() => {
+    const ki = document.getElementById('aiKeyInput')
+    return !!ki && !ki.disabled && !document.getElementById('aiOpenCfgBtn') && !document.getElementById('aiShellRow')
   }))
-  check('EXE 模式 Key 输入禁用（防误配）', await page.$eval('#aiKeyInput', (el) => el.disabled))
-  check('EXE 模式面板模型/端点填充自外壳配置', await page.evaluate(() => {
+  check('EXE 模式面板模型/端点留空时填充自外壳配置', await page.evaluate(() => {
     const mi = document.getElementById('aiModelInput')
     const bi = document.getElementById('aiBaseUrlInput')
     return !!mi && mi.value === 'deepseek-chat' && !!bi && bi.value === 'https://api.deepseek.com/v1'
   }))
+  await page.$eval('#aiKeyInput', (el) => {
+    el.value = 'sk-page-key'
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  })
   await page.click('#aiTestBtn')
   await new Promise((r) => setTimeout(r, 300))
   const testMsg = await page.evaluate(() => window.__capturedAi.find((m) => m.startsWith('aiTest:')) || '')
-  check('测试连接经外壳消息（aiTest:）', testMsg.startsWith('aiTest:'), testMsg.slice(0, 44))
+  check('测试连接经外壳消息（aiTest:，携带页面 Key）', testMsg.startsWith('aiTest:') && testMsg.includes('sk-page-key'), testMsg.slice(0, 44))
   await page.click('#aiSettingsBtn')
   await new Promise((r) => setTimeout(r, 200))
   await send(page, '帮我校对 Word 文档')
@@ -135,6 +138,7 @@ try {
   check('输入框已清空', await page.$eval('#reqInput', (el) => el.value) === '')
   const cap1 = JSON.parse((await page.evaluate(() => window.__capturedAi.filter((m) => m.startsWith('ai:'))[0] || '')).slice(3))
   check('请求含 text/model/persona', cap1.text === '帮我校对 Word 文档' && cap1.model === 'deepseek-chat' && cap1.persona === 'maid', JSON.stringify({ text: cap1.text, model: cap1.model }))
+  check('页面直填 Key 生效（仅本次会话，传壳不落盘）', cap1.apiKey === 'sk-page-key' && cap1.baseURL === 'https://api.deepseek.com/v1', cap1.apiKey)
   check('请求含组装模式 system', (cap1.system || '').includes('组装模式'), (cap1.system || '').slice(0, 24))
   check('首轮 history 为空', Array.isArray(cap1.history) && cap1.history.length === 0, JSON.stringify(cap1.history))
   check('首轮 pack 为空', cap1.pack === null)
@@ -207,7 +211,7 @@ try {
     const errs = document.querySelectorAll('#aiCol .ai-msg.err .ai-bubble')
     return errs.length ? errs[errs.length - 1].textContent : ''
   })
-  check('未配置 Key 明确提示（⚙ 模型）', dErr.includes('未配置 DSH API') && dErr.includes('⚙ 模型'), dErr)
+  check('未配置 Key 明确提示（⚙ 模型）', dErr.includes('未配置 API Key') && dErr.includes('⚙ 模型'), dErr)
   check('未配置 Key 不向 C# 发请求', (await page2.evaluate(() => window.__capturedAi.length)) === 0)
   check('未配置 Key 后发送恢复可用', await page2.$eval('#composeBtn', (el) => !el.disabled))
   await page2.close()
