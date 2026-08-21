@@ -35,3 +35,6 @@ uninstaller/**/build/
 
 # 启动器自动生成的索引（勿提交）
 assembly/*/resolvedAssembly.json
+
+# 内部审查/规划文档（本地工作产物，不入库）
+/AI*.md
