@@ -44,7 +44,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.10.7";
+        private const string APP_VERSION = "0.10.8";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_VERSION = "0.8.1-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
         // GitHub API 结果的会话级缓存：避免每次插件列表刷新都同步打 API、离线时反复等 15s 超时
@@ -497,7 +497,29 @@ namespace DSHHotplugHub
         private static string JsString(string s)
         {
             if (string.IsNullOrEmpty(s)) return "null";
-            return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+            // 完整 JS 字符串字面量转义：换行/回车/制表/U+2028-2029/控制字符都必须转义，
+            // 否则 LLM 原文（含换行）嵌入 ExecuteScriptAsync 会产生语法错误
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.Append('"');
+            foreach (char c in s)
+            {
+                switch (c)
+                {
+                    case '\\': sb.Append("\\\\"); break;
+                    case '"': sb.Append("\\\""); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    case '\u2028': sb.Append("\\u2028"); break;
+                    case '\u2029': sb.Append("\\u2029"); break;
+                    default:
+                        if (c < 0x20) sb.Append("\\u").Append(((int)c).ToString("x4"));
+                        else sb.Append(c);
+                        break;
+                }
+            }
+            sb.Append('"');
+            return sb.ToString();
         }
 
         private static string RunCli(string fileName, string arguments)
@@ -1562,6 +1584,8 @@ namespace DSHHotplugHub
             JavaScriptSerializer ser = new JavaScriptSerializer();
             string configJson = ser.Serialize(cfg);
 
+            // 与原型同构：EXE 渠道复用页面的 beginTurn/processAiRaw/failAssistTurn/aiErrorText，
+            // 保证按钮锁定、轮次徽标、欢迎卡移除、产物校验与话术与 standalone 完全一致。
             string js =
                 "window.__apiConfig=" + configJson + ";" +
                 "(function(){var cfg=window.__apiConfig||{};" +
@@ -1578,28 +1602,45 @@ namespace DSHHotplugHub
                 "if(note&&cfg.defaultModel){note.textContent='当前模型：'+cfg.defaultModel+'（DSH API）';}" +
                 "};" +
                 "var origRenderAi=renderAi;renderAi=function(){origRenderAi();ensure();};" +
-                "var origCompose=compose;compose=function(){var input=document.getElementById('reqInput');if(!input||!input.value.trim())return;" +
-                "var text=input.value.trim();input.value='';" +
-                // 与原型一致的增量渲染：user 气泡 + typing（EXE 场景体验不割裂）
-                "if(typeof showTyping==='function'){var p=document.getElementById('aiPersona');var pv=p?p.value:'maid';" +
-                "if(typeof aiMessages==='object')aiMessages.push({role:'user',text:text});" +
-                "appendMsgEl({role:'user',text:text},pv);showTyping();}" +
-                "var model=(cfg.defaultModel||'deepseek-chat');" +
-                "if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('ai:'+JSON.stringify({text:text,model:model}));return;}" +
-                "origCompose();};" +
                 "if(document.readyState!=='loading'){ensure();}" +
-                // 结果/错误回调整合进聊天流（user 气泡 + typing → 产物卡 / 错误气泡）
-                "window.__onAiResult=function(result){try{var data=JSON.parse(result);aiResult=data;" +
+                "var hasCfg=!!(cfg&&cfg.apiKey&&cfg.baseUrl&&cfg.defaultModel);" +
+                "var origCompose=compose;" +
+                "compose=function(){" +
+                "var input=document.getElementById('reqInput');if(!input)return;" +
+                "var text=(input.value||'').trim();if(!text)return;" +
+                "if(typeof aiRunning!=='undefined'&&aiRunning)return;" +
+                "var personaSel=document.getElementById('aiPersona');var persona=personaSel?personaSel.value:'maid';" +
+                "var model=(cfg&&cfg.defaultModel)||'deepseek-chat';" +
+                "var isFirst=(!aiSession||aiSession.messages.length===0||!aiSession.pack);" +
+                "if(typeof beginTurn!=='function'){origCompose();return;}" +   // 页面组件未就绪：回退原路径
+                "beginTurn(text,persona);" +
+                "input.value='';input.style.height='auto';" +
+                "if(!hasCfg){" +
+                "if(typeof failAssistTurn==='function'){failAssistTurn('未配置 DSH API（模型与 Key）。请点击右上角「⚙ 模型」完成配置后再试。',persona);}" +
+                "return;}" +
+                "var sys='';if(typeof buildAiSystem==='function'){sys=buildAiSystem(persona,isFirst?'assembly':'chat');}" +
+                "var hist=[];if(aiSession&&aiSession.messages){hist=aiSession.messages.slice(0,-1);}" +
+                "var pk=null;if(aiSession&&aiSession.pack){pk=aiSession.pack;}" +
+                "if(window.chrome&&window.chrome.webview){" +
+                "window.chrome.webview.postMessage('ai:'+JSON.stringify({text:text,model:model,persona:persona,system:sys,history:hist,pack:pk}));" +
+                "return;}" +
+                "origCompose();" +
+                "};" +
+                // 结果/错误回调整合进聊天流：与原型同一套校验 + 人设化话术 + 状态恢复
+                "window.__onAiResult=function(raw){" +
+                "try{" +
+                "var persona='maid';var ps=document.getElementById('aiPersona');if(ps)persona=ps.value;" +
+                "var isFirst=(!aiSession||aiSession.messages.length===0||!aiSession.pack);" +
+                "var inp='';if(aiMessages&&aiMessages.length){var last=aiMessages[aiMessages.length-1];if(last&&last.role==='user')inp=last.text||'';}" +
+                "if(typeof processAiRaw==='function'){processAiRaw(String(raw),persona,isFirst,inp);}" +
+                "else{var d=document.getElementById('aiTyping');if(d)d.remove();if(typeof toast==='function')toast('AI 结果解析失败：页面组件未就绪');}" +
+                "}catch(e){if(typeof toast==='function')toast('AI 结果解析失败');}" +
+                "};" +
+                "window.__onAiError=function(msg){" +
+                "var persona='maid';var ps=document.getElementById('aiPersona');if(ps)persona=ps.value;" +
+                "if(typeof failAssistTurn==='function'){failAssistTurn((typeof aiErrorText==='function'?aiErrorText(persona,String(msg),false):String(msg)),persona);return;}" +
                 "var d=document.getElementById('aiTyping');if(d)d.remove();" +
-                "var pack={hotpack:'1.0',id:(data.packId||('pack.ai.'+Date.now().toString(36))),name:(data.name||'AI 组装包'),version:(data.version||'0.1.0'),tags:(data.tags||[]),plugins:(data.bundles||[]).map(function(b){return {id:(String(b.role||b.name||'p')).slice(0,20).replace(/[^a-z0-9_-]/gi,'-')||('p'+Math.random().toString(36).slice(2,6)),name:b.name,version:b.version,source:{type:'npm'},config:{}}});};" +
-                "aiMessages.push({role:'assistant',text:'主人，插件已经为您织好啦：'+pack.name+'（'+(pack.plugins||[]).length+' 个插件），请过目～',persona:'maid',pack:pack,diff:null});" +
-                "if(typeof appendMsgEl==='function')appendMsgEl(aiMessages[aiMessages.length-1],'maid');" +
-                "if(typeof aiPersist==='function')aiPersist();" +
-                "if(typeof toast==='function')toast('AI 组装完成');}catch(e){if(typeof toast==='function')toast('AI 结果解析失败');}};" +
-                "window.__onAiError=function(msg){var d=document.getElementById('aiTyping');if(d)d.remove();" +
-                "aiMessages.push({role:'assistant',text:'主人，'+msg+'。请检查模型配置后重试。',persona:'maid',error:true});" +
-                "if(typeof appendMsgEl==='function')appendMsgEl(aiMessages[aiMessages.length-1],'maid');" +
-                "if(typeof aiPersist==='function')aiPersist();};" +
+                "};" +
                 "})();";
             return js;
         }
@@ -1613,23 +1654,41 @@ namespace DSHHotplugHub
                 Dictionary<string, object> req = ser.Deserialize<Dictionary<string, object>>(payload);
                 string text = req.ContainsKey("text") ? Convert.ToString(req["text"]) : "";
                 string model = req.ContainsKey("model") ? Convert.ToString(req["model"]) : "";
+                string persona = req.ContainsKey("persona") ? Convert.ToString(req["persona"]) : "maid";
+                string system = req.ContainsKey("system") ? Convert.ToString(req["system"]) : "";
                 ApiConfig cfg = LoadApiConfig();
                 if (string.IsNullOrEmpty(model)) model = cfg.defaultModel;
 
-                string result = await Task.Run(() => CallLlm(text, model, cfg));
+                // 多轮上下文：由页面传入的历史（user/assistant）+ 当前产物 hotpack 清单
+                List<Dictionary<string, string>> history = new List<Dictionary<string, string>>();
+                object histObj = req.ContainsKey("history") ? req["history"] : null;
+                object[] histArr = histObj as object[];
+                if (histArr != null)
+                {
+                    foreach (object h in histArr)
+                    {
+                        Dictionary<string, object> hm = h as Dictionary<string, object>;
+                        if (hm == null) continue;
+                        string role = Convert.ToString(hm.ContainsKey("role") ? hm["role"] : "");
+                        string content = Convert.ToString(hm.ContainsKey("content") ? hm["content"] : "");
+                        if ((role != "user" && role != "assistant") || string.IsNullOrEmpty(content)) continue;
+                        history.Add(new Dictionary<string, string> { { "role", role }, { "content", content } });
+                    }
+                }
+                string packJson = null;
+                if (req.ContainsKey("pack") && req["pack"] != null)
+                {
+                    try { packJson = ser.Serialize(req["pack"]); } catch { packJson = null; }
+                }
+
+                string result = await Task.Run(() => CallLlm(text, model, system, history, packJson, cfg));
                 if (result == null)
                 {
-                    await webView.CoreWebView2.ExecuteScriptAsync("window.__onAiError('API 调用失败，请检查 API 模型配置');");
+                    await ExecuteScriptSafe("window.__onAiError('API 调用失败，请检查 API 模型配置');");
                     return;
                 }
-                string jsonForPage = ExtractJsonObject(result);
-                if (jsonForPage == null)
-                {
-                    await webView.CoreWebView2.ExecuteScriptAsync("window.__onAiError('API 返回内容无法解析为 JSON');");
-                    return;
-                }
-                string script = "window.__onAiResult(" + jsonForPage + ");";
-                await webView.CoreWebView2.ExecuteScriptAsync(script);
+                // 原样回传 LLM 文本：页面侧执行与 standalone 完全一致的权威校验/产物转换/人设话术
+                await ExecuteScriptSafe("window.__onAiResult(" + JsString(result) + ");");
             }
             catch (Exception ex)
             {
@@ -1637,8 +1696,18 @@ namespace DSHHotplugHub
             }
             if (errorMsg != null)
             {
-                await webView.CoreWebView2.ExecuteScriptAsync("window.__onAiError(" + JsString(errorMsg) + ");");
+                await ExecuteScriptSafe("window.__onAiError(" + JsString(errorMsg) + ");");
             }
+        }
+
+        private async Task ExecuteScriptSafe(string script)
+        {
+            try
+            {
+                if (webView != null && webView.CoreWebView2 != null)
+                    await webView.CoreWebView2.ExecuteScriptAsync(script);
+            }
+            catch { /* 页面可能已关闭：尽力而为 */ }
         }
 
         // ---------- Skill / MCP 真实文件管理 ----------
@@ -3025,19 +3094,32 @@ namespace DSHHotplugHub
                 return false;
             }
         }
-        private string CallLlm(string userText, string model, ApiConfig cfg)
+        private string CallLlm(string userText, string model, string systemPrompt, List<Dictionary<string, string>> history, string packJson, ApiConfig cfg)
         {
             try
             {
                 string endpoint = (cfg.baseUrl.TrimEnd('/')) + "/chat/completions";
-                string systemPrompt =
-                    "你是 DSH 插件包组装器。请根据用户需求生成一个 DSH 热插拔包 manifest 和 README。" +
-                    "只输出 JSON，不要输出其他文字，格式如下：" +
-                    "{\"name\":\"包名\",\"tags\":[\"标签\"],\"manifest\":{...hotpack/dshpack 字段...},\"readme\":\"markdown 文本\"}";
+                const string defaultSystem =
+                    "你是 DSH 插件包组装器。请根据用户需求生成一个 hotpack 1.0 插件包清单：" +
+                    "{\"hotpack\":\"1.0\",\"id\":\"pack.ai.<英文短id>\",\"name\":\"<中文包名>\",\"version\":\"0.1.0\",\"description\":\"<一句话说明>\",\"tags\":[\"<标签>\"],\"plugins\":[{\"id\":\"<英文插件id>\",\"name\":\"<npm包名>\",\"version\":\"<精确版本号>\",\"source\":{\"type\":\"npm\"},\"config\":{}}]}。" +
+                    "只输出 JSON，不要输出其他文字。";
+                var msgs = new List<string>();
+                msgs.Add("{\"role\":\"system\",\"content\":" + JsString(string.IsNullOrEmpty(systemPrompt) ? defaultSystem : systemPrompt) + "}");
+                if (history != null)
+                {
+                    foreach (Dictionary<string, string> m in history)
+                    {
+                        if (m == null || !m.ContainsKey("role") || !m.ContainsKey("content")) continue;
+                        msgs.Add("{\"role\":" + JsString(m["role"]) + ",\"content\":" + JsString(m["content"]) + "}");
+                    }
+                }
+                string userContent = userText;
+                if (!string.IsNullOrEmpty(packJson))
+                    userContent = "当前已装配的 hotpack 1.0 清单：\n" + packJson + "\n\n用户新指令：" + userText;
+                msgs.Add("{\"role\":\"user\",\"content\":" + JsString(userContent) + "}");
                 string body = "{\"model\":" + JsString(model) +
-                    ",\"messages\":[{\"role\":\"system\",\"content\":" + JsString(systemPrompt) +
-                    "},{\"role\":\"user\",\"content\":" + JsString(userText) +
-                    "}],\"temperature\":" + cfg.temperature.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "}";
+                    ",\"messages\":[" + string.Join(",", msgs) +
+                    "],\"temperature\":" + cfg.temperature.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "}";
 
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(endpoint);
                 request.Method = "POST";
@@ -3069,14 +3151,6 @@ namespace DSHHotplugHub
             {
                 return null;
             }
-        }
-
-        private static string ExtractJsonObject(string text)
-        {
-            int start = text.IndexOf('{');
-            int end = text.LastIndexOf('}');
-            if (start < 0 || end <= start) return null;
-            return text.Substring(start, end - start + 1);
         }
 
         [DllImport("user32.dll")]

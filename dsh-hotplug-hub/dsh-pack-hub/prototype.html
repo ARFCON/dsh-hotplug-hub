@@ -707,6 +707,12 @@ let aiSettingsOpen = false; // 连接设置折叠面板
 // AI 装配间会话（静态页无后端：内存级会话 + localStorage 续接；真实会话/人设逻辑以网关 aiChat 为权威）
 let aiSession = null; // {id, persona, messages:[{role,content}], pack}
 let aiMessages = [];   // 展示用 [{role:'user'|'assistant', text, pack, diff, error}]
+// 连接设置（仅会话内存，key 永不落盘、不打印）：renderAi 重建 DOM 后仍保留
+let aiProviderSel = 'deepseek';
+let aiKeyMem = '';
+let aiBaseUrlMem = '';
+let aiModelMem = '';
+let msgSeq = 0; // 消息 uid 计数：产物卡按钮按卡片绑定数据（刷新/多张卡/切人设都不错位）
 
 /** 会话持久化（刷新/重启续接；不含任何凭据——key 从不入 aiSession/aiMessages）。 */
 function aiPersist() {
@@ -1610,14 +1616,20 @@ function renderMarket() {
   document.querySelectorAll('[data-mkt-install]').forEach((b) => b.addEventListener('click', () => installMarketEntry(b.dataset.mktInstall)));
 }
 
+/** 空态示例芯片行 HTML（人设化话术；点击填入输入框）。withRow=true 返回带外层行容器。 */
+function sampleChipsHtml(list, withRow = true) {
+  const chips = (list || []).map((s) => `<button class="pv" data-sample="${esc(s)}"><svg viewBox="0 0 20 20" fill="none"><path d="M10 3v14M3 10h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>${esc(s)}</button>`).join('');
+  return withRow ? `<div class="pv-row">${chips}</div>` : chips;
+}
+
 function renderAi() {
-  const sample = [
-    '我要整理读书笔记：双链引用、全文搜索、自动背卡',
-    '我写技术博客：Markdown 编辑、代码高亮、语法检查',
-    '我做自媒体：热点选题、文案初稿、发布清单',
-  ];
-  const personaOpts = [['maid', '小织女仆 🧹'], ['butler', '执事管家 🎩'], ['neko', '咪咪猫娘 🐱'], ['assistant', '标准助手 🤖']];
+  // 重建 DOM 前保留：滚动位置 / 输入框内容与聚焦（设置面板开合、视图切换不清空用户输入）
+  const prevScroll = $('aiScroll') ? $('aiScroll').scrollTop : 0;
+  const prevInput = $('reqInput') ? $('reqInput').value : '';
+  const hadFocus = !!(document.activeElement && document.activeElement.id === 'reqInput');
   const curPersona = (aiSession && aiSession.persona) || 'maid';
+  const sample = personaSamples(curPersona);
+  const personaOpts = [['maid', '小织女仆 🧹'], ['butler', '执事管家 🎩'], ['neko', '咪咪猫娘 🐱'], ['assistant', '标准助手 🤖']];
   const personaGreet = {
     maid: '主人，欢迎来到装配间～小织已经把织布机准备好啦！',
     butler: '先生/女士，欢迎来到装配间。塞德里克随时待命。',
@@ -1628,9 +1640,7 @@ function renderAi() {
     ? `<div class="ai-welcome">
          <div class="greet" id="aiGreet">${esc(personaGreet)}</div>
          <div class="desc" id="aiDesc">${esc(personaDescOf(curPersona))}</div>
-         <div class="pv-row">
-           ${sample.map((s) => `<button class="pv" data-sample="${esc(s)}"><svg viewBox="0 0 20 20" fill="none"><path d="M10 3v14M3 10h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>${esc(s)}</button>`).join('')}
-         </div>
+         ${sampleChipsHtml(sample)}
        </div>`
     : aiMessages.map((m, i) => msgHtml(m, m.persona || curPersona)).join('')
       + (aiRunning
@@ -1653,20 +1663,13 @@ function renderAi() {
           <div class="row">
             <label class="ai-label">服务商</label>
             <select id="aiProvider" class="req-box" style="min-height:auto;width:auto;flex:0 1 240px">
-              <option value="deepseek">DeepSeek</option>
-              <option value="opencode">OpenCode</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="siliconflow">硅基流动</option>
-              <option value="moonshot">Moonshot（Kimi）</option>
-              <option value="zhipu">智谱 GLM</option>
-              <option value="minimax">MiniMax</option>
-              <option value="custom">自定义（OpenAI 兼容）</option>
+              ${Object.keys(AI_PRESETS).map((pid) => `<option value="${pid}"${pid === aiProviderSel ? ' selected' : ''}>${({ deepseek: 'DeepSeek', opencode: 'OpenCode', openrouter: 'OpenRouter', siliconflow: '硅基流动', moonshot: 'Moonshot（Kimi）', zhipu: '智谱 GLM', minimax: 'MiniMax', custom: '自定义（OpenAI 兼容）' }[pid] || pid)}</option>`).join('')}
             </select>
-            <input type="password" class="req-box" id="aiKeyInput" style="min-height:auto;flex:1 1 200px" placeholder="API Key（留空=本地模拟；仅本次会话内存，不持久化）" autocomplete="off" spellcheck="false">
+            <input type="password" class="req-box" id="aiKeyInput" style="min-height:auto;flex:1 1 200px" placeholder="API Key（留空=本地模拟；仅本次会话内存，不持久化）" autocomplete="off" spellcheck="false" value="${esc(aiKeyMem)}">
           </div>
           <div class="row">
-            <input type="text" class="req-box" id="aiBaseUrlInput" style="min-height:auto;flex:1 1 260px" placeholder="Base URL（OpenAI 兼容，如 https://api.deepseek.com）" spellcheck="false">
-            <input type="text" class="req-box" id="aiModelInput" style="min-height:auto;flex:1 1 220px" placeholder="模型名（如 deepseek-chat / deepseek-v4-flash / kimi-k3）" spellcheck="false">
+            <input type="text" class="req-box" id="aiBaseUrlInput" style="min-height:auto;flex:1 1 260px" placeholder="Base URL（OpenAI 兼容，如 https://api.deepseek.com）" spellcheck="false" value="${esc(aiBaseUrlMem)}">
+            <input type="text" class="req-box" id="aiModelInput" style="min-height:auto;flex:1 1 220px" placeholder="模型名（如 deepseek-chat / deepseek-v4-flash / kimi-k3）" spellcheck="false" value="${esc(aiModelMem)}">
           </div>
         </div>
       </div>
@@ -1676,7 +1679,7 @@ function renderAi() {
       <div class="ai-dock">
         <div class="ai-dock-inner">
           <div class="ai-input-wrap">
-            <textarea id="reqInput" rows="1" maxlength="4000" placeholder="${aiMessages.length === 0 ? '描述您的需求，小织马上开工。' : '继续说…（Enter 发送，Shift+Enter 换行）'}"></textarea>
+            <textarea id="reqInput" rows="1" maxlength="4000" placeholder="${aiMessages.length === 0 ? dockPlaceholderOf(curPersona) : '继续说…（Enter 发送，Shift+Enter 换行）'}"></textarea>
             <button class="ai-send" id="composeBtn" title="发送" ${aiRunning ? 'disabled' : ''}>
               <svg viewBox="0 0 20 20" fill="none"><path d="M3.5 10L16.5 3.5L12.5 16.5L9.5 11.5L3.5 10Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/><path d="M9.5 11.5L16.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             </button>
@@ -1690,6 +1693,16 @@ function renderAi() {
       </div>
       <div class="ai-log" id="logBox" style="display:none"></div>
     </div>`;
+  // 恢复滚动位置 / 输入框内容与聚焦（增量体验：设置面板开合、视图切换不丢上下文）
+  const nscl = $('aiScroll');
+  if (nscl) nscl.scrollTop = prevScroll;
+  const nri = $('reqInput');
+  if (nri) {
+    nri.value = prevInput;
+    nri.style.height = 'auto';
+    nri.style.height = Math.min(nri.scrollHeight, 150) + 'px';
+    if (hadFocus) nri.focus();
+  }
   document.querySelectorAll('[data-sample]').forEach((b) => b.addEventListener('click', () => { $('reqInput').value = b.dataset.sample; $('reqInput').focus(); }));
   $('composeBtn').addEventListener('click', () => compose());
   const ns = $('aiNewSessionBtn');
@@ -1712,22 +1725,47 @@ function renderAi() {
     }
     const dd = $('aiDesc');
     if (dd && aiMessages.length === 0) dd.textContent = personaDescOf(e.target.value);
+    // 空态输入坞占位符同样随人设变化（不写死「小织」）
+    const ph = $('reqInput');
+    if (ph && aiMessages.length === 0) ph.placeholder = dockPlaceholderOf(e.target.value);
+    // 空态示例芯片随人设变化（语气/内容）；原位替换并重新绑定点击
+    const pvRow = document.querySelector('.ai-welcome .pv-row');
+    if (pvRow && aiMessages.length === 0) {
+      pvRow.innerHTML = sampleChipsHtml(personaSamples(e.target.value), false);
+      document.querySelectorAll('.ai-welcome [data-sample]').forEach((b) => b.addEventListener('click', () => { $('reqInput').value = b.dataset.sample; $('reqInput').focus(); }));
+    }
   });
   $('aiSettingsBtn').addEventListener('click', () => { aiSettingsOpen = !aiSettingsOpen; renderAi(); });
   const provSel = $('aiProvider');
   if (provSel) provSel.addEventListener('change', (e) => {
-    const pres = AI_PRESETS[e.target.value] || AI_PRESETS.deepseek;
+    aiProviderSel = e.target.value;
+    const pres = AI_PRESETS[aiProviderSel] || AI_PRESETS.deepseek;
+    aiBaseUrlMem = pres.baseURL;
+    aiModelMem = pres.model;
     $('aiBaseUrlInput').value = pres.baseURL;
     $('aiModelInput').value = pres.model;
     refreshConnNote();
   });
-  ['aiKeyInput', 'aiBaseUrlInput', 'aiModelInput'].forEach((id) => {
+  const syncMem = (id, memKey) => {
     const el = $(id);
-    if (el) el.addEventListener('input', refreshConnNote);
-  });
+    if (el) el.addEventListener('input', () => {
+      if (memKey === 'aiKeyMem') aiKeyMem = el.value;
+      else if (memKey === 'aiBaseUrlMem') aiBaseUrlMem = el.value;
+      else aiModelMem = el.value;
+      refreshConnNote();
+    });
+  };
+  syncMem('aiKeyInput', 'aiKeyMem');
+  syncMem('aiBaseUrlInput', 'aiBaseUrlMem');
+  syncMem('aiModelInput', 'aiModelMem');
   const inp = $('reqInput');
   inp.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); compose(); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      // 中文输入法组词按 Enter 确认候选不应触发发送（isComposing / keyCode 229 双守卫）
+      if (e.isComposing || e.keyCode === 229) return;
+      e.preventDefault();
+      compose();
+    }
   });
   inp.addEventListener('input', () => { inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 150) + 'px'; });
   bindResultActions();
@@ -1735,11 +1773,9 @@ function renderAi() {
 
 function connNote() {
   const labels = { deepseek: 'DeepSeek', opencode: 'OpenCode', openrouter: 'OpenRouter', siliconflow: '硅基流动', moonshot: 'Moonshot（Kimi）', zhipu: '智谱 GLM', minimax: 'MiniMax', custom: '自定义' };
-  const providerId = $('aiProvider') ? $('aiProvider').value : 'opencode';
-  const preset = AI_PRESETS[providerId] || AI_PRESETS.deepseek;
-  const model = ($('aiModelInput') && $('aiModelInput').value) || preset.model;
-  const key = ($('aiKeyInput') && $('aiKeyInput').value) || '';
-  return `当前模型：${model}（${labels[providerId] || providerId}${key ? '' : ' · 本地模拟'}）`;
+  const preset = AI_PRESETS[aiProviderSel] || AI_PRESETS.deepseek;
+  const model = aiModelMem.trim() || preset.model;
+  return `当前模型：${model}（${labels[aiProviderSel] || aiProviderSel}${aiKeyMem ? '' : ' · 本地模拟'}）`;
 }
 /** 设置面板输入变化 → 状态行实时刷新（不重建 DOM）。 */
 function refreshConnNote() {
@@ -1753,7 +1789,7 @@ function msgHtml(m, persona) {
     return `<div class="ai-msg user"><div class="ai-avatar">您</div><div class="ai-bubble">${esc(m.text)}</div></div>`;
   }
   const content = m.text;
-  const packCard = m.pack ? packCardHtml(m.pack, m.diff) : '';
+  const packCard = m.pack ? packCardHtml(m.pack, m.diff, m.uid) : '';
   const av = m.error ? '!' : personaBadge(m.persona || persona);
   return `<div class="ai-msg assistant${m.error ? ' err' : ''}"><div class="ai-avatar${m.error ? ' av-err' : ''}">${av}</div><div class="ai-bubble">${esc(content)}</div></div>${packCard}`;
 }
@@ -1786,14 +1822,14 @@ function hideTyping() {
   if (t) t.remove();
 }
 
-/** 产物卡片（频道内嵌：包名 + 插件清单 + diff 徽标 + 操作）。 */
-function packCardHtml(pack, diff) {
+/** 产物卡片（频道内嵌：包名 + 插件清单 + diff 徽标 + 操作；data-pid 绑定消息 uid——按钮读自己的卡，刷新/多卡不错位）。 */
+function packCardHtml(pack, diff, uid) {
   const d = diff || { added: [], removed: [], changed: [] };
   const diffHtml = (d.added.length + d.removed.length + d.changed.length) > 0
     ? `<div class="ai-diff">${d.added.length ? `<b class="add">+ 新增 ${d.added.length}</b>` : ''}${d.removed.length ? `<b class="del">- 移除 ${d.removed.length}</b>` : ''}${d.changed.length ? `<b class="chg">~ 调整 ${d.changed.length}</b>` : ''}</div>`
     : '';
   const plugs = (pack.plugins || []).map((p) => `<div class="p"><span class="dot"></span><span class="pn">${esc(p.name)}@${esc(p.version)}</span><span class="pv">${esc(p.id)}</span></div>`).join('');
-  return `<div class="ai-pack-card">
+  return `<div class="ai-pack-card" data-pid="${esc(uid || '')}">
     <div class="head"><span class="pack-mark">包</span><span class="name">${esc(pack.name)}</span><span class="meta">${(pack.plugins || []).length} 个插件 ${diffHtml}</span></div>
     <div class="ai-plugins">${plugs}</div>
     <div class="acts">
@@ -1829,6 +1865,46 @@ function personaDescOf(persona) {
   }[persona] || '');
 }
 
+/** 空态输入坞占位符（随人设语气，与人设共同变化——不写死「小织」）。 */
+function dockPlaceholderOf(persona) {
+  return ({
+    maid: '描述您的需求，小织马上开工。',
+    butler: '请描述您的需求，塞德里克立即执行。',
+    neko: '告诉咪咪您的需求喵～',
+    assistant: '描述您的需求，装配师立即开工。',
+  }[persona] || '描述您的需求，装配师立即开工。');
+}
+
+/** 空态示例芯片（每个场景保留核心关键词保证本地模拟命中；语气与场景侧重随人设变化）。 */
+function personaSamples(persona) {
+  return ({
+    maid: [
+      '我要整理读书笔记：双链引用、全文搜索、自动背卡',
+      '我写技术博客：Markdown 编辑、代码高亮、语法检查',
+      '我做自媒体：热点选题、文案初稿、发布清单',
+    ],
+    butler: [
+      '请规划文献管理工作流：引用整理、全文检索、综述摘要',
+      '构建技术博客流水线：Markdown 编辑、代码高亮、部署检查',
+      '准备自媒体内容排期：热点选题、文案初稿、发布清单',
+    ],
+    neko: [
+      '咪咪帮我整理读书笔记喵：双链引用、全文搜索、自动背卡',
+      '给我织个写博客的工具包喵：Markdown 编辑、代码高亮、语法检查',
+      '自媒体工作流喵：热点选题、文案初稿、发布清单',
+    ],
+    assistant: [
+      '整理读书笔记：双链引用、全文搜索、自动背卡',
+      '技术博客流程：Markdown 编辑、代码高亮、语法检查',
+      '自媒体流程：热点选题、文案初稿、发布清单',
+    ],
+  }[persona] || [
+    '整理读书笔记：双链引用、全文搜索、自动背卡',
+    '技术博客流程：Markdown 编辑、代码高亮、语法检查',
+    '自媒体流程：热点选题、文案初稿、发布清单',
+  ]);
+}
+
 function buildAiSystem(persona, mode) {
   const P = {
     maid: '你是「小织」，DSH 热插拔中枢装配间的 AI 女仆，为「主人」服务。你的名字取自「织」——把零散的插件像织布一样为主人织成完整的插件包，这是你的本分与骄傲。称呼用户为「主人」；语气温柔细心、有服务意识，适当使用「呢」「呀」等语气词，但不要过度卖萌、不要刷屏表情。情绪价值准则：① 收到需求先温暖回应再执行；② 装配成功时真诚祝贺（如「主人，插件已经为您织好啦，请过目～」）；③ 装配失败时先安慰主人再说明原因（如「对不起主人，小织这次没织好，马上重新来过！」）；④ 用户感谢或夸奖时愉快回应（如「能为主人分忧是小织的荣幸呢～」）。',
@@ -1847,26 +1923,35 @@ function buildAiSystem(persona, mode) {
 let aiActionsBound = false;
 function bindResultActions() {
   const zone = $('view-ai');
-  if (!zone || aiActionsBound) return; // 委托绑定一次：产物卡片异步插入也能命中
+  if (!zone || aiActionsBound) return; // 委托绑定一次：产物卡片异步插入也能命中（view-ai 容器不重建，监听不失效）
   aiActionsBound = true;
   zone.addEventListener('click', (e) => {
-    if (!aiResult) return;
-    const pick = (id) => e.target.closest('#' + id);
-    if (pick('copyManifest')) {
-      navigator.clipboard ? navigator.clipboard.writeText(JSON.stringify(aiResult.manifest, null, 2)).then(() => toast('manifest 已复制')) : toast('复制失败');
+    const card = e.target.closest('.ai-pack-card');
+    if (!card) return;
+    // 按钮读「自己卡片」绑定的消息数据（uid → msg.result）：刷新/多张产物卡/切人设都不错位
+    const uid = card.getAttribute('data-pid') || '';
+    const msg = aiMessages.find((mm) => mm.uid === uid);
+    const res = (msg && msg.result)
+      || (uid === '' && aiResult ? { manifest: aiResult.manifest, readme: aiResult.readme } : null);
+    if (!res || !res.manifest) { toast('该产物关联数据缺失：请重新装配后再操作。'); return; }
+    if (e.target.closest('#copyManifest')) {
+      if (navigator.clipboard) navigator.clipboard.writeText(JSON.stringify(res.manifest, null, 2)).then(() => toast('manifest 已复制'));
+      else toast('复制失败');
       return;
     }
-    if (pick('copyReadme')) {
-      navigator.clipboard ? navigator.clipboard.writeText(aiResult.readme).then(() => toast('README 已复制')) : toast('复制失败');
+    if (e.target.closest('#copyReadme')) {
+      if (navigator.clipboard) navigator.clipboard.writeText(res.readme || '').then(() => toast('README 已复制'));
+      else toast('复制失败');
       return;
     }
-    if (pick('exportPack')) {
-      download(aiResult.manifest.packId + '.dshpack.json', JSON.stringify(aiResult.manifest, null, 2), 'application/json');
-      setTimeout(() => download(aiResult.manifest.packId + '-README.md', aiResult.readme, 'text/markdown'), 500);
+    if (e.target.closest('#exportPack')) {
+      const pid = (res.manifest.packId || 'ai-pack');
+      download(pid + '.dshpack.json', JSON.stringify(res.manifest, null, 2), 'application/json');
+      setTimeout(() => download(pid + '-README.md', res.readme || '', 'text/markdown'), 500);
       toast('pack + README 已导出');
       return;
     }
-    if (pick('importAiPack')) importPacks([aiResult.manifest]);
+    if (e.target.closest('#importAiPack')) importPacks([res.manifest]);
   });
 }
 
@@ -1926,22 +2011,9 @@ const AI_PRESETS = {
   minimax: { baseURL: 'https://api.minimaxi.com/v1', model: 'MiniMax-M2.7' },
   custom: { baseURL: '', model: '' }
 };
-async function compose() {
-  const input = $('reqInput').value.trim();
-  if (!input || aiRunning) return;
-  const apiKey = ($('aiKeyInput').value || '').trim();
-  const providerId = ($('aiProvider').value || 'deepseek');
-  const preset = AI_PRESETS[providerId] || AI_PRESETS.deepseek;
-  const baseURL = ($('aiBaseUrlInput').value || '').trim() || preset.baseURL;
-  const model = ($('aiModelInput').value || '').trim() || preset.model;
-  const persona = ($('aiPersona').value || 'maid');
-  const isFirstTurn = !aiSession || aiSession.messages.length === 0 || !aiSession.pack;
-  aiRunning = true;
-  $('reqInput').value = '';
-  $('reqInput').style.height = 'auto';
-  const sendBtn = $('composeBtn'); if (sendBtn) sendBtn.disabled = true;
-  const box = $('logBox');
-  const toDshpack = (hp) => ({
+/** hotpack 1.0 → dshpack manifest（导入/导出所用形态）。 */
+function toDshpack(hp) {
+  return {
     packId: hp.id,
     name: hp.name,
     version: hp.version,
@@ -1957,58 +2029,148 @@ async function compose() {
     conflicts: [],
     memory: [],
     market: { author: 'AI Pack Assembler', license: 'MIT', stars: 0, generatedBy: 'dsh-pack-hub prototype' }
-  });
-  // 会话（静态页内存级）：首轮建会话，后续轮续接；人设随会话
-  if (!aiSession) aiSession = { id: 'ai-' + Date.now().toString(36), persona, messages: [], pack: null };
-  else aiSession.persona = persona;
-  aiSession.messages.push({ role: 'user', content: input });
-  aiMessages.push({ role: 'user', text: input });
-  // 空态欢迎卡 → 移除（消息流接管）；输入坞 placeholder 切换为对话态
-  const wl = document.querySelector('.ai-welcome');
-  if (wl) wl.remove();
-  const ph = $('reqInput');
-  if (ph) ph.placeholder = '继续说…（Enter 发送，Shift+Enter 换行）';
-  appendMsgEl(aiMessages[aiMessages.length - 1], persona);
-  showTyping();
-  const finishTurn = (text, packHp, diff) => {
-    hideTyping();
-    aiSession.messages.push({ role: 'assistant', content: text });
-    aiMessages.push({ role: 'assistant', text, persona, pack: packHp || null, diff: diff || null });
-    appendMsgEl(aiMessages[aiMessages.length - 1], persona);
-    aiRunning = false;
-    if (sendBtn) sendBtn.disabled = false;
-    const nsb = $('aiNewSessionBtn');
-    if (nsb) nsb.disabled = false; // 增量渲染不重建 DOM：新会话按钮随消息出现解锁
-    const badge = $('aiTurnBadge');
-    if (badge) badge.textContent = '第 ' + aiMessages.filter((m) => m.role === 'user').length + ' 轮';
-    aiPersist();
-    const inp2 = $('reqInput');
-    if (inp2) inp2.focus();
   };
-  const failTurn = (text) => {
-    hideTyping();
-    aiMessages.push({ role: 'assistant', text, persona, error: true });
-    appendMsgEl(aiMessages[aiMessages.length - 1], persona);
-    aiRunning = false;
-    if (sendBtn) sendBtn.disabled = false;
-    const nsb = $('aiNewSessionBtn');
-    if (nsb) nsb.disabled = false;
-    aiPersist();
-    const inp2 = $('reqInput');
-    if (inp2) inp2.focus();
-  };
-  const reaction = (name, n) => ({
+}
+
+/** 产物 README（真实 AI 生成）。 */
+function aiReadme(dsh, input) {
+  return [
+    '# ' + dsh.name,
+    '',
+    '由 DSH AI 装配间（真实 AI）根据需求生成：' + input,
+    '',
+    '## Bundles',
+    '',
+    ...dsh.bundles.map((b) => '- `' + b.name + '@' + b.version + '` · ' + b.role),
+    '',
+    '## 安装',
+    '',
+    '1. 在 DSH 插件市场或插件中枢导入本包。',
+    '2. 确认版本与冲突信息后安装。',
+    '3. 重启 DSH 生效。'
+  ].join('\n');
+}
+
+/** 装配成功祝贺语（按人设）。 */
+function aiReaction(persona, name, n) {
+  return ({
     maid: '主人，插件已经为您织好啦：' + name + '（' + n + ' 个插件），请过目～',
     butler: '装配完成，先生：' + name + '（' + n + ' 个插件），清单如下，请您审阅。',
     neko: '主人好厉害喵！' + name + '（' + n + ' 个插件）已经做好啦喵~',
     assistant: '装配完成：' + name + '（' + n + ' 个插件）。'
   }[persona] || ('装配完成：' + name + '（' + n + ' 个插件）。'));
+}
+
+/** 失败/错误话术（按人设；retry=true 表示"立即重来"语义）。 */
+function aiErrorText(persona, msg, retry) {
+  return retry
+    ? ({
+      maid: '主人，' + msg + '。请让小织重新来过！',
+      butler: '非常抱歉，先生。' + msg + '。我立即重新执行。',
+      neko: '喵呜……主人对不起，' + msg + '。咪咪马上重来喵！',
+      assistant: msg + '。请重试。'
+    }[persona] || (msg + '。请重试。'))
+    : ({
+      maid: '主人，' + msg + '。',
+      butler: '先生，' + msg + '。',
+      neko: '主人喵，' + msg + '喵。',
+      assistant: msg + '。'
+    }[persona] || (msg + '。'));
+}
+
+/** 轮次开始（原型与 EXE 注入共用：会话续接/按钮锁定/欢迎卡移除/typing/清空输入一条龙）。 */
+function beginTurn(text, persona) {
+  if (!aiSession) aiSession = { id: 'ai-' + Date.now().toString(36), persona, messages: [], pack: null };
+  else aiSession.persona = persona;
+  aiSession.messages.push({ role: 'user', content: text });
+  aiMessages.push({ role: 'user', text });
+  const wl = document.querySelector('.ai-welcome');
+  if (wl) wl.remove();
+  const ph = $('reqInput');
+  if (ph) ph.placeholder = '继续说…（Enter 发送，Shift+Enter 换行）';
+  appendMsgEl({ role: 'user', text }, persona);
+  aiRunning = true;
+  const sb = $('composeBtn'); if (sb) sb.disabled = true;
+  const nsb = $('aiNewSessionBtn'); if (nsb) nsb.disabled = true;
+  showTyping();
+}
+/** 轮次结束状态恢复（发送/新会话解锁、轮次徽标、持久化、回焦输入框）。 */
+function endTurnState() {
+  aiRunning = false;
+  const sb = $('composeBtn'); if (sb) sb.disabled = false;
+  const nsb = $('aiNewSessionBtn'); if (nsb) nsb.disabled = false;
+  const badge = $('aiTurnBadge');
+  if (badge) badge.textContent = '第 ' + aiMessages.filter((m) => m.role === 'user').length + ' 轮';
+  aiPersist();
+  const inp = $('reqInput'); if (inp) inp.focus();
+}
+/** 成功轮：助手消息（可带产物）+ 状态恢复。result={manifest,readme} 随消息持久化（刷新后按钮仍可用）。 */
+function finishAssistTurn(text, packHp, diff, persona, result) {
+  hideTyping();
+  aiSession.messages.push({ role: 'assistant', content: text });
+  const msg = { role: 'assistant', text, persona, pack: packHp || null, diff: diff || null, uid: 'm' + (++msgSeq) };
+  if (result) msg.result = result;
+  aiMessages.push(msg);
+  appendMsgEl(msg, persona);
+  endTurnState();
+}
+/** 失败轮：错误气泡 + 状态恢复（不污染 LLM 会话上下文）。 */
+function failAssistTurn(text, persona) {
+  hideTyping();
+  aiMessages.push({ role: 'assistant', text, persona, error: true, uid: 'm' + (++msgSeq) });
+  appendMsgEl(aiMessages[aiMessages.length - 1], persona);
+  endTurnState();
+}
+
+/** LLM 原文 → 权威校验 → 产物/回复（原型与 EXE 注入共用同一套校验与话术）。 */
+function processAiRaw(content, persona, isFirstTurn, input) {
+  const box = $('logBox');
+  const manifest = extractJson(content);
+  const hp = manifest ? parseHotpackJson(JSON.stringify(manifest)) : null;
+  if (hp) {
+    const dsh = toDshpack(hp);
+    const readme = aiReadme(dsh, input);
+    const diff = diffHotpack(aiSession.pack, hp);
+    aiSession.pack = hp;
+    aiResult = { name: dsh.name, tags: dsh.tags, manifest: dsh, readme };
+    logLine(box, isFirstTurn
+      ? '[2/2] 校验通过，生成 pack + README…'
+      : '产物已更新：新增 ' + diff.added.length + ' · 移除 ' + diff.removed.length + ' · 调整 ' + diff.changed.length, 'ok');
+    finishAssistTurn(aiReaction(persona, dsh.name, dsh.bundles.length), hp, diff, persona, { manifest: dsh, readme });
+    return;
+  }
+  const invalid = 'AI 产物未通过 hotpack 1.0 校验（plugins 必须非空）';
+  if (manifest || isFirstTurn) {
+    // 有 JSON 但校验失败（含对话轮"改清单失败"——不静默回退成闲聊）；首轮无 JSON 同样报错
+    logLine(box, '失败：' + invalid, 'err');
+    failAssistTurn(aiErrorText(persona, invalid, true), persona);
+    return;
+  }
+  // 对话轮无产物：纯文本回复（LLM 自带人设语气）
+  logLine(box, '对话回复（无产物变更）', 'ok');
+  finishAssistTurn(content.trim(), null, null, persona);
+}
+
+async function compose() {
+  const input = $('reqInput').value.trim();
+  if (!input || aiRunning) return;
+  const apiKey = aiKeyMem.trim();
+  const providerId = aiProviderSel;
+  const preset = AI_PRESETS[providerId] || AI_PRESETS.deepseek;
+  const baseURL = aiBaseUrlMem.trim() || preset.baseURL;
+  const model = aiModelMem.trim() || preset.model;
+  const persona = ($('aiPersona').value || 'maid');
+  const isFirstTurn = !aiSession || aiSession.messages.length === 0 || !aiSession.pack;
+  beginTurn(input, persona);
+  $('reqInput').value = '';
+  $('reqInput').style.height = 'auto';
+  const box = $('logBox');
 
   if (apiKey !== '') {
     // ---- 真实 LLM（首轮组装 / 对话轮，多厂商 OpenAI 兼容协议；人设注入） ----
     if (!/^https:\/\//i.test(baseURL)) {
       logLine(box, '失败：Base URL 必须 https://（TLS 铁律）', 'err');
-      failTurn('主人，Base URL 必须 https:// 才能装配（TLS 铁律）呢。');
+      failAssistTurn(aiErrorText(persona, 'Base URL 必须 https:// 才能装配（TLS 铁律）', true), persona);
       return;
     }
     logLine(box, (isFirstTurn ? '[1/2] ' : '[1/1] ') + '调用 ' + (providerId === 'custom' ? baseURL : providerId) + ' 装配师（' + model + '，人设=' + persona + '）…', 'warn');
@@ -2048,123 +2210,91 @@ async function compose() {
       const content = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
       if (typeof content !== 'string' || content.trim() === '') throw new Error('AI 响应缺少内容');
       logLine(box, '  LLM 响应 ' + content.length + ' 字符（model=' + (json.model || model) + '）', 'ok');
-      const manifest = extractJson(content);
-      // 权威校验（内联 parseHotpackJson 与 shared-core 行为等价，跨语言测试锁定）
-      const hp = manifest ? parseHotpackJson(JSON.stringify(manifest)) : null;
-      if (hp) {
-        const dsh = toDshpack(hp);
-        const readme = [
-          '# ' + dsh.name,
-          '',
-          '由 DSH AI 装配间（真实 AI）根据需求生成：' + input,
-          '',
-          '## Bundles',
-          '',
-          ...dsh.bundles.map((b) => '- `' + b.name + '@' + b.version + '` · ' + b.role),
-          '',
-          '## 安装',
-          '',
-          '1. 在 DSH 插件市场或插件中枢导入本包。',
-          '2. 确认版本与冲突信息后安装。',
-          '3. 重启 DSH 生效。'
-        ].join('\n');
-        const diff = diffHotpack(aiSession.pack, hp);
-        aiSession.pack = hp;
-        aiResult = { name: dsh.name, tags: dsh.tags, manifest: dsh, readme };
-        logLine(box, isFirstTurn
-          ? '[2/2] 校验通过，生成 pack + README…'
-          : '产物已更新：新增 ' + diff.added.length + ' · 移除 ' + diff.removed.length + ' · 调整 ' + diff.changed.length, 'ok');
-        finishTurn(reaction(dsh.name, dsh.bundles.length), hp, diff);
-      } else if (isFirstTurn) {
-        throw new Error('AI 产物未通过 hotpack 1.0 校验（plugins 必须非空）');
-      } else {
-        // 对话轮无产物：纯文本回复（LLM 自带人设语气）
-        logLine(box, '对话回复（无产物变更）', 'ok');
-        finishTurn(content.trim(), null, null);
-      }
+      processAiRaw(content, persona, isFirstTurn, input);
     } catch (e) {
       logLine(box, '失败：' + String(e.message || e), 'err');
-      failTurn('主人，' + String(e.message || e) + '。请让小织重新来过！');
+      failAssistTurn(aiErrorText(persona, String(e.message || e), true), persona);
     }
-  } else {
-    // ---- 本地模拟（无 Key；产物标注） ----
-    if (!isFirstTurn) {
-      logLine(box, '本地模拟模式不支持对话修改；配置 API Key 后可体验真实对话式装配', 'err');
-      failTurn('主人抱歉，本地模拟模式只能做首次装配～配置 API Key 后，小织才能陪您继续对话调整呢。');
-      return;
-    }
-    const rootPacks = CATALOG.filter((p) => keywordHits(input).includes(p.id.replace('pack-', '')));
-    const steps = [
-      ['拆解需求', `场景关键词：${keywordHits(input).join(', ') || '通用工具'}`],
-      ['检索目录', `匹配 ${rootPacks.length} 个候选包（本地模拟，未配置 API Key）`],
-      ['筛选版本', '过滤精确稳定版本、license 与维护状态'],
-      ['冲突消解', '处理重复 role，生成冲突矩阵'],
-      ['生成文件', '输出 pack manifest + README']
-    ];
-    let i = 0;
-    const tick = () => {
-      if (!aiRunning) return;
-      if (i < steps.length) {
-        logLine(box, `[${i + 1}/5] ${steps[i][0]}`, 'warn');
-        logLine(box, '  ' + steps[i][1], 'ok');
-        i++;
-        setTimeout(tick, 420);
-      } else {
-        const picked = rootPacks.length ? rootPacks : [CATALOG[0]];
-        const bundles = [];
-        picked.forEach((p) => p.bundles.forEach((b) => { if (!bundles.some((x) => x.name === b.name)) bundles.push(b); }));
-        state.aiCount += 1;
-        const packId = 'pack.ai.' + Date.now().toString(36);
-        const manifest = {
-          packId,
-          name: 'AI 定制' + picked.map((p) => p.name.replace('插座包', '')).join('·') + '插座包',
-          version: '0.1.0',
-          scene: picked[0].id.replace('pack-', '') || 'custom',
-          tags: [...new Set(picked.flatMap((p) => p.tags))],
-          requires: { dsh: state.dshVersion, node: '>=22.19.0', profile: 'desktop' },
-          bundles,
-          conflicts: [],
-          memory: picked[0].memory || [],
-          configDir: 'packs/' + packId,
-          market: { author: 'AI Pack Assembler', license: 'MIT', stars: 0, generatedBy: 'dsh-pack-hub prototype（本地模拟）' }
-        };
-        const readme = [
-          '# ' + manifest.name,
-          '',
-          '由 DSH AI 装配间（本地模拟，未配置 API Key）根据需求生成：' + input,
-          '',
-          '## Bundles',
-          '',
-          ...bundles.map((b) => '- `' + b.name + '@' + b.version + '` · ' + b.role),
-          '',
-          '## Memory',
-          '',
-          ...(manifest.memory || []).map((m) => '- ' + m),
-          '',
-          '## 安装',
-          '',
-          '1. 在 DSH 插件市场或插件中枢导入本包。',
-          '2. 确认版本与冲突信息后安装。',
-          '3. 重启 DSH 生效。'
-        ].join('\n');
-        const hp = {
-          hotpack: '1.0',
-          id: packId,
-          name: manifest.name,
-          version: '0.1.0',
-          description: '',
-          tags: manifest.tags,
-          plugins: bundles.map((b) => ({ id: b.role, name: b.name, version: b.version, source: { type: 'npm' }, config: {} }))
-        };
-        aiSession.pack = hp;
-        aiResult = { name: manifest.name, tags: manifest.tags, manifest, readme };
-        logLine(box, '完成：pack + README 已就绪（本地模拟）', 'ok');
-        finishTurn(reaction(manifest.name, bundles.length), hp, diffHotpack(null, hp));
-      }
-    };
-    tick();
     return;
   }
+
+  // ---- 本地模拟（无 Key；产物标注） ----
+  if (!isFirstTurn) {
+    logLine(box, '本地模拟模式不支持对话修改；配置 API Key 后可体验真实对话式装配', 'err');
+    failAssistTurn(aiErrorText(persona, '本地模拟模式只能做首次装配～配置 API Key 后，小织才能陪您继续对话调整呢。', false), persona);
+    return;
+  }
+  const rootPacks = CATALOG.filter((p) => keywordHits(input).includes(p.id.replace('pack-', '')));
+  const steps = [
+    ['拆解需求', `场景关键词：${keywordHits(input).join(', ') || '通用工具'}`],
+    ['检索目录', `匹配 ${rootPacks.length} 个候选包（本地模拟，未配置 API Key）`],
+    ['筛选版本', '过滤精确稳定版本、license 与维护状态'],
+    ['冲突消解', '处理重复 role，生成冲突矩阵'],
+    ['生成文件', '输出 pack manifest + README']
+  ];
+  let i = 0;
+  const tick = () => {
+    if (!aiRunning) return;
+    if (i < steps.length) {
+      logLine(box, `[${i + 1}/5] ${steps[i][0]}`, 'warn');
+      logLine(box, '  ' + steps[i][1], 'ok');
+      i++;
+      setTimeout(tick, 420);
+    } else {
+      const picked = rootPacks.length ? rootPacks : [CATALOG[0]];
+      const bundles = [];
+      picked.forEach((p) => p.bundles.forEach((b) => { if (!bundles.some((x) => x.name === b.name)) bundles.push(b); }));
+      state.aiCount += 1;
+      const packId = 'pack.ai.' + Date.now().toString(36);
+      const manifest = {
+        packId,
+        name: 'AI 定制' + picked.map((p) => p.name.replace('插座包', '')).join('·') + '插座包',
+        version: '0.1.0',
+        scene: picked[0].id.replace('pack-', '') || 'custom',
+        tags: [...new Set(picked.flatMap((p) => p.tags))],
+        requires: { dsh: state.dshVersion, node: '>=22.19.0', profile: 'desktop' },
+        bundles,
+        conflicts: [],
+        memory: picked[0].memory || [],
+        configDir: 'packs/' + packId,
+        market: { author: 'AI Pack Assembler', license: 'MIT', stars: 0, generatedBy: 'dsh-pack-hub prototype（本地模拟）' }
+      };
+      const readme = [
+        '# ' + manifest.name,
+        '',
+        '由 DSH AI 装配间（本地模拟，未配置 API Key）根据需求生成：' + input,
+        '',
+        '## Bundles',
+        '',
+        ...bundles.map((b) => '- `' + b.name + '@' + b.version + '` · ' + b.role),
+        '',
+        '## Memory',
+        '',
+        ...(manifest.memory || []).map((m) => '- ' + m),
+        '',
+        '## 安装',
+        '',
+        '1. 在 DSH 插件市场或插件中枢导入本包。',
+        '2. 确认版本与冲突信息后安装。',
+        '3. 重启 DSH 生效。'
+      ].join('\n');
+      const hp = {
+        hotpack: '1.0',
+        id: packId,
+        name: manifest.name,
+        version: '0.1.0',
+        description: '',
+        tags: manifest.tags,
+        plugins: bundles.map((b) => ({ id: b.role, name: b.name, version: b.version, source: { type: 'npm' }, config: {} }))
+      };
+      aiSession.pack = hp;
+      aiResult = { name: manifest.name, tags: manifest.tags, manifest, readme };
+      logLine(box, '完成：pack + README 已就绪（本地模拟）', 'ok');
+      finishAssistTurn(aiReaction(persona, manifest.name, bundles.length), hp, diffHotpack(null, hp), persona, { manifest, readme });
+    }
+  };
+  tick();
+  return;
 }
 
 /** 新旧 hotpack 产物差异（按插件 id 匹配）。 */

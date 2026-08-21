@@ -237,6 +237,27 @@ window.__ModuleLoader__.load({
 			neko: "告诉咪咪你的工作流，咪咪会挑出好用的插件，织成漂漂亮亮的包喵～不满意的主意，直接跟咪咪说喵！",
 			assistant: "描述您的工作流需求，系统将挑选真实可用的 npm 插件生成 hotpack 包；装配完成后仍可继续对话调整。",
 		};
+		// 人设 → 空态欢迎语标题（不写死「主人」；但ler/assistant 称呼不同）
+		const AI_PERSONA_GREET = {
+			maid: "主人，欢迎来到装配间～小织已经把织布机准备好啦！",
+			butler: "先生/女士，欢迎来到装配间。塞德里克随时待命。",
+			neko: "主人喵～咪咪来啦，今天想织什么插件包喵？",
+			assistant: "欢迎使用 AI 装配间。",
+		};
+		// 人设 → 空态输入坞占位符（不写死「小织」）
+		const AI_PERSONA_PLACEHOLDER = {
+			maid: "描述您的需求，小织马上开工。",
+			butler: "请描述您的需求，塞德里克立即执行。",
+			neko: "告诉咪咪您的需求喵～",
+			assistant: "描述您的需求，装配师立即开工。",
+		};
+		// 人设 → 空态示例芯片（保留核心关键词保证场景命中；语气与内容随人设变化）
+		const AI_PERSONA_SAMPLES = {
+			maid: ["我要整理读书笔记：双链引用、全文搜索、自动背卡", "我写技术博客：Markdown 编辑、代码高亮、语法检查", "我做自媒体：热点选题、文案初稿、发布清单"],
+			butler: ["请规划文献管理工作流：引用整理、全文检索、综述摘要", "构建技术博客流水线：Markdown 编辑、代码高亮、部署检查", "准备自媒体内容排期：热点选题、文案初稿、发布清单"],
+			neko: ["咪咪帮我整理读书笔记喵：双链引用、全文搜索、自动背卡", "给我织个写博客的工具包喵：Markdown 编辑、代码高亮、语法检查", "自媒体工作流喵：热点选题、文案初稿、发布清单"],
+			assistant: ["整理读书笔记：双链引用、全文搜索、自动背卡", "技术博客流程：Markdown 编辑、代码高亮、语法检查", "自媒体流程：热点选题、文案初稿、发布清单"],
+		};
 		const AI_PERSONA_OPTIONS = [
 			["maid", "小织女仆"], ["butler", "执事管家"], ["neko", "咪咪猫娘"], ["assistant", "标准助手"]
 		];
@@ -768,9 +789,9 @@ window.__ModuleLoader__.load({
 				h("div", { className: "hp_aiChat" },
 					aiMessages.length === 0
 						? h("div", { className: "hp_welcome" },
-							h("div", { className: "g" }, t("aiWelcomeTitle")),
+							h("div", { className: "g" }, AI_PERSONA_GREET[aiPersona] || t("aiWelcomeTitle")),
 							h("div", { className: "d" }, AI_PERSONA_DESC[aiPersona] || t("aiWelcomeDesc")),
-							h("div", { className: "hp_welcomeRow" }, t("aiSamples").map((sample) =>
+							h("div", { className: "hp_welcomeRow" }, (AI_PERSONA_SAMPLES[aiPersona] || t("aiSamples")).map((sample) =>
 								h("button", { key: sample, className: "hp_chip", onClick: () => setAiInput(sample) }, sample)
 							))
 						)
@@ -781,7 +802,7 @@ window.__ModuleLoader__.load({
 				),
 				h("div", { className: "hp_aiDock" },
 					h("div", { className: "hp_aiInputWrap" },
-						h("textarea", { placeholder: t("aiPlaceholder"), value: aiInput, onChange: (e) => setAiInput(e.target.value), onKeyDown: (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doAiSend(); } }, maxLength: 4000, rows: 1, spellCheck: false }),
+						h("textarea", { placeholder: AI_PERSONA_PLACEHOLDER[aiPersona] || t("aiPlaceholder"), value: aiInput, onChange: (e) => setAiInput(e.target.value), onKeyDown: (e) => { if (e.key === "Enter" && !e.shiftKey) { if (e.isComposing || e.keyCode === 229) return; e.preventDefault(); doAiSend(); } }, maxLength: 4000, rows: 1, spellCheck: false }),
 						h("button", { className: "hp_aiSend", title: t("aiSend"), disabled: aiRunning || !aiInput.trim(), onClick: doAiSend },
 							h("svg", { viewBox: "0 0 20 20", fill: "none" }, h("path", { d: "M3.5 10L16.5 3.5L12.5 16.5L9.5 11.5L3.5 10Z", stroke: "currentColor", strokeWidth: 1.6, strokeLinejoin: "round" }))
 						)

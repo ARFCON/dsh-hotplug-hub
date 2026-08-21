@@ -56,6 +56,15 @@ try {
   const page = await browser.newPage()
   // confirm 对话框自动接受（新会话）
   page.on('dialog', (d) => { void d.accept() })
+  // 剪贴板垫片：验证「复制 JSON/README」按钮真实回写内容（含刷新后 per-card 数据）
+  await page.evaluateOnNewDocument(() => {
+    try {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: (t) => { window.__copied = t; return Promise.resolve() } }
+      })
+    } catch (_) { /* 尽力而为 */ }
+  })
   await page.setViewport({ width: 1280, height: 860 })
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle2', timeout: 30000 })
 
@@ -77,15 +86,30 @@ try {
   const filled = await page.$eval('#reqInput', (el) => el.value)
   check('示例按钮预填输入框', filled.length > 0, filled.slice(0, 30))
 
-  // 3) 人设切换 → 问候语与描述都随之变化
+  // 3) 人设切换 → 问候语/描述/占位符/示例芯片全部随之变化（detail 要求）
   await page.select('#aiPersona', 'neko')
   const greetNeko = await page.$eval('.ai-welcome .greet', (el) => el.textContent)
   const descNeko = await page.$eval('.ai-welcome .desc', (el) => el.textContent)
   check('人设切换后问候语变化（neko）', greetNeko.includes('喵'), greetNeko)
   check('人设切换后描述变化（neko 喵语气）', descNeko.includes('咪咪') && descNeko.includes('喵'), descNeko.slice(0, 30))
+  const phNeko = await page.$eval('#reqInput', (el) => el.placeholder)
+  const chipsNeko = await page.$$eval('.ai-welcome .pv', (els) => els.map((e) => e.textContent))
+  check('人设切换后占位符变化（neko 喵语气）', phNeko.includes('咪咪'), phNeko)
+  check('人设切换后示例芯片变化（neko 喵语气）', chipsNeko.length === 3 && chipsNeko.every((c) => c.includes('喵') || c.includes('咪咪')), chipsNeko.join(' / '))
+  await page.click('.ai-welcome .pv')
+  const chipFill = await page.$eval('#reqInput', (el) => el.value)
+  check('人设切换后芯片点击仍可预填（原位替换后重新绑定）', chipFill.length > 0, chipFill.slice(0, 24))
+  await page.evaluate(() => { document.getElementById('reqInput').value = '' })
+  await page.select('#aiPersona', 'butler')
+  const phButler = await page.$eval('#reqInput', (el) => el.placeholder)
+  const chipsButler = await page.$$eval('.ai-welcome .pv', (els) => els.map((e) => e.textContent))
+  check('butler 占位符为塞德里克语气', phButler.includes('塞德里克'), phButler)
+  check('butler 芯片为正式语气（请规划/构建）', chipsButler.some((c) => c.includes('请规划') || c.includes('构建')), chipsButler.join(' / '))
+  const greetButler = await page.$eval('.ai-welcome .greet', (el) => el.textContent)
+  check('butler 问候语（先生/女士）', greetButler.includes('先生'), greetButler)
   await page.select('#aiPersona', 'maid')
 
-  // 4) 连接设置面板
+  // 4) 连接设置面板（含持久化：开合/视图切换后 Key、模型、服务商选择与输入框内容不丢）
   await page.click('#aiSettingsBtn')
   await new Promise((r) => setTimeout(r, 300))
   check('设置面板展开', await page.$('#aiSettings') !== null && await page.$eval('#aiSettings', (el) => getComputedStyle(el).display !== 'none'))
@@ -94,10 +118,46 @@ try {
   const msURL = await page.$eval('#aiBaseUrlInput', (el) => el.value)
   const msModel = await page.$eval('#aiModelInput', (el) => el.value)
   check('服务商切换自动填充（moonshot）', msURL.includes('moonshot') && msModel !== '', `${msURL} / ${msModel}`)
+  await page.$eval('#aiModelInput', (el) => { el.value = 'kimi-k3' })
+  await page.evaluate(() => {
+    const el = document.getElementById('aiModelInput')
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await page.$eval('#aiKeyInput', (el) => { el.value = 'sk-test-abc' })
+  await page.evaluate(() => {
+    const el = document.getElementById('aiKeyInput')
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const noteNow = await page.$eval('#aiConnNote', (el) => el.textContent)
+  check('Dock 状态行随设置实时刷新（模型+无本地模拟标注）', noteNow.includes('kimi-k3') && !noteNow.includes('本地模拟'), noteNow)
+  // 输入框内容在设置开合间保留
+  await page.$eval('#reqInput', (el) => { el.value = '我还在输入的内容' })
   await shot(page, '02-settings')
   await page.click('#aiSettingsBtn')
   await new Promise((r) => setTimeout(r, 200))
   check('设置面板收起', await page.$eval('#aiSettings', (el) => getComputedStyle(el).display === 'none'))
+  const keptInput = await page.$eval('#reqInput', (el) => el.value)
+  check('设置开合后输入框内容保留', keptInput === '我还在输入的内容', keptInput)
+  await page.click('#aiSettingsBtn')
+  await new Promise((r) => setTimeout(r, 250))
+  const keptModel = await page.$eval('#aiModelInput', (el) => el.value)
+  const keptKey = await page.$eval('#aiKeyInput', (el) => el.value)
+  check('设置开合后 Key 保留（仅会话内存）', keptKey === 'sk-test-abc', keptKey)
+  check('设置开合后模型保留', keptModel === 'kimi-k3', keptModel)
+  await page.select('#aiProvider', 'deepseek')
+  await page.select('#aiProvider', 'moonshot')
+  const backURL = await page.$eval('#aiBaseUrlInput', (el) => el.value)
+  check('服务商再切换恢复预设填充', backURL.includes('moonshot'), backURL)
+  await page.evaluate(() => {
+    const el = document.getElementById('aiKeyInput')
+    el.value = ''
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    const mdl = document.getElementById('aiModelInput')
+    mdl.value = 'kimi-k3'
+    mdl.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await page.click('#aiSettingsBtn')
+  await new Promise((r) => setTimeout(r, 200))
 
   // 5) 发送流程（本地模拟，无 Key）
   await page.evaluate(() => { try { document.getElementById('aiProvider').value = 'deepseek' } catch (_) {} })
@@ -134,12 +194,14 @@ try {
   // ============ 极端场景（用户要求：所有极端情况） ============
   console.log('-- 极端场景 --')
 
-  // 8) 空白输入不发送
+  // 8) 空白输入不发送（相对计数：消息数与 typing 都不变）
+  const blankBefore = await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg.user').length)
   await page.type('#reqInput', '   ')
   await page.keyboard.press('Enter')
   await new Promise((r) => setTimeout(r, 300))
-  check('空白输入不发送（无新消息）', await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg.user').length === 0) === false || await page.evaluate(() => document.querySelector('#aiCol') !== null))
-  check('空白输入文本仍在输入框', await page.$eval('#reqInput', (el) => el.value.trim().length) === 0 || true)
+  const blankAfter = await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg.user').length)
+  check('空白输入不发送（消息数不变）', blankAfter === blankBefore, `before=${blankBefore} after=${blankAfter}`)
+  check('空白输入不触发打字指示', await page.$('#aiTyping') === null)
   await page.evaluate(() => { document.getElementById('reqInput').value = '' })
 
   // 9) 超长输入截断（maxlength=4000，真实键入模拟）
@@ -147,6 +209,18 @@ try {
   await page.type('#reqInput', 'x'.repeat(4200))
   const tooLong = await page.$eval('#reqInput', (el) => el.value.length)
   check('超长输入被 maxlength=4000 截断', tooLong === 4000, `len=${tooLong}`)
+  await page.evaluate(() => { document.getElementById('reqInput').value = '' })
+
+  // 9b) 中文输入法组词按 Enter（isComposing）不得发送（相对计数）
+  const imeBefore = await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg.user').length)
+  await page.evaluate(() => {
+    const inp = document.getElementById('reqInput')
+    inp.value = '组词中的内容'
+    inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, isComposing: true }))
+  })
+  await new Promise((r) => setTimeout(r, 250))
+  const imeAfter = await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg.user').length)
+  check('IME 组词 Enter 不发送（isComposing 守卫）', imeAfter === imeBefore, `before=${imeBefore} after=${imeAfter}`)
   await page.evaluate(() => { document.getElementById('reqInput').value = '' })
 
   // 10) 人设切换 → 标题联动 + 新消息头像用新人设（历史消息头像保持发信时的）
@@ -181,6 +255,16 @@ try {
   const restoredMsgs = await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg').length)
   const restoredCard = await page.$('.ai-pack-card') !== null
   check('刷新后会话恢复（消息+产物卡片）', restoredMsgs >= 2 && restoredCard, `msgs=${restoredMsgs} card=${restoredCard}`)
+  // 11b) 刷新后产物卡按钮仍可用（per-card 数据随消息持久化）
+  const importedBefore = await page.evaluate(() => (typeof state !== 'undefined' ? state.imported.length : -1))
+  await page.click('.ai-pack-card #copyManifest')
+  await new Promise((r) => setTimeout(r, 300))
+  const copiedAfterRefresh = await page.evaluate(() => window.__copied || '')
+  check('刷新后复制 JSON 有真实内容（per-card）', copiedAfterRefresh.includes('packId') && copiedAfterRefresh.includes('bundles'), copiedAfterRefresh.slice(0, 60))
+  await page.click('.ai-pack-card #importAiPack')
+  await new Promise((r) => setTimeout(r, 300))
+  const importedAfter = await page.evaluate(() => (typeof state !== 'undefined' ? state.imported.length : -1))
+  check('刷新后一键导入真实入列（per-card）', importedAfter === importedBefore + 1, `${importedBefore} → ${importedAfter}`)
   await shot(page, '04-restored-session')
 
   // 12) 快速视图切换：AI → 市场 → AI，会话保留；切走恢复整页滚动与顶栏
