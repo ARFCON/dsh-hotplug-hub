@@ -6,8 +6,8 @@ DSH-Hotplug-Hub 是 **Dseam世界** 的桌面软件（Windows，WebView2 + C# Wi
 
 ## 当前版本
 
-- 最新正式版：**v0.9.6**
-- 下载页：https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.9.6
+- 最新正式版：**v0.9.7**
+- 下载页：https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.9.7
 - 安装程序：`DSH-Hotplug-Hub-Setup.exe`
 - 绿色版主程序：`DSH-Hotplug-Hub.exe`
 

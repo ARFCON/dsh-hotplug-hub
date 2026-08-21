@@ -44,7 +44,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.9.6";
+        private const string APP_VERSION = "0.9.7";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_VERSION = "0.8.0-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
         // GitHub API 结果的会话级缓存：避免每次插件列表刷新都同步打 API、离线时反复等 15s 超时
@@ -1628,7 +1628,7 @@ namespace DSHHotplugHub
                 Dictionary<string, string> info = GetMemoryHubReleaseInfo();
                 string url = info != null && info.ContainsKey("url")
                     ? info["url"]
-                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.6/dsh-memory-hub-0.8.0-pre.tgz";
+                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.7/dsh-memory-hub-0.8.0-pre.tgz";
                 string latest = info != null && info.ContainsKey("latest") ? info["latest"] : null;
                 string installed = GetInstalledMemoryHubVersion();
                 // 离线（latest 拿不到）且已安装时跳过：避免每次启动都白发一次注定失败的安装
