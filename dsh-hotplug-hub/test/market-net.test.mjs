@@ -1,8 +1,8 @@
 // test/market-net.test.mjs — 市场网络层（全局 fetch 桩）：竞速 / 探测 / 搜索 / 详情 / 缓存
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
-  httpGet, raceFetch, raceFiles, probeRepo, searchMarketRepos, fetchRepoDetailFiles,
-  applyRepoDetailFiles, fetchRepoDetail, marketListAsync, sanitizeMarketParams,
+  httpGet, raceFetch, raceFiles, searchMarketRepos, fetchRepoDetailFiles,
+  applyRepoDetailFiles, fetchRepoDetail, marketListAsync, marketDetailAsync, sanitizeMarketParams,
 } from '../lib/core/market.js'
 import { applyIsolatedEnv, isolatedDsh } from './helpers.mjs'
 
@@ -77,20 +77,7 @@ describe('raceFetch / raceFiles', () => {
   })
 })
 
-describe('probeRepo / searchMarketRepos', () => {
-  it('官方 200 → 存活', async () => {
-    stubFetch([{ match: (u) => u.includes('api.github.com/repos'), status: 200, text: '{}' }])
-    const r = await probeRepo('o/r', ['github'])
-    expect(r.ok).toBe(true)
-  })
-
-  it('官方 404 → 判死', async () => {
-    stubFetch([{ match: (u) => u.includes('api.github.com/repos'), status: 404, text: '' }])
-    const r = await probeRepo('o/r', ['github'])
-    expect(r.ok).toBe(false)
-    expect(r.status).toBe(404)
-  })
-
+describe('searchMarketRepos', () => {
   it('searchMarketRepos：解析 items（fork 过滤 + 字段映射）', async () => {
     const payload = JSON.stringify({
       total_count: 2,
@@ -123,7 +110,6 @@ describe('fetchRepoDetail / marketListAsync（全链路桩）', () => {
   it('仓库含 hotpack.json → hasPack + manifest', async () => {
     const hp = JSON.stringify({ hotpack: '1.0', id: 'pack.r', name: 'R', version: '1.0.0', plugins: [{ id: 'p', name: 'pkg-p', source: { type: 'npm' }, version: '1.0.0' }] })
     stubFetch([
-      { match: (u) => u.includes('repos/o/r'), status: 200, text: '{}' },
       { match: (u) => u.includes('hotpack.json'), status: 200, text: hp },
       { match: (u) => u.includes('README'), status: 200, text: '# R\n\n介绍。' },
       { match: (u) => u.includes('package.json'), status: 404, text: '' },
@@ -137,7 +123,6 @@ describe('fetchRepoDetail / marketListAsync（全链路桩）', () => {
 
   it('仓库只有 package.json → 兜底单插件 manifest', async () => {
     stubFetch([
-      { match: (u) => u.includes('repos/o/r'), status: 200, text: '{}' },
       { match: (u) => u.includes('hotpack.json') || u.includes('.dshpack'), status: 404, text: '' },
       { match: (u) => u.includes('package.json'), status: 200, text: '{"name":"pkg-r","version":"1.2.3"}' },
       { match: (u) => u.includes('README'), status: 404, text: '' },
@@ -148,27 +133,25 @@ describe('fetchRepoDetail / marketListAsync（全链路桩）', () => {
     expect(r.npmName).toBe('pkg-r')
   })
 
-  it('仓库 404 → importable:false（存活探测拦截）', async () => {
-    stubFetch([{ match: (u) => u.includes('repos/o/r'), status: 404, text: '' }])
+  it('仓库不可达（全部文件确定性 404）→ importable:false（无存活探测，快速结算）', async () => {
+    stubFetch([{ match: () => true, status: 404, text: '' }])
     const r = await fetchRepoDetail('o/r', 'main', { name: 'r' }, ['github'])
     expect(r.importable).toBe(false)
-    expect(r.importError).toContain('不存在')
+    expect(r.importError).toContain('未找到 package.json')
   })
 
-  it('marketListAsync：搜索→详情→写缓存→refresh 重抓', async () => {
+  it('marketListAsync：搜索→元数据条目（详情由 marketDetail 补齐）→写缓存→refresh 重抓', async () => {
     stubFetch([
       { match: (u) => u.includes('search/repositories'), status: 200, text: searchPayload },
-      { match: (u) => u.includes('repos/o/r'), status: 200, text: '{}' },
-      { match: (u) => u.includes('hotpack.json'), status: 404, text: '' },
-      { match: (u) => u.includes('.dshpack'), status: 404, text: '' },
-      { match: (u) => u.includes('package.json'), status: 200, text: '{"name":"pkg-r","version":"1.0.0"}' },
-      { match: (u) => u.includes('README'), status: 404, text: '' },
     ])
     const params = { topic: 'dsh-plugin', sources: ['github'], page: 1 }
     const r1 = await marketListAsync(params)
     expect(r1.ok).toBe(true)
     expect(r1.entries).toHaveLength(1)
     expect(r1.cached).toBe(false)
+    // 元数据条目：detailPending=true，不携带 manifest（v0.9.7 对齐）
+    expect(r1.entries[0].detailPending).toBe(true)
+    expect(r1.entries[0].manifest).toBeNull()
     // 命中缓存
     const r2 = await marketListAsync(params)
     expect(r2.ok).toBe(true)
@@ -177,6 +160,32 @@ describe('fetchRepoDetail / marketListAsync（全链路桩）', () => {
     const r3 = await marketListAsync({ ...params, refresh: true })
     expect(r3.ok).toBe(true)
     expect(r3.cached).toBe(false)
+  })
+
+  it('marketDetailAsync：抓详情→独立缓存→refresh 重抓（400 上限滚动）', async () => {
+    const hp = JSON.stringify({ hotpack: '1.0', id: 'pack.r', name: 'R', version: '1.0.0', plugins: [{ id: 'p', name: 'pkg-p', source: { type: 'npm' }, version: '1.0.0' }] })
+    stubFetch([
+      { match: (u) => u.includes('hotpack.json'), status: 200, text: hp },
+      { match: (u) => u.includes('README'), status: 404, text: '' },
+      { match: (u) => u.includes('package.json'), status: 404, text: '' },
+    ])
+    const d1 = await marketDetailAsync({ repo: 'o/r', ref: 'main', sources: ['github'] })
+    expect(d1.ok).toBe(true)
+    expect(d1.cached).toBe(false)
+    expect(d1.entry.hasPack).toBe(true)
+    expect(d1.entry.manifest.id).toBe('pack.r')
+    // 命中独立详情缓存
+    const d2 = await marketDetailAsync({ repo: 'o/r', ref: 'main', sources: ['github'] })
+    expect(d2.ok).toBe(true)
+    expect(d2.cached).toBe(true)
+    // refresh 重抓
+    const d3 = await marketDetailAsync({ repo: 'o/r', ref: 'main', sources: ['github'], refresh: true })
+    expect(d3.ok).toBe(true)
+    expect(d3.cached).toBe(false)
+    // 非法 repo 明确错误
+    const bad = await marketDetailAsync({ repo: 'not-a-repo' })
+    expect(bad.ok).toBe(false)
+    expect(bad.error).toContain('repo')
   })
 
   it('marketListAsync：非法参数明确错误', async () => {

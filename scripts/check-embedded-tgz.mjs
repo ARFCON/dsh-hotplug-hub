@@ -27,8 +27,18 @@ const pkg = JSON.parse(readFileSync(join(vendorDir, 'package.json'), 'utf8'))
 const filesField = Array.isArray(pkg.files) ? pkg.files : ['lib', 'vendor-shared', 'assets', 'README.md', 'README.en.md', 'LICENSE', 'cordis.patch.yml', 'package.json']
 if (!filesField.includes('package.json')) filesField.push('package.json')
 
-function sha256(file) {
-  return createHash('sha256').update(readFileSync(file)).digest('hex')
+// 文本文件归一化比对（Windows autocrlf 检出 → CRLF；tgz 恒为 LF）：双侧转 LF 后哈希，
+// 跨平台稳定；二进制（png 等）原样比对。
+const TEXT_EXT = new Set(['.js', '.mjs', '.cjs', '.md', '.json', '.yml', '.yaml', '.txt', '.ps1', '.cs'])
+function normalized(buf, name) {
+  const ext = name.slice(name.lastIndexOf('.'))
+  if (!TEXT_EXT.has(ext)) return buf
+  const text = buf.toString('utf8')
+  return text.includes('\r\n') ? Buffer.from(text.replace(/\r\n/g, '\n'), 'utf8') : buf
+}
+
+function sha256(file, name) {
+  return createHash('sha256').update(normalized(readFileSync(file), name)).digest('hex')
 }
 
 function walk(dir, base, out) {
@@ -68,8 +78,8 @@ try {
   for (const f of extra) { console.error(`FAIL: tgz 含多余 ${f}`); failed = true; }
   for (const f of expected) {
     if (!packedFiles.includes(f)) continue
-    const a = sha256(join(vendorDir, f))
-    const b = sha256(join(extractRoot, f))
+    const a = sha256(join(vendorDir, f), f)
+    const b = sha256(join(extractRoot, f), f)
     if (a !== b) { console.error(`FAIL: ${f} 与 vendor 源码不一致`); failed = true; }
   }
   if (!failed) console.log(`OK: ${tgz}（${expected.length} 文件）与 vendor 源码逐字节一致`)

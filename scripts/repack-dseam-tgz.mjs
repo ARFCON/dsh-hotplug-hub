@@ -10,7 +10,7 @@
  * 用法：node scripts/repack-dseam-tgz.mjs
  */
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -34,22 +34,43 @@ if (oldVersion !== newVersion) {
 }
 
 // 2) npm pack（产物为标准 tgz，dsh plugin add 可安装；优先经 npm_execpath 调 npm-cli.js，
-// 避免 Windows 下 spawn .cmd 的 EINVAL——本命令串无用户输入，安全）
+// 避免 Windows 下 spawn .cmd 的 EINVAL——本命令串无用户输入，安全）。
+// 行尾归一化：Windows autocrlf 检出会把工作区文本改为 CRLF，直接 pack 会把 CRLF 打进
+// tgz，导致 Linux CI 解包比对失败（字节不一致）。先在临时副本把所有文本文件归一化为
+// LF 再打包——tgz 恒为 LF，check-embedded-tgz.mjs 双侧归一化比对，跨平台稳定。
+const TEXT_EXT = new Set(['.js', '.mjs', '.cjs', '.md', '.json', '.yml', '.yaml', '.txt', '.ps1', '.cs'])
+function normalizeCrlf(buf, name) {
+  const ext = name.slice(name.lastIndexOf('.'))
+  if (!TEXT_EXT.has(ext)) return buf
+  const text = buf.toString('utf8')
+  return text.includes('\r\n') ? Buffer.from(text.replace(/\r\n/g, '\n'), 'utf8') : buf
+}
+function copyNormalized(src, dst) {
+  const entries = readdirSync(src, { withFileTypes: true })
+  for (const ent of entries) {
+    const s = join(src, ent.name)
+    const d = join(dst, ent.name)
+    if (ent.isDirectory()) { mkdirSync(d, { recursive: true }); copyNormalized(s, d) }
+    else writeFileSync(d, normalizeCrlf(readFileSync(s), ent.name))
+  }
+}
+const staging = mkdtempSync(join(tmpdir(), 'dseam-staging-'))
 const tmp = mkdtempSync(join(tmpdir(), 'dseam-pack-'))
 try {
+  copyNormalized(vendorDir, staging)
   let packOut
   if (process.env.npm_execpath && existsSync(process.env.npm_execpath)) {
     packOut = execFileSync(process.execPath, [process.env.npm_execpath, 'pack', '--pack-destination', tmp], {
-      cwd: vendorDir,
+      cwd: staging,
       encoding: 'utf8',
     })
   } else {
     const npmCli = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
     if (existsSync(npmCli)) {
-      packOut = execFileSync(process.execPath, [npmCli, 'pack', '--pack-destination', tmp], { cwd: vendorDir, encoding: 'utf8' })
+      packOut = execFileSync(process.execPath, [npmCli, 'pack', '--pack-destination', tmp], { cwd: staging, encoding: 'utf8' })
     } else {
       // 最后回退：cmd /c（固定命令串，无注入面）
-      packOut = execFileSync('cmd.exe', ['/d', '/s', '/c', `npm pack --pack-destination "${tmp}"`], { cwd: vendorDir, encoding: 'utf8' })
+      packOut = execFileSync('cmd.exe', ['/d', '/s', '/c', `npm pack --pack-destination "${tmp}"`], { cwd: staging, encoding: 'utf8' })
     }
   }
   const tgzName = String(packOut).trim().split('\n').filter(Boolean).pop()
@@ -68,6 +89,7 @@ try {
   console.log(`embedded tgz: ${target}`)
 } finally {
   rmSync(tmp, { recursive: true, force: true })
+  rmSync(staging, { recursive: true, force: true })
 }
 
 // 4) 同步引用（build-exe.ps1 内嵌资源路径）
