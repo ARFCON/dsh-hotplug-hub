@@ -30,6 +30,7 @@ import { homedir, tmpdir } from "node:os";
 import { unzipSync } from "fflate";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
+import { assertShellSafe } from "../vendor-shared/security/shell.js";
 import { DISABLED_SUFFIX, buildRoots, collectSkillEntries, pathExists, validateFrontmatter, winnerEntry } from "./skill-files.js";
 import { batchMigrateEntries, migrateEntry, normalizeWorkspace, workspaceSkillRoot, workspaceTitleMap } from "./scope.js";
 import { INSTALL_SPEC, compareVersions, currentVersion, fetchUpdateCheck } from "./version.js";
@@ -275,12 +276,18 @@ function scopeLabel(entry, titles) {
     }
     return "全局";
 }
-/** 执行更新命令（透传输出），返回退出码。 */
+/** 执行更新命令（透传输出），返回退出码。
+ * H-7（v5 阶段 1）：数组直连 + shell:false（曾 win32 条件 shell 可注入）；
+ * profile/version 进 argv 前过 assertShellSafe（vendor-shared 契约）。 */
 function runUpdate(profile, version) {
     return new Promise((resolve) => {
+        const p = assertShellSafe(profile, "profile");
+        if (!p.ok) { console.error(p.error.message); resolve(2); return; }
+        const v = assertShellSafe(version, "version");
+        if (!v.ok) { console.error(v.error.message); resolve(2); return; }
         const child = spawn("dsh", ["plugin", "--profile", profile, "add", INSTALL_SPEC + "#v" + version], {
             stdio: "inherit",
-            shell: process.platform === "win32"
+            shell: false
         });
         child.on("error", () => resolve(127));
         child.on("close", (code) => resolve(code ?? 1));

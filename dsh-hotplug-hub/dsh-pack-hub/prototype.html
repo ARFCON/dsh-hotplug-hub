@@ -520,6 +520,31 @@ function save() {
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// M-52（v5 阶段 4）：MCP command/args 白名单——拒绝 shell 元字符/控制字符/空白
+const MCP_CMD_SAFE_RE = /^[0-9A-Za-z._~:/@+=%?#-]+$/;
+function sanitizeMcpCommand(command, args) {
+  const cmd = String(command || '').trim();
+  if (cmd === '' || cmd.length > 256) return { ok: false, error: 'MCP 命令必须是非空字符串（≤256）' };
+  if (/[\u0000-\u001f\u007f&|;`$()<>"'\\\s]/.test(cmd)) return { ok: false, error: 'MCP 命令含 shell 元字符或空白' };
+  const argList = [];
+  if (args) {
+    for (const a of String(args).trim().split(/\s+/)) {
+      if (a === '') continue;
+      if (a.length > 256 || !MCP_CMD_SAFE_RE.test(a) || /[\u0000-\u001f\u007f&|;`$()<>"'\\]/.test(a)) {
+        return { ok: false, error: 'MCP 参数含非法字符（仅字母数字 . _ ~ : / @ + = % ? # -）' };
+      }
+      argList.push(a);
+    }
+  }
+  return { ok: true, command: cmd, args: argList };
+}
+// H-10（v5 阶段 4）：git ref 校验（允许合法 /，拒绝 .. / 纯点 / 控制字符 / 空段）
+function validateSourceRef(ref) {
+  if (typeof ref !== 'string' || ref.length === 0 || ref.length > 256) return false;
+  if (/[\u0000-\u001f\u007f]/.test(ref)) return false;
+  if (ref.includes('..') || /^[.]+$/.test(ref)) return false;
+  return /^[0-9A-Za-z._-]+(\/[0-9A-Za-z._-]+)*$/.test(ref);
+}
 const packOf = (id) => CATALOG.find((p) => p.id === id) || state.imported.find((p) => p.id === id);
 const isInstalled = (id) => state.installed.some((i) => i.packId === id);
 const installedRow = (id) => state.installed.find((i) => i.packId === id);
@@ -532,7 +557,9 @@ let aiResult = null;
 let checks = null;
 let dlgAction = null;
 
-/* ===== 插件市场 · 真实 GitHub 数据源（独立静态页，浏览器内 fetch，官方 API + 多镜像全并发测速） ===== */
+/* ===== 插件包市场 · 真实 GitHub 数据源（独立静态页，浏览器内 fetch，官方 API + 多镜像全并发测速） ===== */
+// 前 3 个为契约主集（shared-core GITHUB_MIRRORS）；后 3 个为原型实验源（R-v5-5，
+// 不进契约——UI 逐个展示域名，来源选择以实际连通性为准）
 const MARKET_MIRRORS = [
   'https://ghfast.top/',
   'https://gh-proxy.com/',
@@ -756,6 +783,8 @@ function extractInstall(readme) {
 
 // dshpack(.dshpack.json) → hotpack v1 结构
 /* ---- 3. manifest 生成层：生成可导入的 hotpack v1 ---- */
+// H-11b/c（v5 阶段 4）：id 由显式 bundle.id 派生（无则 role 清洗）；npm 缺精确 version
+// 拒绝（不再默认为 'latest'）；与 shared-core dshpackToHotpack 行为等价（M-51 锁定）
 function dshpackToHotpack(text) {
   let data;
   try { data = JSON.parse(text); } catch (e) { return null; }
@@ -763,18 +792,24 @@ function dshpackToHotpack(text) {
   const bundles = Array.isArray(data.bundles) ? data.bundles : [];
   if (!data.packId || !data.name || !bundles.length) return null;
   const plugins = bundles.map((b) => {
+    if (!b || typeof b !== 'object') return null;
+    const name = b.package || b.name || '';
+    if (!name) return null;
+    const sourceType = (b.source && b.source.type) || 'npm';
+    if (sourceType === 'npm' && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(String(b.version || ''))) return null;
     const p = {
-      id: String(b.role || 'main').toLowerCase().replace(/[^a-z0-9._-]/g, '-'),
-      name: b.package || b.name || '',
-      source: { type: (b.source && b.source.type) || 'npm' }
+      id: (typeof b.id === 'string' && b.id !== '') ? b.id : String(b.role || 'main').toLowerCase().replace(/[^a-z0-9._-]/g, '-'),
+      name,
+      source: { type: sourceType }
     };
-    if (p.source.type === 'npm') p.version = b.version || 'latest';
+    if (p.source.type === 'npm') p.version = b.version;
     else if (p.source.type === 'github') {
       if (b.source && b.source.repo) p.source.repo = b.source.repo;
       if (b.source && b.source.ref) p.source.ref = b.source.ref;
     } else if (b.source && b.source.path) p.source.path = b.source.path;
     return p;
   });
+  if (plugins.some((p) => p === null)) return null;
   return {
     hotpack: '1.0',
     id: data.packId,
@@ -801,7 +836,8 @@ function buildGithubPluginPack(repo, ref, npmName, version, meta) {
     plugins: [{
       id: 'main',
       name: npmName || (repo.split('/')[1] || repo),
-      source: { type: 'github', repo, ref: ref || 'main' }
+      // H-10：ref 过 validateSourceRef（非法回落 main）
+      source: { type: 'github', repo, ref: validateSourceRef(ref) ? ref : 'main' }
     }]
   };
 }
@@ -835,7 +871,8 @@ function patchMarketCard(entry) {
 // 拉取单个仓库的详情：包清单 + package.json + README，生成可导入 manifest
 async function fetchRepoDetail(repo, ref, meta, sources) {
   const entry = {
-    repo, ref: ref || 'main', name: meta.name, author: meta.author,
+    // H-10：ref 过 validateSourceRef（非法回落 main）
+    repo, ref: validateSourceRef(ref) ? ref : 'main', name: meta.name, author: meta.author,
     stars: meta.stars, forks: meta.forks, license: meta.license,
     description: meta.description, topics: meta.topics || [],
     version: '', npmName: '', hasPack: false, intro: '', install: '',
@@ -907,12 +944,14 @@ async function fetchRepoDetail(repo, ref, meta, sources) {
   return entry;
 }
 
-// 兼容宿主端 parseHotpack 的核心校验（prototype 内联精简版）
+// 兼容宿主端 parseHotpack 的核心校验（prototype 内联精简版；
+// M-51/R-v5-2：与 shared-core parseHotpack 的接受/拒绝行为等价，由跨语言断言测试锁定）
 function parseHotpackJson(text) {
   let data;
   try { data = JSON.parse(text); } catch (e) { return null; }
   if (!data || data.hotpack !== '1.0') return null;
-  if (!data.id || !data.name || !Array.isArray(data.plugins) || !data.plugins.length) return null;
+  // 版本必填（精确版本校验在安装侧；此处保证缺 version 直接拒绝，与权威解析器一致）
+  if (!data.id || !data.name || !data.version || !Array.isArray(data.plugins) || !data.plugins.length) return null;
   return data;
 }
 
@@ -933,7 +972,8 @@ async function searchMarketRepos(topic, q, page, sources) {
     fetchedVia: hostOf(r.url),
     items: items.map((it) => ({
       repo: it.full_name,
-      ref: it.default_branch || 'main',
+      // H-10（v5 阶段 4）：ref 过 validateSourceRef（允许合法 /，拒 .. / 纯点 / 控制字符）
+      ref: validateSourceRef(it.default_branch || 'main') ? (it.default_branch || 'main') : 'main',
       name: it.name,
       author: it.owner && it.owner.login,
       stars: it.stargazers_count || 0,
@@ -1690,7 +1730,7 @@ function renderSkills() {
           </div>
           <div class="pack-foot">
             <div class="spacer"></div>
-            <button class="btn sm danger" onclick="removeSkill('${esc(s.id)}')">${ICONS.trash} 删除</button><button class="switch" role="switch" aria-checked="${s.enabled}" data-skill="${esc(s.id)}"></button>
+            <button class="btn sm danger" data-remove-skill="${esc(s.id)}">${ICONS.trash} 删除</button><button class="switch" role="switch" aria-checked="${s.enabled}" data-skill="${esc(s.id)}"></button>
           </div>
         </div>`).join('') : '<div class="empty">还没有 Skill，请从下方固定文件夹选择安装</div>'}
     </div>
@@ -1823,7 +1863,11 @@ function renderPlugins() {
     });
   });
   document.querySelectorAll('#view-plugins [data-url]').forEach((btn) => {
-    btn.addEventListener('click', () => { window.open(btn.dataset.url, '_blank'); });
+    btn.addEventListener('click', () => {
+      // M-53（v5 阶段 4）：window.open 协议白名单——仅 http(s)
+      const url = String(btn.dataset.url || '');
+      if (/^https?:\/\//i.test(url)) window.open(url, '_blank');
+    });
   });
 }
 
@@ -1856,13 +1900,15 @@ function renderMcp() {
     const command = $('newMcpCmd').value.trim();
     const args = $('newMcpArgs').value.trim();
     if (!name) return;
-    const payload = { name, transport, command, args: args ? args.split(/\s+/) : [], url: command };
+    // M-52（v5 阶段 4）：command/args 白名单——拒绝 shell 元字符/控制字符/空白
+    const safeMcp = sanitizeMcpCommand(command, args);
+    if (!safeMcp.ok) { alert(safeMcp.error); return; }
+    const payload = { name, transport, command: safeMcp.command, args: safeMcp.args, url: safeMcp.command };
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('addMcp:' + JSON.stringify(payload)); return; }
     state.mcps = state.mcps || [];
-    state.mcps.push({ id: name, name, enabled: false, transport, command, args: payload.args, url: command });
+    state.mcps.push({ id: name, name, enabled: false, transport, command: safeMcp.command, args: safeMcp.args, url: safeMcp.command });
     save(); renderMcp();
   });
-
 
   document.querySelectorAll('[data-test-mcp]').forEach((b) => b.addEventListener('click', () => {
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('startMcp:' + b.dataset.testMcp); return; }
@@ -2002,6 +2048,13 @@ function bindGlobal() {
       }
       return;
     }
+    // H-12（v5 阶段 4）：删除按钮经 addEventListener 绑定（不再内联 onclick，杜绝 XSS 面）
+    const rm = e.target.closest('[data-remove-skill]');
+    if (rm) {
+      const id = rm.dataset.removeSkill;
+      removeSkill(id);
+      return;
+    }
     const mc = e.target.closest('[data-mcp]');
     if (mc) {
       const id = mc.dataset.mcp;
@@ -2044,6 +2097,7 @@ function installPack(id) {
       <div>插件：${(p.bundles || []).map((b) => `<code>${esc(b.name)}</code>`).join('、')}</div>
       ${conflicts.length ? `<div style="color:var(--red)">已检测到 ${conflicts.length} 项冲突，安装后需处理。</div>` : ''}
       <div>安装会修改当前 profile，完成后需要重启。</div>
+      <div class="sub" style="margin-top:6px">导入兼容性以实际安装校验为准（原型内联校验器与安装端契约保持一致，见 shared-core CONTRACT.md）。</div>
     </div>`,
     () => {
       state.installed.push({ packId: id, active: true, installedAt: today(), status: 'healthy' });

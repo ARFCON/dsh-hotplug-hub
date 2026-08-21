@@ -12,24 +12,28 @@
   },
   "bundles": [
     {
+      "id": "literature",
       "package": "@dsh-community/dsh-tool-literature",
       "version": "1.2.3",
       "role": "文献检索",
       "source": "npm"
     },
     {
+      "id": "cite",
       "package": "@dsh-community/dsh-cite",
       "version": "0.9.1",
       "role": "引用管理",
       "source": "npm"
     },
     {
+      "id": "paper-writer",
       "package": "@dsh-community/dsh-paper-writer",
       "version": "2.0.0",
       "role": "论文写作",
       "source": "npm"
     },
     {
+      "id": "review-board",
       "package": "@dsh-community/dsh-review-board",
       "version": "1.1.0",
       "role": "审稿建议",

@@ -1,6 +1,6 @@
 {
   "name": "dseam-skillmcp",
-  "version": "0.8.0-pre",
+  "version": "0.8.1-pre",
   "description": "dseam-skillmcp: Dseam 内置 Skill/MCP 管理器（由 dsh-skill-mcp-panel 开源项目适配改名，MIT License）。",
   "type": "module",
   "main": "lib/index.js",
@@ -29,6 +29,7 @@
   },
   "files": [
     "lib",
+    "vendor-shared",
     "assets",
     "README.md",
     "README.en.md",

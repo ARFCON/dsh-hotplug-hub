@@ -1,0 +1,316 @@
+'use strict';
+// fs/lock.js — 统一文件锁（H-4/M-12，CONTRACT.md 钉死协议）
+//
+// 协议（跨语言一致，C# / dseam / launcher / memory-hub 共用）：
+//   - 锁文件：openSync(lockPath, 'wx') 独占创建（= C# FileMode.CreateNew），
+//     权限 0o600；创建失败 EEXIST 表示他人持有。
+//   - token 格式：两行文本 `pid\nunix_ms\n`（pid 十进制、unix 毫秒时间戳）。
+//   - pid 探活：process.kill(pid, 0)——ESRCH=已死（可立即接管）；EPERM=存活但
+//     无权限（保守不接管）；其它异常=存活。
+//   - 过期接管：token 年龄 > staleMs（默认 30s）视为陈旧可接管；pid 已死则无视
+//     token 年龄立即接管（崩溃残留快速清理）。
+//   - 他用户锁：openSync EACCES/EPERM（锁文件属于他人）→ 保守等待至超时，绝不接管。
+//   - 持锁期刷新：持有者每 refreshMs（默认 10s）经已打开 fd 重写 token 时间戳，
+//     防止长任务被误判陈旧（事件循环需可运行）。
+//   - v1 目录锁迁移：lockPath 若为目录形态（v1）→ 读 <lockPath>/owner：
+//     pid 存活且未过期 → 等待；否则清理目录重建为文件锁。
+//
+// 决策矩阵（acquire 失败路径）：
+//   | 观测                                   | 动作                     |
+//   |----------------------------------------|--------------------------|
+//   | openSync 成功                          | 持有（写 token + 刷新）  |
+//   | EEXIST + token 新 + pid 活             | 等待轮询                 |
+//   | EEXIST + token 旧（>staleMs）          | 接管（unlink 重试）      |
+//   | EEXIST + pid 死                        | 立即接管                 |
+//   | EEXIST + EACCES/EPERM（他用户）        | 等待至超时，不接管       |
+//   | token 缺失/损坏                        | 按文件 mtime 判陈旧      |
+const { dirname } = require('path');
+const {
+  LOCK_WAIT_MS,
+  LOCK_STALE_MS,
+  LOCK_POLL_MS,
+  LOCK_REFRESH_MS
+} = require('../contracts/constants');
+const { makeError } = require('../contracts/errors');
+
+function sleepSync(ms) {
+  // 主线程同步睡眠（Atomics.wait 在 Node 主线程可用）
+  const sab = new SharedArrayBuffer(4);
+  const arr = new Int32Array(sab);
+  Atomics.wait(arr, 0, 0, ms);
+}
+
+function pathJoin(dir, name) {
+  const sep = dir.endsWith('/') || dir.endsWith('\\') ? '' : '/';
+  return dir + sep + name;
+}
+
+/**
+ * 解析 token 文本（`pid\nunix_ms`）。
+ * @param {string} text
+ * @returns {{pid: number, at: number}|null}
+ */
+function parseToken(text) {
+  if (typeof text !== 'string') return null;
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
+  if (lines.length < 2) return null;
+  const pid = Number.parseInt(lines[0], 10);
+  const at = Number.parseInt(lines[1], 10);
+  if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(at) || at <= 0) return null;
+  return { pid, at };
+}
+
+/** 序列化 token（协议钉死：pid\nunix_ms\n）。 */
+function formatToken(pid, at) {
+  return `${pid}\n${at}\n`;
+}
+
+/**
+ * 读取锁 token（文件不存在/损坏返回 null）。
+ * @param {object} fsPort
+ * @param {string} lockPath
+ * @returns {{pid: number, at: number}|null}
+ */
+function readToken(fsPort, lockPath) {
+  try {
+    return parseToken(fsPort.readFileSync(lockPath, 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * pid 探活：0=存活；1=已死（ESRCH）；2=存活但无权限（EPERM，保守）。
+ * @param {number} pid
+ * @returns {number}
+ */
+function probePid(pid) {
+  try {
+    process.kill(pid, 0);
+    return 0;
+  } catch (e) {
+    if (e.code === 'ESRCH') return 1;
+    if (e.code === 'EPERM') return 2;
+    return 0; // 其它异常按存活处理（保守）
+  }
+}
+
+/**
+ * 判断锁是否陈旧可接管。
+ * @param {{pid: number, at: number}|null} token
+ * @param {number} nowMs 当前时间
+ * @param {number} staleMs 过期阈值
+ * @returns {boolean}
+ */
+function isStale(token, nowMs, staleMs) {
+  if (!token) return true; // token 缺失/损坏：交由 mtime 回退判定（调用方处理）
+  const alive = probePid(token.pid);
+  if (alive === 1) return true; // pid 已死：立即接管（崩溃残留）
+  if (alive === 2) return false; // 他用户进程：保守不接管
+  return nowMs - token.at > staleMs; // pid 存活：按 token 年龄判定
+}
+
+/**
+ * 检查 lockPath 是否为 v1 目录锁形态。
+ * @param {object} fsPort
+ * @param {string} lockPath
+ * @returns {boolean}
+ */
+function isDirectoryLock(fsPort, lockPath) {
+  try {
+    const st = fsPort.statSync(lockPath);
+    return st.isDirectory();
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * v1 目录锁迁移：目录形态锁 → 读 owner 判定。
+ * @param {object} fsPort
+ * @param {string} lockPath
+ * @param {object} opts { now, staleMs }
+ * @returns {{held: boolean}} held=true 表示目录锁仍被持有（应等待）
+ */
+function checkV1DirectoryLock(fsPort, lockPath, opts) {
+  const now = opts.now || Date.now;
+  const staleMs = opts.staleMs === undefined ? LOCK_STALE_MS : opts.staleMs;
+  let ownerInfo = null;
+  try {
+    ownerInfo = JSON.parse(fsPort.readFileSync(pathJoin(lockPath, 'owner'), 'utf8'));
+  } catch (_) {
+    ownerInfo = null;
+  }
+  if (ownerInfo && typeof ownerInfo === 'object') {
+    const ownerStr = typeof ownerInfo.owner === 'string' ? ownerInfo.owner : '';
+    const m = /pid-(\d+)/.exec(ownerStr);
+    const pid = m ? Number.parseInt(m[1], 10) : NaN;
+    const at = typeof ownerInfo.at === 'number' ? ownerInfo.at : Date.parse(String(ownerInfo.at));
+    if (Number.isInteger(pid) && pid > 0 && !Number.isNaN(at)) {
+      const alive = probePid(pid);
+      const fresh = now() - at <= staleMs;
+      if (alive !== 1 && fresh) return { held: true }; // 持有者存活且未过期
+    }
+  }
+  // 无有效 owner 或已过期：清理目录（unlink owner → rmdir），返回未持有
+  try {
+    if (fsPort.existsSync(pathJoin(lockPath, 'owner'))) fsPort.unlinkSync(pathJoin(lockPath, 'owner'));
+    fsPort.rmdirSync(lockPath);
+  } catch (_) { /* 清理失败：交由后续 openSync 的 EEXIST 路径等待 */ }
+  return { held: false };
+}
+
+/**
+ * 获取文件锁。
+ * @param {object} fsPort fs 端口
+ * @param {string} lockPath 锁文件路径
+ * @param {object} [opts]
+ * @param {number} [opts.waitMs] 等待上限（默认 10s）
+ * @param {number} [opts.staleMs] 过期接管阈值（默认 30s）
+ * @param {number} [opts.pollMs] 轮询间隔（默认 100ms）
+ * @param {number} [opts.refreshMs] 持锁刷新间隔（默认 10s；0=不刷新）
+ * @param {Function} [opts.now] 时钟注入（默认 Date.now）
+ * @param {string} [opts.owner] 所有者标识（默认 pid-<pid>）
+ * @param {number} [opts.pid] 所有者 pid（默认 process.pid；测试可注入）
+ * @returns {{ok: boolean, fd?: number, owner?: string, token?: object, error?: Error}}
+ */
+function acquireLock(fsPort, lockPath, opts = {}) {
+  const waitMs = opts.waitMs === undefined ? LOCK_WAIT_MS : opts.waitMs;
+  const staleMs = opts.staleMs === undefined ? LOCK_STALE_MS : opts.staleMs;
+  const pollMs = opts.pollMs === undefined ? LOCK_POLL_MS : opts.pollMs;
+  const refreshMs = opts.refreshMs === undefined ? LOCK_REFRESH_MS : opts.refreshMs;
+  const now = opts.now || Date.now;
+  const pid = opts.pid === undefined ? process.pid : opts.pid;
+  const owner = opts.owner || `pid-${pid}`;
+  const deadline = now() + waitMs;
+
+  for (;;) {
+    // v1 目录锁迁移（检测到目录形态时）
+    if (isDirectoryLock(fsPort, lockPath)) {
+      const v1 = checkV1DirectoryLock(fsPort, lockPath, { now, staleMs });
+      if (v1.held) {
+        if (now() >= deadline) {
+          return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `等待锁超时（${waitMs}ms）：${lockPath}`) };
+        }
+        sleepSync(pollMs);
+        continue;
+      }
+      // 已清理，继续走文件锁创建
+    }
+    let fd = null;
+    try {
+      // 先确保父目录存在
+      fsPort.mkdirSync(dirname(lockPath), { recursive: true });
+      fd = fsPort.openSync(lockPath, 'wx', 0o600);      const token = { pid, at: now() };
+      try {
+        fsPort.writeFileSync(fd, formatToken(pid, token.at), 'utf8');
+        if (typeof fsPort.fsyncSync === 'function') fsPort.fsyncSync(fd);
+      } catch (writeErr) {
+        try { fsPort.closeSync(fd); } catch (_) { /* 忽略 */ }
+        try { if (fsPort.existsSync(lockPath)) fsPort.unlinkSync(lockPath); } catch (_) { /* 忽略 */ }
+        return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `写入锁 token 失败 ${lockPath}：${writeErr.message}`) };
+      }
+      // 持锁期刷新：经已打开 fd 重写 token（防止长任务被误判陈旧）
+      let refresh = null;
+      if (refreshMs > 0 && typeof setInterval === 'function') {
+        refresh = setInterval(() => {
+          try {
+            fsPort.ftruncateSync(fd, 0);
+            fsPort.writeSync(fd, formatToken(pid, Date.now()), 0, 'utf8');
+          } catch (_) { /* 刷新失败：下次仍会尝试；陈旧接管兜底 */ }
+        }, refreshMs);
+        if (typeof refresh.unref === 'function') refresh.unref();
+      }
+      const release = () => releaseLock(fsPort, lockPath, { owner, pid, fd, refresh });
+      return { ok: true, fd, owner, token, release };
+    } catch (e) {
+      if (fd !== null) {
+        try { fsPort.closeSync(fd); } catch (_) { /* 忽略 */ }
+      }
+      // mkdir 阶段 EEXIST（recursive 下路径已存在且非目录，如父路径被文件占位）：
+      // 永久性失败，立即返回而非轮询等待
+      if (e.syscall === 'mkdir' && e.code === 'EEXIST') {
+        return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `创建锁失败（父路径被文件占位）${lockPath}：${e.message}`) };
+      }
+      if (e.code !== 'EEXIST') {
+        // 他用户锁（EACCES/EPERM）保守不接管：等待至超时
+        if ((e.code === 'EACCES' || e.code === 'EPERM') && now() < deadline) {
+          sleepSync(pollMs);
+          continue;
+        }
+        return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `创建锁失败 ${lockPath}：${e.message}`) };
+      }
+      // 锁已存在：读取 token 判定陈旧
+      const token = readToken(fsPort, lockPath);
+      if (token) {
+        if (!isStale(token, now(), staleMs)) {
+          if (now() >= deadline) {
+            return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `等待锁超时（${waitMs}ms）：${lockPath}`) };
+          }
+          sleepSync(pollMs);
+          continue;
+        }
+      } else {
+        // token 缺失/损坏：回退文件 mtime 判定
+        try {
+          const st = fsPort.statSync(lockPath);
+          if (now() - st.mtimeMs <= staleMs) {
+            if (now() >= deadline) {
+              return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `等待锁超时（${waitMs}ms）：${lockPath}`) };
+            }
+            sleepSync(pollMs);
+            continue;
+          }
+        } catch (_) {
+          // stat 失败（锁刚被删或父路径异常）：受 deadline 约束的重试，绝不无限自旋
+          if (now() >= deadline) {
+            return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `等待锁超时（${waitMs}ms）：${lockPath}`) };
+          }
+          sleepSync(pollMs);
+          continue;
+        }
+      }
+      // 接管：unlink 后重试（重试前二次确认防竞态——unlink 失败按错误返回）
+      try {
+        fsPort.unlinkSync(lockPath);
+      } catch (unlinkErr) {
+        if (unlinkErr.code === 'ENOENT') continue; // 已被他人接管删除：重试
+        return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `接管过期锁失败 ${lockPath}：${unlinkErr.message}`) };
+      }
+    }
+  }
+}
+
+/**
+ * 释放文件锁。
+ * @param {object} fsPort
+ * @param {string} lockPath
+ * @param {object} [opts]
+ * @param {string} [opts.owner] 期望的所有者标识（默认 pid-<pid>）；不匹配时拒绝释放
+ * @param {number} [opts.pid] 期望的所有者 pid（默认 process.pid）
+ * @param {number} [opts.fd] acquireLock 返回的 fd（先关闭再 unlink，Windows 语义）
+ * @param {object} [opts.refresh] acquireLock 内部刷新定时器（一并清理）
+ * @returns {{ok: boolean, error?: Error}}
+ */
+function releaseLock(fsPort, lockPath, opts = {}) {
+  const pid = opts.pid === undefined ? process.pid : opts.pid;
+  const owner = opts.owner || `pid-${pid}`;
+  try {
+    if (opts.refresh) {
+      try { clearInterval(opts.refresh); } catch (_) { /* 忽略 */ }
+    }
+    const token = readToken(fsPort, lockPath);
+    if (token && token.pid !== pid) {
+      return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `释放锁失败：token pid 不匹配（${token.pid} vs ${pid}），拒绝释放他人锁`) };
+    }
+    if (opts.fd !== undefined) {
+      try { fsPort.closeSync(opts.fd); } catch (_) { /* 忽略 */ }
+    }
+    if (fsPort.existsSync(lockPath)) fsPort.unlinkSync(lockPath);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `释放锁失败 ${lockPath}：${e.message}`) };
+  }
+}
+
+module.exports = { acquireLock, releaseLock, readToken, parseToken, formatToken, isStale, probePid, isDirectoryLock };
