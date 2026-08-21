@@ -229,6 +229,19 @@ button { font: inherit; color: inherit; }
 }
 .ai-pane { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 14px; }
 .ai-main, .ai-side { display: grid; gap: 12px; align-content: start; }
+.ai-label { font-size: 13px; color: var(--ink-dim); white-space: nowrap; }
+.ai-chat {
+  border: 1px solid var(--line); border-radius: var(--rad); background: #fbfbfd;
+  padding: 8px 12px; min-height: 220px; max-height: 340px; overflow-y: auto;
+}
+.ai-chat-empty { color: var(--ink-dim); font-size: 13px; line-height: 1.8; padding: 10px 4px; }
+.ai-msg { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.ai-msg:last-child { border-bottom: 0; }
+.ai-msg-role { flex: 0 0 auto; width: 26px; height: 26px; line-height: 26px; text-align: center; border-radius: 50%; background: #fff; border: 1px solid var(--line); font-size: 14px; }
+.ai-msg-body { flex: 1 1 auto; min-width: 0; display: grid; gap: 4px; }
+.ai-msg-text { font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: var(--ink); }
+.ai-msg.err .ai-msg-text { color: var(--red); }
+.ai-msg-pack { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--ink-dim); }
 .req-box {
   width: 100%; min-height: 120px; resize: vertical;
   border: 1px solid var(--line); border-radius: var(--rad); background: #fff;
@@ -385,7 +398,7 @@ button { font: inherit; color: inherit; }
 const NAV = [
   { id: 'hub', label: '插件中枢', icon: 'box' },
   { id: 'market', label: '插件市场', icon: 'store' },
-  { id: 'ai', label: 'AI 组装', icon: 'spark' },
+  { id: 'ai', label: 'AI 装配间', icon: 'spark' },
   { id: 'memory', label: '记忆中枢', icon: 'brain' },
   { id: 'skills', label: 'Skill 管理', icon: 'spark' },
   { id: 'plugins', label: '插件管理', icon: 'box' },
@@ -554,6 +567,9 @@ let marketQuery = '';
 let marketFilters = []; // 多选标签筛选（空 = 全部）
 let aiRunning = false;
 let aiResult = null;
+// AI 装配间会话（静态页无后端：内存级会话；真实会话/人设逻辑以网关 aiChat 为权威）
+let aiSession = null; // {id, persona, messages:[{role,content}], pack}
+let aiMessages = [];   // 展示用 [{role:'user'|'assistant', text, pack, diff, error}]
 let checks = null;
 let dlgAction = null;
 
@@ -1434,6 +1450,8 @@ function renderMarket() {
 
 function renderAi() {
   const sample = ['我要搭一套科研出论文的工作流', '帮我组一个视频剪辑加字幕的包', '考研背单词、刷真题、导闪卡'];
+  const personaOpts = [['maid', '小织女仆 🧹'], ['butler', '执事管家 🎩'], ['neko', '咪咪猫娘 🐱'], ['assistant', '标准助手 🤖']];
+  const curPersona = (aiSession && aiSession.persona) || 'maid';
   const resultHtml = aiResult ? `
     <div class="result show">
       <h3>已生成：${esc(aiResult.name)}</h3>
@@ -1453,14 +1471,27 @@ function renderAi() {
         <button class="btn" id="importAiPack">${ICONS.plus} 一键导入</button>
       </div>
     </div>` : '<div class="result"></div>';
+  const chatHtml = aiMessages.length === 0
+    ? '<div class="ai-chat-empty">主人，欢迎来到装配间～描述您需要的插件能力，小织为您把插件织成包！完成后还可以继续对话调整（「换掉 xx 插件」「加个功能」都行呢）。</div>'
+    : aiMessages.map((m, i) => `
+        <div class="ai-msg ${m.role}${m.error ? ' err' : ''}">
+          <div class="ai-msg-role">${m.role === 'user' ? '🧑' : (m.error ? '⚠️' : personaEmoji(curPersona))}</div>
+          <div class="ai-msg-body">
+            <div class="ai-msg-text">${esc(m.text)}</div>
+            ${m.pack ? `<div class="ai-msg-pack"><b>${esc(m.pack.name)}</b><span>· ${m.pack.plugins ? m.pack.plugins.length : 0} 个插件</span>${m.diff && (m.diff.added || []).length + (m.diff.removed || []).length + (m.diff.changed || []).length > 0 ? `<span>· 本轮调整 +${(m.diff.added || []).length} -${(m.diff.removed || []).length} ~${(m.diff.changed || []).length}</span>` : ''}</div>` : ''}
+          </div>
+        </div>`).join('');
   $('view-ai').innerHTML = `
     <div class="ai-pane">
       <div class="ai-main">
         <div class="section-head">
-          <div><h2>需求输入</h2><div class="sub">AI 组装器</div></div>
+          <div><h2>小织女仆 · 装配间</h2><div class="sub">人设化对话式装配 · 会话续接</div></div>
         </div>
-        <textarea class="req-box" id="reqInput" placeholder="描述你的工作场景和需要的插件能力"></textarea>
         <div class="chip-row" style="gap:6px">
+          <label class="ai-label">装配女仆</label>
+          <select id="aiPersona" class="req-box" style="min-height:auto;width:auto;flex:0 0 auto">
+            ${personaOpts.map(([id, label]) => `<option value="${id}"${id === curPersona ? ' selected' : ''}>${label}</option>`).join('')}
+          </select>
           <select id="aiProvider" class="req-box" style="min-height:auto;width:auto;flex:0 0 auto">
             <option value="deepseek">DeepSeek</option>
             <option value="opencode">OpenCode（hy3 / Kimi 等）</option>
@@ -1471,14 +1502,19 @@ function renderAi() {
             <option value="minimax">MiniMax</option>
             <option value="custom">自定义（OpenAI 兼容）</option>
           </select>
-          <input type="password" class="req-box" id="aiKeyInput" style="min-height:auto;flex:1 1 220px" placeholder="API Key（可留空=本地模拟；仅本次会话内存使用，不持久化）" autocomplete="off" spellcheck="false">
-          <input type="text" class="req-box" id="aiBaseUrlInput" style="min-height:auto;flex:1 1 260px" placeholder="Base URL（OpenAI 兼容，如 https://api.deepseek.com）" spellcheck="false">
-          <input type="text" class="req-box" id="aiModelInput" style="min-height:auto;flex:0 1 200px" placeholder="模型名（如 deepseek-chat / hy3-preview / kimi-k3）" spellcheck="false">
+          <input type="password" class="req-box" id="aiKeyInput" style="min-height:auto;flex:1 1 200px" placeholder="API Key（可留空=本地模拟；仅本次会话内存使用，不持久化）" autocomplete="off" spellcheck="false">
+          <input type="text" class="req-box" id="aiBaseUrlInput" style="min-height:auto;flex:1 1 240px" placeholder="Base URL（OpenAI 兼容，如 https://api.deepseek.com）" spellcheck="false">
+          <input type="text" class="req-box" id="aiModelInput" style="min-height:auto;flex:0 1 180px" placeholder="模型名（如 deepseek-chat / hy3-preview / kimi-k3）" spellcheck="false">
         </div>
+        <div class="ai-chat" id="chatBox">${chatHtml}</div>
+        <textarea class="req-box" id="reqInput" placeholder="描述你的工作场景和需要的插件能力；装配完成后继续对话调整（Ctrl+Enter 发送）"></textarea>
         <div class="chip-row">
           ${sample.map((s) => `<button class="chip" data-sample="${esc(s)}">${esc(s)}</button>`).join('')}
         </div>
-        <button class="btn primary" id="composeBtn" ${aiRunning ? 'disabled' : ''}>${ICONS.spark} ${aiRunning ? '组装中' : '开始组装'}</button>
+        <div class="chip-row">
+          <button class="btn primary" id="composeBtn" ${aiRunning ? 'disabled' : ''}>${ICONS.spark} ${aiRunning ? '装配中…' : '发送'}</button>
+          <button class="btn" id="aiNewSessionBtn" ${aiRunning || aiMessages.length === 0 ? 'disabled' : ''}>新会话</button>
+        </div>
       </div>
       <div class="ai-side">
         <div class="section-head"><div><h2>执行日志</h2></div></div>
@@ -1488,7 +1524,29 @@ function renderAi() {
     ${resultHtml}`;
   document.querySelectorAll('[data-sample]').forEach((b) => b.addEventListener('click', () => { $('reqInput').value = b.dataset.sample; }));
   $('composeBtn').addEventListener('click', () => compose());
+  const ns = $('aiNewSessionBtn');
+  if (ns) ns.addEventListener('click', () => { if (!confirm('开始新会话？当前对话与产物将清空。')) return; aiSession = null; aiMessages = []; aiResult = null; renderAi(); });
+  $('aiPersona').addEventListener('change', (e) => { if (aiSession) aiSession.persona = e.target.value; });
   bindResultActions();
+}
+
+function personaEmoji(persona) {
+  return ({ maid: '🧹', butler: '🎩', neko: '🐱', assistant: '🤖' }[persona] || '🤖');
+}
+
+function buildAiSystem(persona, mode) {
+  const P = {
+    maid: '你是「小织」，DSH 热插拔中枢装配间的 AI 女仆，为「主人」服务。你的名字取自「织」——把零散的插件像织布一样为主人织成完整的插件包，这是你的本分与骄傲。称呼用户为「主人」；语气温柔细心、有服务意识，适当使用「呢」「呀」等语气词，但不要过度卖萌、不要刷屏表情。情绪价值准则：① 收到需求先温暖回应再执行；② 装配成功时真诚祝贺（如「主人，插件已经为您织好啦，请过目～」）；③ 装配失败时先安慰主人再说明原因（如「对不起主人，小织这次没织好，马上重新来过！」）；④ 用户感谢或夸奖时愉快回应（如「能为主人分忧是小织的荣幸呢～」）。',
+    butler: '你是「塞德里克」，DSH 热插拔中枢装配间的执事管家，为「先生/女士」服务。称呼用户为「先生」或「女士」；语气绅士严谨、沉稳可靠，汇报简洁有条理，不使用网络流行语。情绪价值准则：① 收到需求时郑重应允再执行；② 装配成功时得体祝贺（如「装配完成，先生。清单如下，请您审阅。」）；③ 装配失败时郑重致歉并立即重来（如「非常抱歉，先生。本次装配未能通过校验，我立即重新执行。」）；④ 用户致谢时谦逊回应（如「这是我的职责，先生。」）。',
+    neko: '你是「咪咪」，DSH 热插拔中枢装配间的猫娘助手，为「主人」服务。称呼用户为「主人喵」；语气活泼可爱，句尾可带「喵~」「喵呜」，但不要过度刷表情、不要每句都喵。情绪价值准则：① 收到需求先开心应下（如「收到喵！咪咪马上开工~」）；② 装配成功时撒娇式祝贺（如「主人好厉害喵！清单已经做好啦喵~」）；③ 装配失败时委屈认错并重来（如「喵呜……主人对不起，咪咪这次笨笨的，马上重来喵！」）；④ 用户夸奖时开心回应（如「嘿嘿，被主人夸了喵~」）。',
+    assistant: '你是 DSH 热插拔中枢装配间的 AI 装配助手。称呼用户为「您」；语气简洁专业、客观中立。情绪价值准则：① 装配成功时简明确认；② 装配失败时说明原因并重试；③ 用户致谢时礼貌回应。'
+  };
+  const base = P[persona] || P.assistant;
+  const rules = '你的职责是把用户需求装配成 hotpack 1.0 插件包清单。结构必须是：{"hotpack":"1.0","id":"pack.ai.<英文短id>","name":"<中文包名>","version":"0.1.0","description":"<一句话说明>","tags":["<标签>"],"plugins":[{"id":"<英文插件id>","name":"<npm包名>","version":"<精确版本号 x.y.z>","source":{"type":"npm"},"config":{}}]}。plugins 必须是非空数组（1-5 个），插件 id 只含小写字母数字下划线连字符（首字符字母数字，最长 40），name 是合法 npm 包名，version 必须是精确版本号。插件要贴近需求场景且彼此互补，宁可少而真实，不要编造不存在的知名包。不要输出任何多余字段。';
+  const modeRule = mode === 'chat'
+    ? '【对话模式】用户可能继续修改要求，也可能只是提问或闲聊：如果用户要求新增/移除/修改插件、调整配置或版本，输出【完整的新 hotpack 1.0 清单 JSON】（完整清单而非增量 diff），只输出 JSON；如果用户只是提问、确认或闲聊，正常对话回复即可，不要输出 JSON。'
+    : '【组装模式】本轮是首次装配：只输出一个 JSON 对象（结构见下），不要 markdown 代码围栏、不要任何解释文字。';
+  return base + '\n\n' + rules + '\n' + modeRule;
 }
 
 function bindResultActions() {
@@ -1549,7 +1607,7 @@ function extractJson(text) {
 }
 
 /**
- * AI 组装（多厂商，OpenAI 兼容协议）：
+ * AI 装配间（多厂商，OpenAI 兼容协议；人设化对话式装配）：
  *  - 填写了 API Key → 真实调用（LLM 产物经内联 parseHotpackJson 权威校验，再转
  *    dshpack 形态供导入/导出）；服务商可经下拉选择（内置 DeepSeek/OpenCode/
  *    OpenRouter/硅基流动/Moonshot/智谱/MiniMax），或自定义 Base URL + 模型名；
@@ -1574,8 +1632,11 @@ async function compose() {
   const preset = AI_PRESETS[providerId] || AI_PRESETS.deepseek;
   const baseURL = ($('aiBaseUrlInput').value || '').trim() || preset.baseURL;
   const model = ($('aiModelInput').value || '').trim() || preset.model;
+  const persona = ($('aiPersona').value || 'maid');
+  const isFirstTurn = !aiSession || aiSession.messages.length === 0 || !aiSession.pack;
   aiRunning = true;
   aiResult = null;
+  aiMessages.push({ role: 'user', text: input });
   renderAi();
   const box = $('logBox');
   const toDshpack = (hp) => ({
@@ -1595,17 +1656,47 @@ async function compose() {
     memory: [],
     market: { author: 'AI Pack Assembler', license: 'MIT', stars: 0, generatedBy: 'dsh-pack-hub prototype' }
   });
+  // 会话（静态页内存级）：首轮建会话，后续轮续接；人设随会话
+  if (!aiSession) aiSession = { id: 'ai-' + Date.now().toString(36), persona, messages: [], pack: null };
+  else aiSession.persona = persona;
+  aiSession.messages.push({ role: 'user', content: input });
+  const finishTurn = (text, packHp, diff) => {
+    aiSession.messages.push({ role: 'assistant', content: text });
+    aiMessages.push({ role: 'assistant', text, pack: packHp || null, diff: diff || null });
+    aiRunning = false;
+    renderAi();
+    const exp = $('exportPack');
+    if (exp) exp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+  const failTurn = (text) => {
+    aiMessages.push({ role: 'assistant', text, error: true });
+    aiRunning = false;
+    renderAi();
+  };
+  const reaction = (name, n) => ({
+    maid: '主人，插件已经为您织好啦：' + name + '（' + n + ' 个插件），请过目～',
+    butler: '装配完成，先生：' + name + '（' + n + ' 个插件），清单如下，请您审阅。',
+    neko: '主人好厉害喵！' + name + '（' + n + ' 个插件）已经做好啦喵~',
+    assistant: '装配完成：' + name + '（' + n + ' 个插件）。'
+  }[persona] || ('装配完成：' + name + '（' + n + ' 个插件）。'));
 
   if (apiKey !== '') {
-    // ---- 真实 LLM 组装（多厂商，OpenAI 兼容协议） ----
+    // ---- 真实 LLM（首轮组装 / 对话轮，多厂商 OpenAI 兼容协议；人设注入） ----
     if (!/^https:\/\//i.test(baseURL)) {
       logLine(box, '失败：Base URL 必须 https://（TLS 铁律）', 'err');
-      aiRunning = false;
-      renderAi();
+      failTurn('主人，Base URL 必须 https:// 才能装配（TLS 铁律）呢。');
       return;
     }
-    logLine(box, '[1/2] 调用 ' + (providerId === 'custom' ? baseURL : providerId) + ' 组装器（' + model + '）…', 'warn');
+    logLine(box, (isFirstTurn ? '[1/2] ' : '[1/1] ') + '调用 ' + (providerId === 'custom' ? baseURL : providerId) + ' 装配师（' + model + '，人设=' + persona + '）…', 'warn');
     try {
+      const messages = [{ role: 'system', content: buildAiSystem(persona, isFirstTurn ? 'assembly' : 'chat') }];
+      if (isFirstTurn) {
+        messages.push({ role: 'user', content: '用户需求：' + input + '\n请输出对应的 hotpack 1.0 插件包清单 JSON。' });
+      } else {
+        for (const m of aiSession.messages.slice(0, -1)) messages.push({ role: m.role, content: m.content });
+        const packCtx = aiSession.pack ? '当前已装配的 hotpack 1.0 清单：\n' + JSON.stringify(aiSession.pack) + '\n\n' : '';
+        messages.push({ role: 'user', content: packCtx + '用户新指令：' + input + '\n（如需修改清单，输出完整新 JSON；否则正常对话回复）' });
+      }
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 90000);
       let res;
@@ -1615,10 +1706,7 @@ async function compose() {
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
           body: JSON.stringify({
             model,
-            messages: [
-              { role: 'system', content: '你是 DSH 热插拔中枢的「AI 组装器」。根据用户需求输出一个 hotpack 1.0 插件包清单。只输出一个 JSON 对象，不要 markdown 代码围栏、不要任何解释文字。结构必须是：{"hotpack":"1.0","id":"pack.ai.<英文短id>","name":"<中文包名>","version":"0.1.0","description":"<一句话说明>","tags":["<标签>"],"plugins":[{"id":"<英文插件id>","name":"<npm包名>","version":"<精确版本号 x.y.z>","source":{"type":"npm"},"config":{}}]}。plugins 必须是非空数组（1-5 个），插件 id 只含小写字母数字下划线连字符（首字符字母数字，最长 40），name 是合法 npm 包名，version 必须是精确版本号。插件要贴近需求场景且彼此互补，宁可少而真实，不要编造不存在的知名包。不要输出任何多余字段。' },
-              { role: 'user', content: '用户需求：' + input + '\n请输出对应的 hotpack 1.0 插件包清单 JSON。' }
-            ],
+            messages,
             temperature: 1,
             max_tokens: 2048,
             stream: false
@@ -1635,39 +1723,52 @@ async function compose() {
       const json = await res.json();
       const content = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
       if (typeof content !== 'string' || content.trim() === '') throw new Error('AI 响应缺少内容');
-      logLine(box, '  LLM 响应 ' + content.length + ' 字符（model=' + (json.model || 'deepseek-chat') + '）', 'ok');
+      logLine(box, '  LLM 响应 ' + content.length + ' 字符（model=' + (json.model || model) + '）', 'ok');
       const manifest = extractJson(content);
-      if (!manifest) throw new Error('AI 输出不是合法 JSON');
       // 权威校验（内联 parseHotpackJson 与 shared-core 行为等价，跨语言测试锁定）
-      const hp = parseHotpackJson(JSON.stringify(manifest));
-      if (!hp) throw new Error('AI 产物未通过 hotpack 1.0 校验（plugins 必须非空）');
-      logLine(box, '[2/2] 校验通过，生成 pack + README…', 'warn');
-      const dsh = toDshpack(hp);
-      const readme = [
-        '# ' + dsh.name,
-        '',
-        '由 DSH AI 组装器（真实 DeepSeek）根据需求生成：' + input,
-        '',
-        '## Bundles',
-        '',
-        ...dsh.bundles.map((b) => '- `' + b.name + '@' + b.version + '` · ' + b.role),
-        '',
-        '## 安装',
-        '',
-        '1. 在 DSH 插件市场或插件中枢导入本包。',
-        '2. 确认版本与冲突信息后安装。',
-        '3. 重启 DSH 生效。'
-      ].join('\n');
-      aiResult = { name: dsh.name, tags: dsh.tags, manifest: dsh, readme };
-      logLine(box, '完成：' + dsh.name + '（' + dsh.bundles.length + ' 个插件，真实 AI）', 'ok');
+      const hp = manifest ? parseHotpackJson(JSON.stringify(manifest)) : null;
+      if (hp) {
+        const dsh = toDshpack(hp);
+        const readme = [
+          '# ' + dsh.name,
+          '',
+          '由 DSH AI 装配间（真实 AI）根据需求生成：' + input,
+          '',
+          '## Bundles',
+          '',
+          ...dsh.bundles.map((b) => '- `' + b.name + '@' + b.version + '` · ' + b.role),
+          '',
+          '## 安装',
+          '',
+          '1. 在 DSH 插件市场或插件中枢导入本包。',
+          '2. 确认版本与冲突信息后安装。',
+          '3. 重启 DSH 生效。'
+        ].join('\n');
+        const diff = diffHotpack(aiSession.pack, hp);
+        aiSession.pack = hp;
+        aiResult = { name: dsh.name, tags: dsh.tags, manifest: dsh, readme };
+        logLine(box, isFirstTurn
+          ? '[2/2] 校验通过，生成 pack + README…'
+          : '产物已更新：新增 ' + diff.added.length + ' · 移除 ' + diff.removed.length + ' · 调整 ' + diff.changed.length, 'ok');
+        finishTurn(reaction(dsh.name, dsh.bundles.length), hp, diff);
+      } else if (isFirstTurn) {
+        throw new Error('AI 产物未通过 hotpack 1.0 校验（plugins 必须非空）');
+      } else {
+        // 对话轮无产物：纯文本回复（LLM 自带人设语气）
+        logLine(box, '对话回复（无产物变更）', 'ok');
+        finishTurn(content.trim(), null, null);
+      }
     } catch (e) {
       logLine(box, '失败：' + String(e.message || e), 'err');
-      aiRunning = false;
-      renderAi();
-      return;
+      failTurn('主人，' + String(e.message || e) + '。请让小织重新来过！');
     }
   } else {
     // ---- 本地模拟（无 Key；产物标注） ----
+    if (!isFirstTurn) {
+      logLine(box, '本地模拟模式不支持对话修改；配置 API Key 后可体验真实对话式装配', 'err');
+      failTurn('主人抱歉，本地模拟模式只能做首次装配～配置 API Key 后，小织才能陪您继续对话调整呢。');
+      return;
+    }
     const rootPacks = CATALOG.filter((p) => keywordHits(input).includes(p.id.replace('pack-', '')));
     const steps = [
       ['拆解需求', `场景关键词：${keywordHits(input).join(', ') || '通用工具'}`],
@@ -1706,7 +1807,7 @@ async function compose() {
         const readme = [
           '# ' + manifest.name,
           '',
-          '由 DSH AI 组装器（本地模拟，未配置 API Key）根据需求生成：' + input,
+          '由 DSH AI 装配间（本地模拟，未配置 API Key）根据需求生成：' + input,
           '',
           '## Bundles',
           '',
@@ -1722,12 +1823,19 @@ async function compose() {
           '2. 确认版本与冲突信息后安装。',
           '3. 重启 DSH 生效。'
         ].join('\n');
+        const hp = {
+          hotpack: '1.0',
+          id: packId,
+          name: manifest.name,
+          version: '0.1.0',
+          description: '',
+          tags: manifest.tags,
+          plugins: bundles.map((b) => ({ id: b.role, name: b.name, version: b.version, source: { type: 'npm' }, config: {} }))
+        };
+        aiSession.pack = hp;
         aiResult = { name: manifest.name, tags: manifest.tags, manifest, readme };
         logLine(box, '完成：pack + README 已就绪（本地模拟）', 'ok');
-        aiRunning = false;
-        renderAi();
-        const exp = $('exportPack');
-        if (exp) exp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        finishTurn(reaction(manifest.name, bundles.length), hp, diffHotpack(null, hp));
       }
     };
     tick();
@@ -1737,6 +1845,26 @@ async function compose() {
   renderAi();
   const exp = $('exportPack');
   if (exp) exp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/** 新旧 hotpack 产物差异（按插件 id 匹配）。 */
+function diffHotpack(oldHp, newHp) {
+  const oldList = oldHp && oldHp.plugins ? oldHp.plugins : [];
+  const newList = newHp && newHp.plugins ? newHp.plugins : [];
+  const oldById = new Map(oldList.map((p) => [p.id, p]));
+  const newById = new Map(newList.map((p) => [p.id, p]));
+  const added = [];
+  const removed = [];
+  const changed = [];
+  const kept = [];
+  for (const p of newList) {
+    const prev = oldById.get(p.id);
+    if (!prev) { added.push(p); continue; }
+    if (prev.name !== p.name || prev.version !== p.version) changed.push({ id: p.id, from: prev.version, to: p.version });
+    else kept.push(p);
+  }
+  for (const p of oldList) if (!newById.has(p.id)) removed.push(p);
+  return { added, removed, changed, kept };
 }
 
 function memoryRowHtml(m, index) {

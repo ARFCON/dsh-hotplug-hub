@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
 		let react = require("react");
 		const h = react.createElement;
 		const { useEffect, useRef, useState } = react;
-		const css = ".hp_section{width:100%;max-width:860px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:14px;display:flex}.hp_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:10px;padding:12px 14px;flex-direction:column;gap:8px;display:flex;min-width:0}.hp_heading{display:flex;align-items:baseline;gap:7px;margin:0}.hp_heading h3{margin:0;font-size:13px;font-weight:600;line-height:20px}.hp_heading span{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:12px}.hp_info{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.hp_bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hp_btn{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:34px;padding:0 14px;font-size:13px}.hp_btn:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_btn:disabled{opacity:.5;cursor:default}.hp_primary{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:0 0}.hp_notice{margin:0;font-size:13px;line-height:20px}.hp_notice[data-kind=error]{color:var(--dsw-alias-state-error-primary)}.hp_notice[data-kind=success]{color:var(--dsw-alias-state-success-primary)}.hp_textarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace}.hp_list{margin:0;padding:0;list-style:none;flex-direction:column;gap:8px;display:flex}.hp_row{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}.hp_row[data-active=true]{border-color:var(--dsw-alias-state-business-primary)}.hp_rowTop{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}.hp_name{font-weight:600;font-size:13px}.hp_meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_tag{font-size:11px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);padding:2px 8px;border-radius:10px;color:var(--dsw-alias-label-tertiary)}.hp_badge{font-size:11px;font-weight:600;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);padding:2px 8px;border-radius:10px}.hp_actions{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.hp_kv{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}.hp_code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:var(--dsw-alias-bg-layer-2);padding:2px 6px;border-radius:4px}.hp_empty{color:var(--dsw-alias-label-tertiary);font-size:13px;padding:8px 0}.hp_dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}.hp_dot[data-kind=reused]{background:var(--dsw-alias-state-success-primary)}.hp_dot[data-kind=download]{background:var(--dsw-alias-state-business-primary)}.hp_dot[data-kind=error]{background:var(--dsw-alias-state-error-primary)}.hp_preview{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}.hp_preview li{font-size:12px;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;gap:4px;flex-wrap:wrap}.hp_tabs{display:flex;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2);margin-bottom:14px;flex-wrap:wrap}.hp_tab{border:0;border-bottom:2px solid transparent;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;padding:8px 14px;cursor:pointer}.hp_tab:hover{color:var(--dsw-alias-label-primary)}.hp_tab[data-on=true]{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-state-business-primary)}.hp_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.hp_stat{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px}.hp_stat .hp_label{font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_stat .hp_num{font-size:22px;font-weight:700;margin-top:4px}.hp_log{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.7;padding:10px 12px;min-height:160px;max-height:300px;overflow-y:auto;white-space:pre-wrap}.hp_log .ok{color:var(--dsw-alias-state-success-primary)}.hp_log .warn{color:var(--dsw-alias-state-business-primary)}.hp_check{display:flex;align-items:center;gap:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px;font-size:13px}.hp_check .hp_val{margin-left:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_chip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer}.hp_chip[data-on=true]{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_input{flex:1;min-width:160px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px}.hp_input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.hp_select{flex:0 0 auto;min-width:118px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}.hp_topic{flex:0 0 160px}.hp_link{border:1px solid var(--dsw-alias-border-l2);background:0 0;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:30px;padding:0 12px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:5px}.hp_link:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_expand{margin:0;padding:8px 10px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}.hp_loading{color:var(--dsw-alias-label-tertiary);font-size:13px;margin:0;padding:10px 2px;display:flex;align-items:center;gap:8px}.hp_loading .hp_spin{width:14px;height:14px;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);border-radius:50%;animation:hp-rotate .8s linear infinite;display:inline-block}@keyframes hp-rotate{to{transform:rotate(360deg)}}";
+		const css = ".hp_section{width:100%;max-width:860px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:14px;display:flex}.hp_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:10px;padding:12px 14px;flex-direction:column;gap:8px;display:flex;min-width:0}.hp_heading{display:flex;align-items:baseline;gap:7px;margin:0}.hp_heading h3{margin:0;font-size:13px;font-weight:600;line-height:20px}.hp_heading span{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:12px}.hp_info{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.hp_bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hp_btn{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:34px;padding:0 14px;font-size:13px}.hp_btn:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_btn:disabled{opacity:.5;cursor:default}.hp_primary{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:0 0}.hp_notice{margin:0;font-size:13px;line-height:20px}.hp_notice[data-kind=error]{color:var(--dsw-alias-state-error-primary)}.hp_notice[data-kind=success]{color:var(--dsw-alias-state-success-primary)}.hp_textarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace}.hp_list{margin:0;padding:0;list-style:none;flex-direction:column;gap:8px;display:flex}.hp_row{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}.hp_row[data-active=true]{border-color:var(--dsw-alias-state-business-primary)}.hp_rowTop{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}.hp_name{font-weight:600;font-size:13px}.hp_meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_tag{font-size:11px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);padding:2px 8px;border-radius:10px;color:var(--dsw-alias-label-tertiary)}.hp_badge{font-size:11px;font-weight:600;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff);padding:2px 8px;border-radius:10px}.hp_actions{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.hp_kv{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}.hp_code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:var(--dsw-alias-bg-layer-2);padding:2px 6px;border-radius:4px}.hp_empty{color:var(--dsw-alias-label-tertiary);font-size:13px;padding:8px 0}.hp_dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}.hp_dot[data-kind=reused]{background:var(--dsw-alias-state-success-primary)}.hp_dot[data-kind=download]{background:var(--dsw-alias-state-business-primary)}.hp_dot[data-kind=error]{background:var(--dsw-alias-state-error-primary)}.hp_preview{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}.hp_preview li{font-size:12px;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;gap:4px;flex-wrap:wrap}.hp_tabs{display:flex;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2);margin-bottom:14px;flex-wrap:wrap}.hp_tab{border:0;border-bottom:2px solid transparent;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;padding:8px 14px;cursor:pointer}.hp_tab:hover{color:var(--dsw-alias-label-primary)}.hp_tab[data-on=true]{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-state-business-primary)}.hp_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.hp_stat{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px}.hp_stat .hp_label{font-size:12px;color:var(--dsw-alias-label-tertiary)}.hp_stat .hp_num{font-size:22px;font-weight:700;margin-top:4px}.hp_log{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.7;padding:10px 12px;min-height:160px;max-height:300px;overflow-y:auto;white-space:pre-wrap}.hp_log .ok{color:var(--dsw-alias-state-success-primary)}.hp_log .warn{color:var(--dsw-alias-state-business-primary)}.hp_msg{display:flex;gap:8px;padding:8px 0;border-bottom:1px dashed var(--dsw-alias-border-l2)}.hp_msg:last-child{border-bottom:0}.hp_msgRole{flex:0 0 auto;width:24px;height:24px;line-height:24px;text-align:center;border-radius:50%;background:var(--dsw-alias-bg-layer-2);font-size:13px}.hp_msgBody{flex:1 1 auto;min-width:0;flex-direction:column;gap:4px;display:flex}.hp_msgText{font-size:13px;line-height:20px;white-space:pre-wrap;word-break:break-word}.hp_msgPack{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:8px;padding:6px 10px;font-size:12px;gap:6px;display:flex;flex-wrap:wrap;align-items:center}.hp_msg.err .hp_msgText{color:var(--dsw-alias-state-error-primary)}.hp_check{display:flex;align-items:center;gap:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:10px 12px;font-size:13px}.hp_check .hp_val{margin-left:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.hp_chip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer}.hp_chip[data-on=true]{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.hp_input{flex:1;min-width:160px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px}.hp_input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.hp_select{flex:0 0 auto;min-width:118px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}.hp_topic{flex:0 0 160px}.hp_link{border:1px solid var(--dsw-alias-border-l2);background:0 0;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:8px;height:30px;padding:0 12px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:5px}.hp_link:hover{border-color:var(--dsw-alias-label-dimmed)}.hp_expand{margin:0;padding:8px 10px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font:12px/18px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}.hp_loading{color:var(--dsw-alias-label-tertiary);font-size:13px;margin:0;padding:10px 2px;display:flex;align-items:center;gap:8px}.hp_loading .hp_spin{width:14px;height:14px;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);border-radius:50%;animation:hp-rotate .8s linear infinite;display:inline-block}@keyframes hp-rotate{to{transform:rotate(360deg)}}";
 		const tagId = "dsh-hotplug-hub/hotplug.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -60,7 +60,7 @@ window.__ModuleLoader__.load({
 			busy: "有操作正在进行，请稍候…",
 			navHub: "插件中枢",
 			navMarket: "插件市场",
-			navAi: "AI 组装",
+			navAi: "AI 装配间",
 			navMemory: "记忆中枢",
 			navCheck: "自检更新",
 			marketSearch: "搜索包名或标签",
@@ -95,17 +95,24 @@ window.__ModuleLoader__.load({
 			marketLicense: "许可",
 			marketUpdated: "更新",
 			marketNote: "数据来源：GitHub 标签搜索（官方 API + 多镜像站全并发测速取最快），README 对比提取介绍与安装方法",
-			aiTitle: "AI 组装器",
-			aiPlaceholder: "描述你的工作场景和需要的插件能力",
+			aiTitle: "小织女仆 · 装配间",
+			aiPlaceholder: "描述你的工作场景和需要的插件能力；装配完成后还能继续对话调整",
 			aiProviderLabel: "AI 服务商",
+			aiPersonaLabel: "装配女仆",
 			aiKeyPlaceholder: "API Key（可留空，走服务端对应环境变量）",
 			aiBaseUrlPlaceholder: "Base URL（OpenAI 兼容，如 https://api.deepseek.com）",
 			aiModelPlaceholder: "模型名（如 deepseek-chat / hy3-preview / kimi-k3）",
 			aiKeyHint: "支持 DeepSeek / OpenCode（hy3、Kimi 等）/ OpenRouter / 硅基流动 / Moonshot / 智谱 GLM / MiniMax 及任意 OpenAI 兼容端点。Key 仅本次会话内存使用，不持久化、不上传日志；建议通过服务端环境变量（DSH_*_API_KEY）配置。",
+			aiPersonaHint: "人设只影响语气与情绪价值，不影响装配质量与安全。",
 			aiCompose: "开始组装",
 			aiComposing: "组装中…",
-			aiLog: "执行日志",
-			aiResult: "生成结果",
+			aiSend: "发送",
+			aiSending: "装配中…",
+			aiNewSession: "新会话",
+			aiNewSessionConfirm: "开始新会话？当前对话与产物将清空（历史会话仍保存在服务端）。",
+			aiWelcome: "主人，欢迎来到装配间～描述您需要的插件能力，小织为您把插件织成包！完成后还可以继续对话调整（「换掉 xx 插件」「加个功能」都行喵～啊不，都行呢）。",
+			aiLog: "对话",
+			aiResult: "当前产物",
 			aiManifest: "pack manifest",
 			aiReadme: "README",
 			aiCopyManifest: "复制 JSON",
@@ -113,9 +120,16 @@ window.__ModuleLoader__.load({
 			aiExport: "导出到剪贴板",
 			aiImport: "一键导入",
 			aiDone: "已生成：",
-			aiFail: "AI 组装失败：",
+			aiFail: "AI 装配失败：",
 			aiBadProduct: "AI 产物校验未通过（缺少插件清单）",
 			aiNoGateway: "当前中枢不支持 aiAssemble（需较新版本中枢）",
+			aiNoGatewayChat: "当前中枢不支持 aiChat 会话装配（需较新版本中枢）",
+			aiDiffTitle: "本轮调整",
+			aiDiffAdded: "新增",
+			aiDiffRemoved: "移除",
+			aiDiffChanged: "调整",
+			aiTurn: "第 ",
+			aiTurnEnd: " 轮",
 			aiSamples: ["我要搭一套科研出论文的工作流", "帮我组一个视频剪辑加字幕的包", "考研背单词、刷真题、导闪卡"],
 			memTitle: "记忆中枢",
 			memIntro: "全局记忆包，与 profile 解耦。切换包不影响记忆。",
@@ -170,7 +184,8 @@ window.__ModuleLoader__.load({
 				descriptor("check", []),
 				descriptor("marketList", ["params"]),
 				descriptor("marketDetail", ["params"]),
-				descriptor("aiAssemble", ["params"])
+				descriptor("aiAssemble", ["params"]),
+				descriptor("aiChat", ["params"])
 			]
 		};
 		function unwrap(result) {
@@ -228,9 +243,14 @@ window.__ModuleLoader__.load({
 			const [aiKey, setAiKey] = useState(""); // 仅内存，不持久化（key 安全）
 			const [aiBaseURL, setAiBaseURL] = useState(AI_PROVIDER_OPTIONS[0].baseURL);
 			const [aiModel, setAiModel] = useState(AI_PROVIDER_OPTIONS[0].model);
+			const [aiPersona, setAiPersona] = useState("maid"); // 小织女仆（默认）
+			const [aiSessionId, setAiSessionId] = useState(() => {
+				// 会话 id 无敏感信息，可入 localStorage（key 绝不落盘）；恢复续接
+				try { return window.localStorage.getItem("dshHotplug.aiSessionId") || ""; } catch { return ""; }
+			});
+			const [aiMessages, setAiMessages] = useState([]); // {role: 'user'|'assistant', text, pack?, diff?, error?}
+			const [aiPack, setAiPack] = useState(null); // {name, tags, pack, readme, diff}
 			const [aiRunning, setAiRunning] = useState(false);
-			const [aiLog, setAiLog] = useState([]);
-			const [aiResult, setAiResult] = useState(null);
 			const fileRef = useRef(null);
 			const say = (kind, text) => setNotice({ kind, text });
 			const load = async () => {
@@ -387,55 +407,89 @@ window.__ModuleLoader__.load({
 					}
 				});
 			};
-			// AI 组装（v5 阶段 5）：真实 DeepSeek 调用（网关 aiAssemble）。
-			// 产物已由服务端权威 parseHotpack 校验（plugins 非空等），此处仅兜底断言。
-			// key 安全：aiKey 仅内存 state（不持久化）；留空时服务端读 DSH_DEEPSEEK_API_KEY。
-			const doCompose = () => {
+			// AI 装配间（v5 阶段 5 增强）：人设化对话式装配（网关 aiChat）。
+			// 首轮=需求→装配；后续轮=对话式增量修改（服务端 diff 新增/移除/调整）。
+			// 产物已由服务端权威 parseHotpack 校验，此处仅兜底断言。
+			// key 安全：aiKey 仅内存 state（不持久化）；留空时服务端读 DSH_*_API_KEY。
+			const doAiSend = () => {
 				if (!aiInput.trim() || aiRunning) return;
+				const text = aiInput.trim();
+				setAiInput("");
+				setAiMessages((prev) => [...prev, { role: "user", text }]);
 				setAiRunning(true);
-				setAiResult(null);
-				setAiLog([{ cls: "warn", text: "[1/2] 调用 DeepSeek 组装器…" }]);
-				const finish = (r) => {
-					const pack = r && r.data && r.data.pack ? r.data.pack : (r ? r.pack : null);
-					const readme = r && r.data && r.data.readme ? r.data.readme : (r ? r.readme : "");
-					if (!pack || !Array.isArray(pack.plugins) || pack.plugins.length === 0) {
-						throw new Error(t("aiBadProduct"));
-					}
-					setAiResult({ name: pack.name, tags: pack.tags || [], pack, readme: readme || "" });
-					setAiLog((prev) => [...prev, { cls: "ok", text: `完成：${pack.name}（${pack.plugins.length} 个插件）` }]);
-					say("success", t("aiDone") + pack.name);
-				};
 				const task = () => {
-					if (typeof api.aiAssemble !== "function") return Promise.reject(new Error(t("aiNoGateway")));
+					if (typeof api.aiChat !== "function") return Promise.reject(new Error(t("aiNoGatewayChat")));
 					const preset = AI_PROVIDER_OPTIONS.find((p) => p.id === aiProvider);
-					// provider 传内置名；custom（或改过默认值的预设）传 baseURL/model 覆盖
-					const params = { input: aiInput.trim(), provider: aiProvider, apiKey: aiKey.trim() || undefined };
+					const params = { input: text, persona: aiPersona, sessionId: aiSessionId || undefined, apiKey: aiKey.trim() || undefined };
 					if (aiBaseURL.trim() !== "" && aiBaseURL.trim() !== (preset && preset.baseURL)) params.baseURL = aiBaseURL.trim();
 					if (aiModel.trim() !== "" && aiModel.trim() !== (preset && preset.model)) params.model = aiModel.trim();
-					return api.aiAssemble(params).then(unwrap).then((r) => {
+					return api.aiChat(params).then(unwrap).then((r) => {
 						if (!r || r.ok === false) throw new Error(String((r && (r.message || r.error)) || t("aiFail")));
 						return r;
 					});
 				};
 				task()
-					.then(finish)
+					.then((r) => {
+						const d = (r && r.data) || r;
+						const sess = (d && d.session) || {};
+						if (sess.id) {
+							setAiSessionId(sess.id);
+							try { window.localStorage.setItem("dshHotplug.aiSessionId", sess.id); } catch { /* 尽力而为 */ }
+						}
+						const reply = d && d.reply ? String(d.reply) : "";
+						const pack = d && d.pack ? d.pack : null;
+						const diff = (d && d.diff) || null;
+						if (reply !== "" || pack) {
+							setAiMessages((prev) => [...prev, { role: "assistant", text: reply !== "" ? reply : (t("aiDone") + pack.name), pack, diff, error: false }]);
+						}
+						if (pack) {
+							setAiPack({ name: pack.name, tags: pack.tags || [], pack, readme: (d && d.readme) || "", diff });
+							say("success", t("aiDone") + pack.name);
+						}
+					})
 					.catch((e) => {
-						setAiLog((prev) => [...prev, { cls: "err", text: "失败：" + String(e && e.message ? e.message : e) }]);
-						say("error", t("aiFail") + String(e && e.message ? e.message : e));
+						const msg = String(e && e.message ? e.message : e);
+						setAiMessages((prev) => [...prev, { role: "assistant", text: t("aiFail") + msg, pack: null, diff: null, error: true }]);
+						say("error", t("aiFail") + msg);
 					})
 					.finally(() => setAiRunning(false));
 			};
+			const doAiNewSession = () => {
+				if (aiMessages.length === 0 && !aiSessionId) return;
+				if (!window.confirm(t("aiNewSessionConfirm"))) return;
+				setAiSessionId("");
+				setAiMessages([]);
+				setAiPack(null);
+				setAiInput("");
+				try { window.localStorage.removeItem("dshHotplug.aiSessionId"); } catch { /* 尽力而为 */ }
+			};
 			const doAiImport = () => {
-				if (!aiResult) return;
-				run("import", () => api.importPack(JSON.stringify(aiResult.pack))).then((result) => {
+				if (!aiPack || !aiPack.pack) return;
+				run("import", () => api.importPack(JSON.stringify(aiPack.pack))).then((result) => {
 					if (result && result.ok) {
-						say("success", t("importDone") + aiResult.name);
+						say("success", t("importDone") + aiPack.name);
 						setTab("hub");
 					} else {
 						// 修复：导入失败显式反馈（此前静默）
 						say("error", t("importFailed") + String((result && (result.message || result.error)) || ""));
 					}
 				});
+			};
+			const renderAiDiff = (diff) => {
+				if (!diff) return null;
+				const rows = [];
+				(diff.added || []).forEach((p) => rows.push({ kind: "added", text: (p.name || p.id) + "@" + (p.version || "?") }));
+				(diff.removed || []).forEach((p) => rows.push({ kind: "removed", text: (p.name || p.id) + "@" + (p.version || "?") }));
+				(diff.changed || []).forEach((c) => rows.push({ kind: "changed", text: (c.id || "?") + ": " + ((c.from && c.from.version) || "?") + " → " + ((c.to && c.to.version) || "?") }));
+				if (rows.length === 0) return null;
+				const color = { added: "var(--dsw-alias-state-success-primary)", removed: "var(--dsw-alias-state-error-primary)", changed: "var(--dsw-alias-state-business-primary)" };
+				const label = { added: "+ " + t("aiDiffAdded"), removed: "- " + t("aiDiffRemoved"), changed: "~ " + t("aiDiffChanged") };
+				return h("ul", { className: "hp_list", style: { marginTop: 4 } }, rows.map((r, i) =>
+					h("li", { key: i, className: "hp_row", style: { padding: "6px 10px", flexDirection: "row", alignItems: "center", gap: 8 } },
+						h("span", { className: "hp_tag", style: { color: color[r.kind] } }, label[r.kind]),
+						h("span", { className: "hp_info", style: { margin: 0 } }, r.text)
+					)
+				));
 			};
 			const activePack = data && data.packs ? data.packs.find((pack) => pack.active) : null;
 			const tabs = [
@@ -618,8 +672,16 @@ window.__ModuleLoader__.load({
 			const renderAi = () => h("div", null,
 				notice ? h("p", { className: "hp_notice", "data-kind": notice.kind }, notice.text) : null,
 				h("div", { className: "hp_card" },
-					h("div", { className: "hp_heading" }, h("h3", null, t("aiTitle"))),
-					h("textarea", { className: "hp_textarea", placeholder: t("aiPlaceholder"), value: aiInput, onChange: (e) => setAiInput(e.target.value), spellCheck: false }),
+					h("div", { className: "hp_heading" }, h("h3", null, t("aiTitle")), aiSessionId ? h("span", null, t("aiTurn") + String(Math.max(1, aiMessages.filter((m) => m.role === "user").length)) + t("aiTurnEnd")) : null),
+					h("div", { className: "hp_bar" },
+						h("label", null, t("aiPersonaLabel")),
+						h("select", { className: "hp_input", value: aiPersona, onChange: (e) => setAiPersona(e.target.value) },
+							[["maid", "小织女仆 🧹"], ["butler", "执事管家 🎩"], ["neko", "咪咪猫娘 🐱"], ["assistant", "标准助手 🤖"]].map(([id, label]) =>
+								h("option", { key: id, value: id }, label)
+							)
+						),
+						h("button", { className: "hp_btn", disabled: busy || (aiMessages.length === 0 && !aiSessionId), onClick: doAiNewSession }, t("aiNewSession"))
+					),
 					h("div", { className: "hp_bar" },
 						h("label", null, t("aiProviderLabel")),
 						h("select", { className: "hp_input", value: aiProvider, onChange: (e) => {
@@ -634,25 +696,48 @@ window.__ModuleLoader__.load({
 					h("input", { className: "hp_input", placeholder: t("aiBaseUrlPlaceholder"), value: aiBaseURL, onChange: (e) => setAiBaseURL(e.target.value), spellCheck: false }),
 					h("input", { className: "hp_input", placeholder: t("aiModelPlaceholder"), value: aiModel, onChange: (e) => setAiModel(e.target.value), spellCheck: false }),
 					h("p", { className: "hp_info" }, t("aiKeyHint")),
+					h("p", { className: "hp_info" }, t("aiPersonaHint"))
+				),
+				h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" }, h("h3", null, t("aiLog"))),
+					aiMessages.length === 0
+						? h("p", { className: "hp_info" }, t("aiWelcome"))
+						: h("div", { className: "hp_log" }, aiMessages.map((m, index) =>
+							h("div", { key: index, className: m.role === "user" ? "hp_msg" : "hp_msg" + (m.error ? " err" : "") },
+								h("div", { className: "hp_msgRole" }, m.role === "user" ? "🧑" : (m.error ? "⚠️" : "🧹")),
+								h("div", { className: "hp_msgBody" },
+									h("div", { className: "hp_msgText" }, m.text),
+									m.pack ? h("div", { className: "hp_msgPack" },
+										h("b", null, m.pack.name),
+										h("span", null, " · " + (m.pack.plugins ? m.pack.plugins.length : 0) + t("pluginsCount")),
+										m.diff && (m.diff.added || []).length + (m.diff.removed || []).length + (m.diff.changed || []).length > 0
+											? h("span", null, " · " + t("aiDiffTitle") + " +" + (m.diff.added || []).length + " -" + (m.diff.removed || []).length + " ~" + (m.diff.changed || []).length)
+											: null
+									) : null
+								)
+							)
+						))
+				),
+				h("div", { className: "hp_card" },
+					h("textarea", { className: "hp_textarea", placeholder: t("aiPlaceholder"), value: aiInput, onChange: (e) => setAiInput(e.target.value), spellCheck: false, onKeyDown: (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) doAiSend(); } }),
 					h("div", { className: "hp_bar" },
 						t("aiSamples").map((sample) => h("button", { key: sample, className: "hp_chip", onClick: () => setAiInput(sample) }, sample))
 					),
-					h("button", { className: "hp_btn hp_primary", disabled: aiRunning || !aiInput.trim(), onClick: doCompose }, aiRunning ? t("aiComposing") : t("aiCompose"))
-				),
-				aiLog.length > 0 ? h("div", { className: "hp_card" },
-					h("div", { className: "hp_heading" }, h("h3", null, t("aiLog"))),
-					h("div", { className: "hp_log" }, aiLog.map((line, index) => h("div", { key: index, className: line.cls }, line.text)))
-				) : null,
-				aiResult ? h("div", { className: "hp_card" },
-					h("div", { className: "hp_heading" }, h("h3", null, t("aiResult"))),
-					h("p", { className: "hp_info" }, t("aiDone") + aiResult.name),
-					h("div", { className: "hp_meta" }, aiResult.tags.map((tag) => h("span", { key: tag, className: "hp_tag" }, tag))),
 					h("div", { className: "hp_bar" },
-						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(aiResult.pack, null, 2)); } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ } } }, t("aiCopyManifest")),
-						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(aiResult.readme); } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ } } }, t("aiCopyReadme")),
+						h("button", { className: "hp_btn hp_primary", disabled: aiRunning || !aiInput.trim(), onClick: doAiSend }, aiRunning ? t("aiSending") : t("aiSend"))
+					)
+				),
+				aiPack ? h("div", { className: "hp_card" },
+					h("div", { className: "hp_heading" }, h("h3", null, t("aiResult")), h("span", null, aiPack.name)),
+					h("p", { className: "hp_info" }, t("aiDone") + aiPack.name),
+					h("div", { className: "hp_meta" }, aiPack.tags.map((tag) => h("span", { key: tag, className: "hp_tag" }, tag))),
+					renderAiDiff(aiPack.diff),
+					h("div", { className: "hp_bar" },
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(aiPack.pack, null, 2)); } catch { /* 尽力而为 */ } } }, t("aiCopyManifest")),
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(aiPack.readme); } catch { /* 尽力而为 */ } } }, t("aiCopyReadme")),
 						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: doAiImport }, t("aiImport"))
 					),
-					h("pre", { className: "hp_code", style: { whiteSpace: "pre-wrap", maxHeight: 200, overflow: "auto" } }, JSON.stringify(aiResult.pack, null, 2))
+					h("pre", { className: "hp_code", style: { whiteSpace: "pre-wrap", maxHeight: 200, overflow: "auto" } }, JSON.stringify(aiPack.pack, null, 2))
 				) : null
 			);
 			const renderMemory = () => h("div", null,
@@ -800,7 +885,8 @@ window.__ModuleLoader__.load({
 				removePack: (packId) => remote().then((face) => face.removePack(packId)),
 				check: () => remote().then((face) => face.check()),
 				marketList: (params) => remote().then((face) => face.marketList(params)),
-				marketDetail: (params) => remote().then((face) => face.marketDetail(params))
+				marketDetail: (params) => remote().then((face) => face.marketDetail(params)),
+				aiChat: (params) => remote().then((face) => face.aiChat(params))
 			});
 			ctx.slots.inject("settings.section", () => ctx.slots.register({
 				name: "settings.section",

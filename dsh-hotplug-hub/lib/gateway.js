@@ -11,7 +11,7 @@ import { packsDir } from './core/paths.js'
 import { readPackManifest, readState, writeState } from './core/state.js'
 import { statusSync, importPackSync, previewPack, checkAsync } from './core/status.js'
 import { marketListAsync, marketDetailAsync } from './core/market.js'
-import { aiAssemble } from './core/ai.js'
+import { aiAssemble, aiChat as aiChatCore } from './core/ai.js'
 import { mountPack, unmountPack, removePatchBlock, removeBundles, bundlePkgNames } from './core/patch.js'
 
 /** 网关通用失败码（RPC 域，非 CLI ERROR_CODES 表）。 */
@@ -39,7 +39,7 @@ class HotplugGateway extends TypertRemoteService {
   constructor(ctx) {
     super(ctx, 'dshHotplug')
     // 与 lib/typert.js、lib/client.js REMOTE.descriptors 三处同步。
-    const methods = ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check', 'marketList', 'marketDetail', 'aiAssemble']
+    const methods = ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check', 'marketList', 'marketDetail', 'aiAssemble', 'aiChat']
     for (const method of methods) {
       const decorator = Remote(method)
       decorator(HotplugGateway.prototype[method], {
@@ -159,6 +159,41 @@ class HotplugGateway extends TypertRemoteService {
     }).then((r) => {
       if (!r.ok) return normalizeRpc({ ok: false, error: r.error, code: RPC_ERROR_CODE })
       return { ok: true, code: 'OK', data: { pack: r.pack, readme: r.readme }, exitCode: 0 }
+    })
+  }
+
+  // AI 装配间会话（v5 阶段 5 增强）：人设化对话式装配。
+  // 首轮（无 sessionId）= 需求 → 装配；后续轮（带 sessionId）= 对话式增量修改/闲聊，
+  // 产物相对上一轮返回 diff（新增/移除/调整）。会话本地持久化（ai-sessions/，
+  // 不含任何 key）。persona：maid 小织女仆（默认）/ butler 执事管家 / neko 咪咪猫娘 /
+  // assistant 标准助手——只改语气与情绪价值，契约与校验不变。
+  // 安全：apiKey 仅内存传递；响应（含消息历史）统一脱敏（key→***），绝不含 key。
+  aiChat(params) {
+    const p = params && typeof params === 'object' ? params : {}
+    const input = typeof p.input === 'string' ? p.input : ''
+    return aiChatCore(input, {
+      provider: typeof p.provider === 'string' && p.provider !== '' ? p.provider : undefined,
+      baseURL: typeof p.baseURL === 'string' && p.baseURL !== '' ? p.baseURL : undefined,
+      model: typeof p.model === 'string' && p.model !== '' ? p.model : undefined,
+      apiKey: typeof p.apiKey === 'string' && p.apiKey.trim() !== '' ? p.apiKey : undefined,
+      persona: typeof p.persona === 'string' && p.persona !== '' ? p.persona : undefined,
+      sessionId: typeof p.sessionId === 'string' && p.sessionId !== '' ? p.sessionId : undefined,
+    }).then((r) => {
+      if (!r.ok) return normalizeRpc({ ok: false, error: r.error, code: RPC_ERROR_CODE })
+      return {
+        ok: true,
+        code: 'OK',
+        data: {
+          session: r.session,
+          reply: r.reply,
+          pack: r.pack ?? null,
+          readme: r.readme ?? null,
+          manifest: r.manifest ?? null,
+          diff: r.diff ?? null,
+          firstTurn: r.firstTurn === true,
+        },
+        exitCode: 0,
+      }
     })
   }
 }
