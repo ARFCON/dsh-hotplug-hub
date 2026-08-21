@@ -78,39 +78,27 @@ function writeAssembly(plugins) {
 }
 
 /**
- * 按平台放置假 harness（三平台可跑，DoD-17）：
- * - win32：node.exe 副本（REPL EOF 正常退出 0）；
- * - POSIX：sh 包装脚本 exec 真实 node（NODE_OPTIONS 注入的 recorder/keepalive 仍生效；
- *   stageLaunch 传入的 --profile 参数被忽略——假 harness 不校验参数）。
- * H-1（v5 阶段 1）：DSH_HOTPLUG_ROOT=QA_ROOT 时整个根域落 QA_ROOT 下，CLI 的
- * config.home = QA_ROOT → findHarness 候选路径基于 QA_ROOT（Linux/macOS 的
- * `<home>/.local/bin/dsh` 等）——只放 HOME 会在 CI（无真实 DSH）上找不到
- * （本机 Windows 靠 LOCALAPPDATA 候选命中而假绿）。POSIX 双放：HOME 与 QA_ROOT。
+ * 按平台放置假 harness（DoD-17）。H-1：DSH_HOTPLUG_ROOT=QA_ROOT 时 CLI 的
+ * config.home=QA_ROOT → findHarness 候选基于 QA_ROOT（Linux/macOS）——只放 HOME
+ * 在 CI（无真实 DSH）找不到（本机 Windows 靠 LOCALAPPDATA 候选假绿）。POSIX 双放。
  */
 function writeFakeHarness() {
   const winPath = path.join(HOME, 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe');
-  const posixHome = process.platform === 'darwin'
+  const homeP = process.platform === 'darwin'
     ? [path.join(HOME, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
     : [path.join(HOME, '.local', 'bin', 'dsh'), path.join(HOME, 'Applications', 'DSH Desktop', 'dsh')];
-  const posixRoot = process.platform === 'darwin'
+  const rootP = process.platform === 'darwin'
     ? [path.join(QA_ROOT, 'Applications', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')]
     : [path.join(QA_ROOT, '.local', 'bin', 'dsh'), path.join(QA_ROOT, 'Applications', 'DSH Desktop', 'dsh')];
-  const targets = process.platform === 'win32'
-    ? [winPath]
-    : [...posixHome, ...posixRoot];
-  let hpath = targets[0];
+  const targets = process.platform === 'win32' ? [winPath] : [...homeP, ...rootP];
   for (const t of targets) {
     fs.mkdirSync(path.dirname(t), { recursive: true });
-    if (process.platform === 'win32') {
-      fs.copyFileSync(process.execPath, t);
-    } else {
-      fs.writeFileSync(t, '#!/bin/sh\nexec "' + process.execPath + '"\n');
-      fs.chmodSync(t, 0o755);
-    }
+    if (process.platform === 'win32') { fs.copyFileSync(process.execPath, t); continue; }
+    fs.writeFileSync(t, '#!/bin/sh\nexec "' + process.execPath + '"\n');
+    fs.chmodSync(t, 0o755);
   }
-  return hpath;
+  return targets[0];
 }
-
 function cleanup() {
   try { fs.rmSync(ASSEMBLY_DIR, { recursive: true, force: true }); } catch (_) { /* ok */ }
   try { fs.rmSync(SANDBOX_DIR, { recursive: true, force: true }); } catch (_) { /* ok */ }
