@@ -44,7 +44,7 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.10.5";
+        private const string APP_VERSION = "0.10.6";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_VERSION = "0.8.1-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
         // GitHub API 结果的会话级缓存：避免每次插件列表刷新都同步打 API、离线时反复等 15s 超时
@@ -1564,23 +1564,42 @@ namespace DSHHotplugHub
 
             string js =
                 "window.__apiConfig=" + configJson + ";" +
-                "(function(){var ensureModelSelect=function(){" +
-                "var composeBtn=document.getElementById('composeBtn');" +
-                "if(!composeBtn||document.getElementById('aiModelSelect'))return;" +
-                "var status=document.createElement('div');status.style.cssText='margin:8px 0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--rad);background:var(--panel);cursor:pointer;';status.innerHTML='⚙ 当前模型：<b>'+(window.__apiConfig.defaultModel||'未知')+'</b>（点击配置）';status.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('openApiConfig');}};composeBtn.parentNode.insertBefore(status,composeBtn);" +
-                "var wrap=document.createElement('div');wrap.style.cssText='margin:10px 0;display:flex;align-items:center;gap:8px;';" +
-                "wrap.innerHTML='模型: ';" +
-                "var sel=document.createElement('select');sel.id='aiModelSelect';" +
-                "var ms=(window.__apiConfig.models||'deepseek-chat').split(',');" +
-                "for(var i=0;i<ms.length;i++){var id=ms[i].trim();if(!id)continue;var opt=document.createElement('option');opt.value=id;opt.text=id;sel.appendChild(opt);}" +
-                "if(window.__apiConfig.defaultModel)sel.value=window.__apiConfig.defaultModel;" +
-                "wrap.appendChild(sel);composeBtn.parentNode.insertBefore(wrap,composeBtn);" +
+                "(function(){var cfg=window.__apiConfig||{};" +
+                // 精致入口：顶栏「⚙ 模型」徽标按钮（点击打开 DSH API 配置对话框）；
+                // 不再注入「当前模型」横条与「模型:」下拉——模型名只由状态行体现（去重复）
+                "var ensure=function(){" +
+                "var btn=document.getElementById('aiSettingsBtn');" +
+                "if(!btn||document.getElementById('aiApiCfg'))return;" +
+                "var b=document.createElement('button');b.id='aiApiCfg';b.type='button';b.className='ai-chip-btn';" +
+                "b.title='DSH API 配置（模型 / Key）';b.textContent='⚙ 模型';" +
+                "b.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('openApiConfig');}};" +
+                "btn.parentNode.insertBefore(b,btn);" +
+                "var note=document.getElementById('aiConnNote');" +
+                "if(note&&cfg.defaultModel){note.textContent='当前模型：'+cfg.defaultModel+'（DSH API）';}" +
                 "};" +
-                "var origRenderAi=renderAi;renderAi=function(){origRenderAi();ensureModelSelect();};" +
-                "var origCompose=compose;compose=function(){var input=document.getElementById('reqInput');if(!input||!input.value.trim())return;var sel=document.getElementById('aiModelSelect');var model=sel?sel.value:(window.__apiConfig.defaultModel||'deepseek-chat');if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('ai:'+JSON.stringify({text:input.value.trim(),model:model}));var box=document.getElementById('logBox');if(box){box.innerHTML='';if(typeof logLine==='function'){logLine(box,'正在调用 API（'+model+'）...','warn');}}}else{origCompose();}};" +
-                "window.__onAiResult=function(result){try{var data=JSON.parse(result);aiResult=data;renderAi();if(typeof toast==='function')toast('AI 组装完成');}catch(e){if(typeof toast==='function')toast('AI 结果解析失败');}};" +
-                "window.__onAiError=function(msg){var box=document.getElementById('logBox');if(box&&typeof logLine==='function'){logLine(box,msg,'warn');}if(typeof toast==='function')toast(msg);};" +
-                "if(document.readyState!=='loading'){ensureModelSelect();}" +
+                "var origRenderAi=renderAi;renderAi=function(){origRenderAi();ensure();};" +
+                "var origCompose=compose;compose=function(){var input=document.getElementById('reqInput');if(!input||!input.value.trim())return;" +
+                "var text=input.value.trim();input.value='';" +
+                // 与原型一致的增量渲染：user 气泡 + typing（EXE 场景体验不割裂）
+                "if(typeof showTyping==='function'){var p=document.getElementById('aiPersona');var pv=p?p.value:'maid';" +
+                "if(typeof aiMessages==='object')aiMessages.push({role:'user',text:text});" +
+                "appendMsgEl({role:'user',text:text},pv);showTyping();}" +
+                "var model=(cfg.defaultModel||'deepseek-chat');" +
+                "if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('ai:'+JSON.stringify({text:text,model:model}));return;}" +
+                "origCompose();};" +
+                "if(document.readyState!=='loading'){ensure();}" +
+                // 结果/错误回调整合进聊天流（user 气泡 + typing → 产物卡 / 错误气泡）
+                "window.__onAiResult=function(result){try{var data=JSON.parse(result);aiResult=data;" +
+                "var d=document.getElementById('aiTyping');if(d)d.remove();" +
+                "var pack={hotpack:'1.0',id:(data.packId||('pack.ai.'+Date.now().toString(36))),name:(data.name||'AI 组装包'),version:(data.version||'0.1.0'),tags:(data.tags||[]),plugins:(data.bundles||[]).map(function(b){return {id:(String(b.role||b.name||'p')).slice(0,20).replace(/[^a-z0-9_-]/gi,'-')||('p'+Math.random().toString(36).slice(2,6)),name:b.name,version:b.version,source:{type:'npm'},config:{}}});};" +
+                "aiMessages.push({role:'assistant',text:'主人，插件已经为您织好啦：'+pack.name+'（'+(pack.plugins||[]).length+' 个插件），请过目～',persona:'maid',pack:pack,diff:null});" +
+                "if(typeof appendMsgEl==='function')appendMsgEl(aiMessages[aiMessages.length-1],'maid');" +
+                "if(typeof aiPersist==='function')aiPersist();" +
+                "if(typeof toast==='function')toast('AI 组装完成');}catch(e){if(typeof toast==='function')toast('AI 结果解析失败');}};" +
+                "window.__onAiError=function(msg){var d=document.getElementById('aiTyping');if(d)d.remove();" +
+                "aiMessages.push({role:'assistant',text:'主人，'+msg+'。请检查模型配置后重试。',persona:'maid',error:true});" +
+                "if(typeof appendMsgEl==='function')appendMsgEl(aiMessages[aiMessages.length-1],'maid');" +
+                "if(typeof aiPersist==='function')aiPersist();};" +
                 "})();";
             return js;
         }
