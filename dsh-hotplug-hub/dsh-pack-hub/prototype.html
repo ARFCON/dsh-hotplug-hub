@@ -348,7 +348,7 @@ button { font: inherit; color: inherit; }
       </div>
       <div>
         <div class="brand-name">Dseam世界</div>
-        <div class="brand-sub">Dseam v0.9.5</div>
+        <div class="brand-sub">Dseam v0.9.6</div>
       </div>
     </div>
     <nav class="nav" id="nav"></nav>
@@ -459,7 +459,7 @@ const CATALOG = [
     bundles: [
       { name: '@dsh-community/dsh-scaffold', role: '脚手架', version: '3.0.0' },
       { name: '@dsh-community/dsh-review', role: '评审', version: '1.8.1' },
-      { name: '@dsh-community/dsh-test-runner', role: '测试', version: '0.9.5' },
+      { name: '@dsh-community/dsh-test-runner', role: '测试', version: '0.9.6' },
       { name: '@dsh-community/dsh-sec-scan', role: '安全', version: '1.0.4' }
     ],
     memory: ['global.dev'], accent: '#5b5488'
@@ -1911,7 +1911,7 @@ function renderCheck() {
   const panelPage = $('panelPageBtn');
   if (panelPage) panelPage.addEventListener('click', () => {
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('openPanelPage'); return; }
-    window.open('https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.9.5', '_blank');
+    window.open('https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.9.6', '_blank');
   });
   const up = $('updateDsh');
   if (up) up.addEventListener('click', () => {
