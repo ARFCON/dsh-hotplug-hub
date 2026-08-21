@@ -1,0 +1,22 @@
+{
+  "name": "dsh-hotplug-hub-monorepo",
+  "version": "0.9.5",
+  "private": true,
+  "description": "DSH-Hotplug-Hub 单仓：launcher / dsh-hotplug-hub / dsh-memory-hub / 共享内核 / vendor",
+  "workspaces": [
+    "packages/*",
+    "launcher",
+    "dsh-hotplug-hub",
+    "dsh-hotplug-hub/dsh-memory-hub",
+    "vendor/dseam-skillmcp"
+  ],
+  "scripts": {
+    "sync:shared": "node scripts/sync-vendored-shared.mjs",
+    "check:shared": "node scripts/check-vendored-shared.mjs",
+    "test:shared": "npm --workspace @dsh/shared-core test",
+    "test:launcher": "npm --workspace dsh-hotplug-launcher test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

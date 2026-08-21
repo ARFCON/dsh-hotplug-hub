@@ -2,6 +2,9 @@
 node_modules/
 *.log
 
+# 覆盖率报告与工具缓存（vitest 默认 reportsDirectory=coverage）
+coverage/
+
 # WebView2 / runtime data
 *.WebView2/
 EBWebView/

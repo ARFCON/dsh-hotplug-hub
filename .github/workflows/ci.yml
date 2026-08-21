@@ -7,8 +7,40 @@ on:
     branches: [ main, develop ]
 
 jobs:
+  shared-core-test:
+    name: Shared Core（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        # 组A=Windows（junction/C-1）；组B=Linux（symlink 等价路径）
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+
+      - name: Install dependencies（单仓 workspaces）
+        run: npm ci --no-audit --no-fund
+
+      - name: Shared-core 全量测试（ids fuzz / lock 跨进程 / realpath C-1 / TLS / merge）
+        working-directory: packages/shared-core
+        run: npx vitest run
+
+      - name: Shared-core 覆盖率门槛（§8.5：行 ≥90%，v8 provider；低于门槛失败）
+        working-directory: packages/shared-core
+        run: npx vitest run --coverage
+
+      - name: vendor-shared 与 shared-core 逐文件字节一致（铁律 B / R-v5-1）
+        run: node scripts/check-vendored-shared.mjs
+
+      - name: Working tree clean（同步脚本无副作用残留）
+        run: git status --porcelain --untracked-files=no
+
   launcher-test:
-    name: Launcher Test (${{ matrix.os }})
+    name: Launcher Test（${{ matrix.os }}）
     strategy:
       fail-fast: false
       matrix:
@@ -21,9 +53,8 @@ jobs:
         with:
           node-version: 22.19.0
 
-      - name: Install dependencies
-        working-directory: launcher
-        run: npm ci
+      - name: Install dependencies（单仓 workspaces）
+        run: npm ci --no-audit --no-fund
 
       - name: Lint（≤300 行 / 无占位符 / UTF-8 干净）
         working-directory: launcher
@@ -37,7 +68,14 @@ jobs:
         working-directory: launcher
         run: node scripts/run-tests.js run
 
-      - name: CLI e2e（全链路 / 穿越矩阵 / 退出码契约 / 只读零副作用）
+      # §8.5 门槛：launcher 行 ≥85%、分支 ≥80%（v8 provider——CJS require 加载的
+      # 源码 istanbul 无法插桩，见 launcher/vitest.config.js 说明）；单平台跑即可。
+      - name: Launcher 覆盖率门槛（行 ≥85% / 分支 ≥80%）
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: launcher
+        run: node scripts/run-tests.js run --coverage
+
+      - name: CLI e2e（隔离配方：DSH_HOTPLUG_ROOT/HOME/PATH 全隔离）
         working-directory: launcher
         run: node scripts/qa3-cli-e2e.js
 
@@ -61,18 +99,116 @@ jobs:
         working-directory: launcher
         run: node scripts/qa4-real-env.js
 
-      - name: 'Smoke: assemble example'
+      - name: 'Smoke: assemble example（隔离根）'
+        env:
+          DSH_HOME: ${{ runner.temp }}/smoke-dsh
         run: node launcher/index.js assemble example
 
       - name: 'Smoke: check example'
+        env:
+          DSH_HOME: ${{ runner.temp }}/smoke-dsh
         run: node launcher/index.js check example
 
-      # 新版 heal 契约：无自愈信号 → ERR_HEAL_NO_ACTION（exit 9）属预期
-      - name: 'Smoke: heal example'
+      # M-24 契约：未 launch 的 profile（CHECKED）直接 heal 属非法状态转移 → exit=2；
+      # 自愈需已进入安装/同步/启动域（INSTALLED 起）。此冒烟验证命令可执行且守卫生效。
+      - name: 'Smoke: heal example（M-24 守卫：CHECKED 拒绝 exit=2）'
         shell: bash
-        run: node launcher/index.js heal example || test $? -eq 9
+        env:
+          DSH_HOME: ${{ runner.temp }}/smoke-dsh
+        run: node launcher/index.js heal example || test $? -eq 2
 
       - name: Working tree clean（只读命令零副作用）
+        run: git status --porcelain --untracked-files=no
+
+  memory-hub-test:
+    name: Memory Hub Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+
+      - name: Install dependencies（单仓 workspaces）
+        run: npm ci --no-audit --no-fund
+
+      - name: Memory hub tests（隔离 DSH_HOME；H-8 跨进程写锁 / M-44 随机 tmp）
+        working-directory: dsh-hotplug-hub/dsh-memory-hub
+        env:
+          DSH_HOME: ${{ runner.temp }}/memory-dsh
+        run: node --test test/*.test.mjs
+
+  hotplug-test:
+    name: Hotplug Hub Test（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        # 组A=Windows（junction/C-1）；组B=Linux（symlink/H-9 对称回滚）
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+
+      - name: Install dependencies（单仓 workspaces）
+        run: npm ci --no-audit --no-fund
+
+      - name: Hotplug tests（H-16 拆分 / R-v5-9 去 shell / M-39 zip / R-v5-10 RPC）
+        working-directory: dsh-hotplug-hub
+        env:
+          DSH_HOME: ${{ runner.temp }}/hp-dsh
+        run: npx vitest run
+
+      - name: Hotplug 行覆盖率门槛（≥80%）
+        working-directory: dsh-hotplug-hub
+        run: npx vitest run --coverage
+
+  dseam-test:
+    name: Dseam Contract Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+
+      - name: Install dependencies（单仓 workspaces）
+        run: npm ci --no-audit --no-fund
+
+      - name: Dseam patch-editor tests（四写者 marker/锁迁移）
+        working-directory: vendor/dseam-skillmcp
+        run: npx vitest run
+
+      - name: embedded tgz 与 vendor 源码逐字节一致（R-v5-15）
+        run: node scripts/check-embedded-tgz.mjs
+
+  crosslang-contract:
+    name: Cross-language Contract（C#）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile & run PatchContract 契约测试（net48 csc）
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\PatchContractTests.exe /reference:System.dll release\src\PatchContract.cs release\tests\PatchContractTests.cs
+          & $env:RUNNER_TEMP\PatchContractTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile Main.cs（WebView2 引用，语法完整性）
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\MainCheck.exe /reference:System.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:release\Microsoft.Web.WebView2.Core.dll" "/reference:release\Microsoft.Web.WebView2.WinForms.dll" release\src\PatchContract.cs release\src\Main.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Working tree clean
         run: git status --porcelain --untracked-files=no
 
   build-windows:
@@ -85,6 +221,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
+
+      - name: Setup dotnet（跨语言契约测试 / PatchContract.cs 编译）
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Install dependencies（单仓 workspaces）
+        run: npm ci --no-audit --no-fund
 
       - name: Download WebView2 SDK (NuGet)
         shell: pwsh
