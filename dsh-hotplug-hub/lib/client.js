@@ -86,7 +86,7 @@ window.__ModuleLoader__.load({
 			marketDetailLoading: "详情加载中…",
 			marketFetchError: "获取市场失败：",
 			marketRetry: "重试",
-			marketOffline: "无法连接 GitHub（官方与镜像均失败），显示内置示例目录",
+			marketOffline: "无法连接 GitHub（官方与镜像均失败），请检查网络后重试",
 			marketCached: "缓存于",
 			marketTotal: "个结果",
 			marketVia: "数据源",
@@ -525,9 +525,9 @@ window.__ModuleLoader__.load({
 				)
 			);
 			const sourceEntries = marketData ? marketData.entries : [];
-			const marketCats = ["全部", ...new Set(sourceEntries.length ? sourceEntries.flatMap((p) => p.topics ?? p.tags ?? []) : CATALOG.flatMap((p) => p.tags))];
+			const marketCats = ["全部", ...new Set(sourceEntries.flatMap((p) => p.topics ?? p.tags ?? []))];
 			const marketQ = marketQuery.trim().toLowerCase();
-			const marketPool = sourceEntries.length ? sourceEntries : CATALOG;
+			const marketPool = sourceEntries;
 			const shown = marketPool.filter((p) => {
 				const tags = p.topics ?? p.tags ?? [];
 				const hay = (p.name || "").toLowerCase() + " " + tags.join(" ").toLowerCase() + " " + String(p.intro || p.description || p.desc || "").toLowerCase();

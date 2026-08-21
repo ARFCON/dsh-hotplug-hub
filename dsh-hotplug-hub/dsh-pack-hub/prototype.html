@@ -984,7 +984,7 @@ async function loadMarket(params) {
   if (!search.ok) {
     marketLoading = false;
     marketAppending = false;
-    marketError = '抓取失败：' + search.error + '。已回退到内置示例目录。';
+    marketError = '抓取失败：' + search.error;
     renderMarket();
     return { ok: false, error: search.error };
   }
