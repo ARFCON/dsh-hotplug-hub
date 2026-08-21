@@ -231,7 +231,11 @@ button { font: inherit; color: inherit; }
 .ai-pane { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 14px; }
 .ai-main, .ai-side { display: grid; gap: 12px; align-content: start; }
 /* ===== 沉浸式聊天（AI 装配间 v2：聊天为主视觉，底部输入坞，产品化细节） ===== */
-.ai-zone { display: flex; flex-direction: column; height: calc(100vh - 58px); min-height: 460px; }
+/* AI 视图激活（body.ai-view-active）：锁定整页滚动 + 隐藏页面级顶栏——唯一顶栏 + 单屏
+   （页面可滚时 ai-zone 固定高度会与整页滚动错位；双顶栏视觉重复，一并消除） */
+body.ai-view-active { overflow: hidden; }
+body.ai-view-active .topbar { display: none; }
+.ai-zone { display: flex; flex-direction: column; height: 100vh; min-height: 460px; }
 .ai-topbar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 8px 22px; background: var(--panel);
@@ -1322,6 +1326,8 @@ function switchView(id) {
   save();
   document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
   $('view-' + id).classList.remove('hidden');
+  // AI 装配间 = 沉浸单屏：锁整页滚动、隐藏页面级顶栏（防双顶栏与滚动错位）
+  document.body.classList.toggle('ai-view-active', id === 'ai');
   renderShell(); renderCurrent();
   window.scrollTo(0, 0);
 }

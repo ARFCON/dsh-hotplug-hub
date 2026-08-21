@@ -66,6 +66,10 @@ try {
   check('示例按钮 ×3', (await page.$$('.ai-welcome .pv')).length === 3)
   check('顶部工具栏（人设/设置/新会话）', await page.$('#aiPersona') !== null && await page.$('#aiSettingsBtn') !== null && await page.$('#aiNewSessionBtn') !== null)
   check('输入坞存在（textarea+发送圆形按钮）', await page.$('#reqInput') !== null && await page.$('#composeBtn') !== null)
+  // 沉浸单屏：整页锁定 + 页面级顶栏隐藏 + 聊天区占满视口
+  check('AI 视图锁定整页滚动（body.ai-view-active）', await page.evaluate(() => document.body.classList.contains('ai-view-active')))
+  check('页面级顶栏已隐藏（单顶栏沉浸）', await page.evaluate(() => { const t = document.querySelector('.topbar'); return t && getComputedStyle(t).display === 'none' }))
+  check('聊天区占满视口（100vh）', await page.evaluate(() => { const z = document.querySelector('.ai-zone'); return z && z.getBoundingClientRect().height >= 800 }))
   await shot(page, '01-empty')
 
   // 2) 示例按钮预填
@@ -179,9 +183,10 @@ try {
   check('刷新后会话恢复（消息+产物卡片）', restoredMsgs >= 2 && restoredCard, `msgs=${restoredMsgs} card=${restoredCard}`)
   await shot(page, '04-restored-session')
 
-  // 12) 快速视图切换：AI → 市场 → AI，会话保留
+  // 12) 快速视图切换：AI → 市场 → AI，会话保留；切走恢复整页滚动与顶栏
   await page.click('#nav button[data-view="market"]')
   await new Promise((r) => setTimeout(r, 300))
+  check('切走 AI 恢复整页滚动与页面顶栏', await page.evaluate(() => !document.body.classList.contains('ai-view-active') && getComputedStyle(document.querySelector('.topbar')).display !== 'none'))
   await page.click('#nav button[data-view="ai"]')
   await new Promise((r) => setTimeout(r, 500))
   const keptMsgs = await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg').length)
