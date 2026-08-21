@@ -18,7 +18,7 @@
  *   deactivate()          卸载当前激活包（保留 store 缓存）
  *   removePack(packId)    移除未激活的包记录
  *   check()               自检：Node/pnpm 版本、profile 状态、patch 状态、冲突矩阵
- *   marketList(params)    插件包市场：GitHub 标签搜索（官方 API + 镜像站兜底），
+ *   marketList(params)    插件市场：GitHub 标签搜索（官方 API + 镜像站兜底），
  *                         只返回仓库列表元数据（快，不阻塞），详情由 marketDetail 逐条并发返回
  *   marketDetail(params)  单仓库详情：对比文件（package.json / hotpack / .dshpack / README）
  *                         提取介绍与安装方法，生成可导入的 hotpack manifest
@@ -70,7 +70,7 @@ const GITHUB_MIRRORS = [
 // 官方 GitHub 的来源标识（UI 多选里与镜像域名并列）
 const SOURCE_GITHUB = 'github'
 
-// 插件包市场（详见下方「插件包市场」节）：GitHub topic 即「标签」
+// 插件市场（详见下方「插件市场」节）：GitHub topic 即「标签」
 const MARKET_CACHE_FILE = () => join(hotplugRoot(), 'market-cache.json')
 // 单仓库详情缓存：marketDetail 逐条抓取后单独缓存，命中即秒回，避免每次重抓 README。
 const MARKET_DETAIL_CACHE_FILE = () => join(hotplugRoot(), 'market-detail-cache.json')
@@ -553,7 +553,7 @@ async function mountPack(pack) {
   return { ok: true, steps, restartNeeded: true }
 }
 
-// ---------- 插件包市场（真实数据源） ----------
+// ---------- 插件市场（真实数据源） ----------
 
 function sanitizeTopic(topic) {
   if (typeof topic !== 'string') return null

@@ -292,7 +292,7 @@ button { font: inherit; color: inherit; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
 .footnote { font-size: 11px; color: var(--muted); }
 
-/* ===== 插件包市场（真实 GitHub 数据源）样式 ===== */
+/* ===== 插件市场（真实 GitHub 数据源）样式 ===== */
 .mkt-banner { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; }
 .mkt-banner.err { background: var(--red-soft, rgba(220,38,38,0.12)); color: var(--red, #dc2626); }
 .mkt-banner.ok { background: var(--green-soft, rgba(16,185,129,0.12)); color: var(--green, #10b981); }
@@ -384,7 +384,7 @@ button { font: inherit; color: inherit; }
 <script>
 const NAV = [
   { id: 'hub', label: '插件中枢', icon: 'box' },
-  { id: 'market', label: '插件包市场', icon: 'store' },
+  { id: 'market', label: '插件市场', icon: 'store' },
   { id: 'ai', label: 'AI 组装', icon: 'spark' },
   { id: 'memory', label: '记忆中枢', icon: 'brain' },
   { id: 'skills', label: 'Skill 管理', icon: 'spark' },
@@ -532,7 +532,7 @@ let aiResult = null;
 let checks = null;
 let dlgAction = null;
 
-/* ===== 插件包市场 · 真实 GitHub 数据源（独立静态页，浏览器内 fetch，官方 API + 多镜像全并发测速） ===== */
+/* ===== 插件市场 · 真实 GitHub 数据源（独立静态页，浏览器内 fetch，官方 API + 多镜像全并发测速） ===== */
 const MARKET_MIRRORS = [
   'https://ghfast.top/',
   'https://gh-proxy.com/',
@@ -990,7 +990,8 @@ async function loadMarket(params) {
   }
 
   // 分页去重：只抓取尚未加载的仓库，已加载的不再重复抓取
-  const loadedRepos = new Set(marketData.map((e) => e.repo));
+  // 第 1 页必须从空集开始去重，否则“刷新”时旧数据会把本次结果全部判为已加载，列表被清空
+  const loadedRepos = new Set((page === 1 ? [] : marketData).map((e) => e.repo));
   const metas = search.items.slice(0, 12).filter((m) => !loadedRepos.has(m.repo));
 
   // 立即渲染元数据卡片（详情占位），不等待详情返回
@@ -1219,6 +1220,46 @@ function marketEntryToImport(entry) {
 }
 
 /* ---- 6. 市场渲染层：卡片与页面 ---- */
+function installedPluginNames() {
+  var out = {};
+  var rows = (window.__pluginsData && window.__pluginsData.length ? window.__pluginsData : (state.plugins || []));
+  rows.forEach(function (r) {
+    if (!r) return;
+    if (r.id) out[String(r.id).toLowerCase()] = true;
+    if (r.name) out[String(r.name).toLowerCase()] = true;
+  });
+  return out;
+}
+
+function marketEntryInstalled(e) {
+  if (!e) return false;
+  var names = installedPluginNames();
+  var cands = [];
+  if (e.npmName) cands.push(e.npmName);
+  if (e.name) cands.push(e.name);
+  var m = e.manifest || {};
+  (m.plugins || []).forEach(function (p) { if (p && p.name) cands.push(p.name); });
+  return cands.some(function (c) { return names[String(c).toLowerCase()] === true; });
+}
+
+function marketInstallSpec(e) {
+  var m = e.manifest || {};
+  var plugins = Array.isArray(m.plugins) ? m.plugins : [];
+  if (e.npmName) return e.version ? e.npmName + "@" + e.version : e.npmName;
+  for (var i = 0; i < plugins.length; i++) {
+    var p = plugins[i] || {};
+    var src = p.source || {};
+    if (src.type === "github" && src.repo) {
+      return "https://codeload.github.com/" + src.repo + "/tar.gz/refs/" + (src.ref || e.ref || "main");
+    }
+    if (src.type === "npm" && p.name) {
+      return p.version && p.version !== "latest" ? p.name + "@" + p.version : p.name;
+    }
+    if (p.name && !src.type) return p.name;
+  }
+  if (e.repo) return "https://codeload.github.com/" + e.repo + "/tar.gz/refs/" + (e.ref || "main");
+  return "";
+}
 function renderMarketCard(e) {
   const accent = '#0e7c6b';
   const letter = (e.name || e.repo).trim().slice(0, 1);
@@ -1228,14 +1269,19 @@ function renderMarketCard(e) {
   metaBits.push('⭐ ' + (e.stars || 0));
   if (e.version) metaBits.push('v' + e.version);
   if (e.license) metaBits.push(e.license);
-  const hasPackBadge = pending
+  const installed = marketEntryInstalled(e);
+  const hasPackBadge = installed
+    ? '<span class="badge ok">已安装</span>'
+    : (pending
     ? '<span class="badge neutral">加载中</span>'
-    : (e.hasPack ? '<span class="badge ok">内置清单</span>' : '<span class="badge neutral">单插件</span>');
+    : (e.hasPack ? '<span class="badge ok">内置清单</span>' : '<span class="badge neutral">单插件</span>'));
   const installBtn = pending
     ? `<button class="btn sm" disabled>${ICONS.plus} 详情加载中…</button>`
-    : (e.importable
-      ? `<button class="btn sm primary" data-mkt-install="${esc(e.repo)}">${ICONS.plus} 导入</button>`
-      : `<button class="btn sm" disabled title="${esc(e.importError || '无法生成导入包')}">${ICONS.plus} 不可导入</button>`);
+    : (installed
+      ? `<span class="badge ok">${ICONS.check} 已安装</span>`
+      : (e.importable
+      ? `<button class="btn sm primary" data-mkt-install="${esc(e.repo)}">${ICONS.plus} 安装</button>`
+      : `<button class="btn sm" disabled title="${esc(e.importError || '无法生成导入包')}">${ICONS.plus} 不可导入</button>`));
   const installHtml = e.install
     ? `<details class="mkt-details"><summary>安装方法</summary><pre class="mkt-pre">${esc(e.install)}</pre></details>`
     : '';
@@ -1278,7 +1324,7 @@ function renderMarket() {
   } else {
     const list = marketData.filter((e) => matchFilters(e.topics) && (!q || (e.name || '').toLowerCase().includes(q) || (e.intro || '').toLowerCase().includes(q)));
     body = marketData.length
-      ? (list.length ? list.map(renderMarketCard).join('') : '<div class="empty">没有匹配的插座包</div>')
+      ? (list.length ? list.map(renderMarketCard).join('') : '<div class="empty">没有匹配的插件</div>')
       : '<div class="empty">暂无市场数据，请检查网络后点击刷新重试。</div>';
     if (marketLoading && marketAppending) body += `<div class="empty muted" style="padding:8px">正在加载更多…</div>`;
     if (marketData.length) statusLine = `<div class="footnote">共 ${marketTotal} 个仓库 · 已加载 ${marketData.length} · 数据源 ${marketFetchedVia || srcLabel}${marketCachedAt ? ' · 更新于 ' + new Date(marketCachedAt).toLocaleString() : ''}</div>`;
@@ -1286,7 +1332,7 @@ function renderMarket() {
 
   $('view-market').innerHTML = `
     <div class="toolbar">
-      <div class="search">${ICONS.search}<input id="marketSearch" placeholder="搜索包名/简介" value="${esc(marketQuery)}"></div>
+      <div class="search">${ICONS.search}<input id="marketSearch" placeholder="搜索插件名/简介" value="${esc(marketQuery)}"></div>
       <div class="mkt-topic-wrap">标签
         <input id="marketTopic" class="mkt-topic" placeholder="dsh-plugin" value="${esc(marketTopic)}">
       </div>
@@ -2009,13 +2055,19 @@ function installPack(id) {
 
 function installMarketEntry(repo) {
   const e = marketData.find((x) => x.repo === repo);
-  if (!e) { toast('未找到该条目'); return; }
-  if (e.importError) { toast('不可导入：' + e.importError); return; }
-  const item = marketEntryToImport(e);
-  if (isInstalled(item.packId) || state.imported.some((p) => p.id === item.packId)) { toast('该包已安装或已导入'); return; }
-  importPacks([item]);
+  if (!e) { toast("未找到该条目"); return; }
+  if (e.detailPending) { toast("详情加载中，请稍候再试"); return; }
+  if (e.importError || !e.importable) { toast("不可安装：" + (e.importError || "无可用清单")); return; }
+  if (marketEntryInstalled(e)) { toast("该插件已安装在本地插件目录"); return; }
+  const spec = marketInstallSpec(e);
+  if (!spec) { toast("无法生成插件安装源"); return; }
+  if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.postMessage("addPlugin:" + JSON.stringify({ name: spec, source: "" }));
+    toast("已提交安装：" + (e.npmName || e.name || e.repo) + "，完成后会在插件管理显示");
+  } else {
+    toast("请在 DSH Desktop 中使用该功能");
+  }
 }
-
 function togglePack(id, el) {
   const row = installedRow(id);
   if (!row) return;
