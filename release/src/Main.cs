@@ -1601,12 +1601,14 @@ namespace DSHHotplugHub
         private static ApiConfig LoadApiConfig()
         {
             ApiConfig cfg = DefaultApiConfig();
+            bool hasAppConfig = false;
             try
             {
                 // 应用自身保存的配置（api-config.json）作为基底：修复“保存后重启即丢”
                 string appCfgPath = ApiConfigPath();
                 if (File.Exists(appCfgPath))
                 {
+                    hasAppConfig = true;
                     try
                     {
                         JavaScriptSerializer ser = new JavaScriptSerializer();
@@ -1628,7 +1630,7 @@ namespace DSHHotplugHub
                 string settingsPath = Path.Combine(dshDir, "settings.yaml");
                 string credPath = Path.Combine(dshDir, ".credentials.yaml");
 
-                if (File.Exists(settingsPath))
+                if (!hasAppConfig && File.Exists(settingsPath))
                 {
                     string[] lines = File.ReadAllLines(settingsPath);
                     string section = "";
@@ -1691,7 +1693,7 @@ namespace DSHHotplugHub
                     if (deepseekModels.Count > 0) cfg.models = string.Join(",", deepseekModels.ToArray());
                 }
 
-                if (File.Exists(credPath))
+                if (string.IsNullOrEmpty(cfg.apiKey) && File.Exists(credPath))
                 {
                     foreach (string line in File.ReadAllLines(credPath))
                     {
@@ -1861,6 +1863,7 @@ namespace DSHHotplugHub
             {
                 List<string> ids = new List<string>();
                 ids.Add("DeepSeek 官方");
+                ids.Add("OpenCode");
                 string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "settings.yaml");
                 if (File.Exists(settings))
                 {
@@ -1892,6 +1895,12 @@ namespace DSHHotplugHub
             cfg.baseUrl = "https://api.deepseek.com/v1";
             cfg.models = "deepseek-chat,deepseek-reasoner";
             cfg.defaultModel = "deepseek-chat";
+            if (id == "OpenCode")
+            {
+                cfg.baseUrl = "https://opencode.ai/zen/go/v1";
+                cfg.models = "ox-alpha-free,deepseek-v4-flash";
+                cfg.defaultModel = "ox-alpha-free";
+            }
             try
             {
                 string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "settings.yaml");
