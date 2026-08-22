@@ -3,7 +3,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -44,17 +47,32 @@ namespace DSHHotplugHub
     internal sealed class MainForm : Form
     {
         private readonly WebView2 webView = new WebView2();
-        private const string APP_VERSION = "0.9.8";
+
+        // 无边框拖拽 / 圆角相关 Win32
+        [DllImport("user32.dll")]
+        private static extern bool ReleaseCapture();
+        [DllImport("user32.dll")]
+        private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateRoundRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect, int nWidthEllipse, int nHeightEllipse);
+        private const int WM_NCLBUTTONDOWN = 0xA1;
+        private const int HTCAPTION = 0x2;
+        // 无边框窗口边缘拖拽调整大小：WM_NCHITTEST 命中区
+        private const int WM_NCHITTEST = 0x84;
+        private const int HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14, HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
+        private const int resizeBorder = 6; // 边缘 6px 视为调整大小区
+
+        private const string APP_VERSION = "1.0.0";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_VERSION = "0.8.1-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
         private const string MEMORY_HUB_VERSION = "0.8.0-pre"; // 内置全局记忆插件（dsh-memory-hub）当前版本
-        private const string DSH_HUB_VERSION = "1.1.6"; // 内置插件中枢（dsh-hub）当前版本
+        private const string DSH_HUB_VERSION = "1.1.8"; // 内置插件中枢（dsh-hub）当前版本
 
-        private const string HARNESS_REPO = "myYangyunfan/dsh_desktop"; // 官方 DSH Desktop 发布源（GitHub）
         // GitHub API 结果的会话级缓存：避免每次插件列表刷新都同步打 API、离线时反复等 15s 超时
         private static readonly Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>> _githubCache =
             new Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>>();
-        private const string PANEL_REPO = "Fishquito7/dsh-skill-mcp-panel";
         // GitHub Token 不再硬编码进源码（仓库会触发 secret scanning）。
         // 有速率限制时可设置环境变量 DSH_HUB_GITHUB_TOKEN，或写入 ~/.dsh/github-token.txt。
         private static string GetGithubToken()
@@ -78,22 +96,47 @@ namespace DSHHotplugHub
             return null;
         }
         private static bool _updateNotified = false;
-        private static bool _panelUpdateNotified = false;
         private NotifyIcon _trayIcon = null;
         private bool _allowExit = false;
+        private Process _harnessProc = null;   // 官方 harness 主进程引用（用于停止）
+        private int _harnessPort = 0;          // 探测到的 harness web 端口
+        private Form _harnessEmbedForm = null; // 内嵌弹窗
+        private Form _harnessPopoutForm = null;// 跳出独立窗口
+        private CoreWebView2Environment _env = null; // 共享 WebView2 环境（内嵌/跳出窗口复用）
 
         public MainForm()
         {
             Text = "Dseam世界";
-            Width = 1180;
-            Height = 800;
+            // 默认舒适尺寸 1240x820；若上次有关闭前记录的尺寸则恢复
+            int[] saved = LoadWindowState();
+            Width = saved != null ? saved[0] : 1240;
+            Height = saved != null ? saved[1] : 820;
             MinimumSize = new Size(900, 600);
             StartPosition = FormStartPosition.CenterScreen;
+            // 无边框设计：去掉系统标题栏/边框，自绘窗口控制（最小化/关闭按钮在 UI 顶部）
+            FormBorderStyle = FormBorderStyle.None;
+            // 圆角窗口（与 UI 卡片圆角呼应）；窗口尺寸变化时重设圆角
+            Load += (s, e) =>
+            {
+                ReapplyRoundRegion();
+                // 上次是最大化关闭的，则本次恢复最大化
+                if (saved != null && saved.Length >= 3 && saved[2] == 1)
+                {
+                    WindowState = FormWindowState.Maximized;
+                }
+            };
+            Resize += (s, e) => ReapplyRoundRegion();
+            // 深色背景：避免无边框后加载/关闭瞬间露出系统白屏（也作为四周 6px 调整大小边框的颜色）
+            BackColor = Color.FromArgb(246, 247, 249);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
             catch { Icon = SystemIcons.Application; }
 
-            webView.Dock = DockStyle.Fill;
-            webView.DefaultBackgroundColor = Color.White;
+            // 关键：WebView2 不能 Dock.Fill 铺满窗口，否则鼠标在边缘命中的是 WebView2 子窗口，
+            // 窗体的 WM_NCHITTEST 收不到、边缘无法拖拽调整大小。
+            // 这里让 WebView2 四周各留 resizeBorder(=6px) 空隙，露出窗体自身作为可拖拽边框。
+            webView.DefaultBackgroundColor = Color.FromArgb(246, 247, 249);
+            webView.SetBounds(resizeBorder, resizeBorder, ClientSize.Width - resizeBorder * 2, ClientSize.Height - resizeBorder * 2);
+            webView.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
 
             Controls.Add(webView);
             Load += async delegate { await InitializeAsync(); };
@@ -101,11 +144,143 @@ namespace DSHHotplugHub
             {
                 if (_allowExit) return;
                 // 关闭窗口时隐藏到托盘，保持后台进程常驻（运行后后台也有进程）。
+                SaveWindowState();  // 记录本次窗口尺寸
+                // 主窗 Hide 前先关闭 harness 子窗体（内嵌/跳出），否则它们会被顶到前台显示成纯色空窗
+                try { if (_harnessEmbedForm != null && !_harnessEmbedForm.IsDisposed) _harnessEmbedForm.Close(); } catch { /* 有意吞掉 */ }
+                try { if (_harnessPopoutForm != null && !_harnessPopoutForm.IsDisposed) _harnessPopoutForm.Close(); } catch { /* 有意吞掉 */ }
                 e.Cancel = true;
-                Hide();
-                ShowInTaskbar = false;
+                HideMainSafely();
             };
             SetupTray();
+        }
+
+        // 无边框拖拽：从 WebView 收到 winDrag 消息时，让窗口跟随鼠标拖动
+        private void BeginWindowDrag()
+        {
+            ReleaseCapture();
+            SendMessage(Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+        }
+
+        // 解析 CSS 颜色字符串（#rrggbb / #rgb）为 Color；失败返回 null
+        private static Color? ParseCssColor(string css)
+        {
+            if (string.IsNullOrEmpty(css)) return null;
+            string s = css.Trim().TrimStart('#');
+            try
+            {
+                if (s.Length == 6)
+                {
+                    int r = Convert.ToInt32(s.Substring(0, 2), 16);
+                    int g = Convert.ToInt32(s.Substring(2, 2), 16);
+                    int b = Convert.ToInt32(s.Substring(4, 2), 16);
+                    return Color.FromArgb(r, g, b);
+                }
+                if (s.Length == 3)
+                {
+                    int r = Convert.ToInt32(new string(s[0], 2), 16);
+                    int g = Convert.ToInt32(new string(s[1], 2), 16);
+                    int b = Convert.ToInt32(new string(s[2], 2), 16);
+                    return Color.FromArgb(r, g, b);
+                }
+            }
+            catch { /* 解析失败返回 null */ }
+            return null;
+        }
+
+        // 同步窗体/WebView2 背景到页面主题色（消除四周 6px 空隙的白边框）
+        private void ApplyThemeBackground(string cssColor)
+        {
+            Color? c = ParseCssColor(cssColor);
+            if (c == null) return;
+            try
+            {
+                BackColor = c.Value;
+                webView.DefaultBackgroundColor = c.Value;
+            }
+            catch { /* 有意吞掉 */ }
+        }
+
+        // 无边框窗口：手动处理 WM_NCHITTEST 让边缘可拖拽调整大小；窗口尺寸变化时重设圆角
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_NCHITTEST)
+            {
+                // 最大化状态不允许边缘 resize，直接走 base（也避免对最大化窗口拖边缘出错）
+                if (WindowState == FormWindowState.Maximized)
+                {
+                    base.WndProc(ref m);
+                    return;
+                }
+                // 无边框窗口整个都是客户区，base 不返回 HTCAPTION，直接按鼠标屏幕坐标判断边缘
+                long lp = m.LParam.ToInt64();
+                int sx = (short)(lp & 0xFFFF);
+                int sy = (short)((lp >> 16) & 0xFFFF);
+                Point pt = PointToClient(new Point(sx, sy));
+                int w = ClientSize.Width, h = ClientSize.Height;
+                bool left = pt.X <= resizeBorder, right = pt.X >= w - resizeBorder;
+                bool top = pt.Y <= resizeBorder, bottom = pt.Y >= h - resizeBorder;
+                if (left && top) m.Result = (IntPtr)HTTOPLEFT;
+                else if (right && top) m.Result = (IntPtr)HTTOPRIGHT;
+                else if (left && bottom) m.Result = (IntPtr)HTBOTTOMLEFT;
+                else if (right && bottom) m.Result = (IntPtr)HTBOTTOMRIGHT;
+                else if (left) m.Result = (IntPtr)HTLEFT;
+                else if (right) m.Result = (IntPtr)HTRIGHT;
+                else if (top) m.Result = (IntPtr)HTTOP;
+                else if (bottom) m.Result = (IntPtr)HTBOTTOM;
+                else base.WndProc(ref m);
+                return;
+            }
+            base.WndProc(ref m);
+        }
+
+        private void ReapplyRoundRegion()
+        {
+            try
+            {
+                if (WindowState == FormWindowState.Maximized)
+                {
+                    // 最大化时去掉圆角（避免透明缺口）
+                    SetWindowRgn(Handle, IntPtr.Zero, true);
+                }
+                else
+                {
+                    IntPtr rgn = CreateRoundRectRgn(0, 0, Width, Height, 16, 16);
+                    SetWindowRgn(Handle, rgn, true);
+                }
+            }
+            catch { /* 圆角失败不影响使用 */ }
+        }
+
+        // 托盘右键菜单美化：深色主题渲染器（呼应 UI 顶部导航深色 + 蓝色强调）
+        private sealed class DarkMenuColors : ProfessionalColorTable
+        {
+            public override Color ToolStripDropDownBackground { get { return Color.FromArgb(30, 41, 59); } }
+            public override Color MenuBorder { get { return Color.FromArgb(55, 65, 81); } }
+            public override Color MenuItemBorder { get { return Color.FromArgb(37, 99, 235); } }
+            public override Color MenuItemSelected { get { return Color.FromArgb(37, 99, 235); } }
+            public override Color MenuItemSelectedGradientBegin { get { return Color.FromArgb(37, 99, 235); } }
+            public override Color MenuItemSelectedGradientEnd { get { return Color.FromArgb(29, 78, 216); } }
+            public override Color ImageMarginGradientBegin { get { return Color.FromArgb(30, 41, 59); } }
+            public override Color ImageMarginGradientMiddle { get { return Color.FromArgb(30, 41, 59); } }
+            public override Color ImageMarginGradientEnd { get { return Color.FromArgb(30, 41, 59); } }
+            public override Color SeparatorDark { get { return Color.FromArgb(55, 65, 81); } }
+            public override Color SeparatorLight { get { return Color.FromArgb(55, 65, 81); } }
+        }
+
+        private sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
+        {
+            public DarkMenuRenderer() : base(new DarkMenuColors()) { }
+            protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+            {
+                base.OnRenderMenuItemBackground(e);
+                // 圆角 hover 效果
+                if (e.Item.Selected)
+                {
+                    var rect = new Rectangle(2, 1, e.Item.Width - 4, e.Item.Height - 2);
+                    using (var b = new SolidBrush(Color.FromArgb(37, 99, 235)))
+                        e.Graphics.FillRectangle(b, rect);
+                }
+            }
         }
 
         // 托盘常驻：关闭窗口不退出，从托盘恢复或退出。
@@ -118,8 +293,27 @@ namespace DSHHotplugHub
                 try { _trayIcon.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
                 catch { _trayIcon.Icon = SystemIcons.Application; }
                 ContextMenuStrip menu = new ContextMenuStrip();
-                menu.Items.Add("打开 Dseam世界", null, delegate { ShowMainForm(); });
-                menu.Items.Add("退出", null, delegate { ExitApplication(); });
+                menu.Renderer = new DarkMenuRenderer();
+                menu.BackColor = Color.FromArgb(30, 41, 59);
+                menu.ForeColor = Color.FromArgb(229, 231, 235);
+                menu.Font = new Font("Microsoft YaHei UI", 9F);
+                menu.ShowImageMargin = false;
+                menu.Padding = new Padding(4);
+
+                var openItem = new ToolStripMenuItem("打开 Dseam世界");
+                openItem.ForeColor = Color.FromArgb(229, 231, 235);
+                openItem.Padding = new Padding(10, 6, 14, 6);
+                openItem.Click += delegate { ShowMainForm(); };
+
+                var exitItem = new ToolStripMenuItem("退出");
+                exitItem.ForeColor = Color.FromArgb(248, 113, 113);
+                exitItem.Padding = new Padding(10, 6, 14, 6);
+                exitItem.Click += delegate { ExitApplication(); };
+
+                menu.Items.Add(openItem);
+                menu.Items.Add(new ToolStripSeparator());
+                menu.Items.Add(exitItem);
+
                 _trayIcon.ContextMenuStrip = menu;
                 _trayIcon.DoubleClick += delegate { ShowMainForm(); };
                 _trayIcon.Visible = true;
@@ -135,9 +329,29 @@ namespace DSHHotplugHub
             Activate();
         }
 
+        // 安全隐藏主窗：最大化/最小化状态直接 Hide 会残留全屏纯色窗口，先还原到 Normal 再隐藏
+        private void HideMainSafely()
+        {
+            try
+            {
+                if (WindowState != FormWindowState.Normal)
+                {
+                    MaximizedBounds = Rectangle.Empty;
+                    WindowState = FormWindowState.Normal;
+                }
+            }
+            catch { /* 有意吞掉 */ }
+            try { Hide(); ShowInTaskbar = false; } catch { /* 有意吞掉 */ }
+        }
+
         private void ExitApplication()
         {
             _allowExit = true;
+            // 先关闭所有子窗体（内嵌/跳出的官方 harness 弹窗），否则主窗 Hide 后它们会被顶到前台显示成白窗
+            try { if (_harnessEmbedForm != null && !_harnessEmbedForm.IsDisposed) _harnessEmbedForm.Close(); } catch { /* 有意吞掉 */ }
+            try { if (_harnessPopoutForm != null && !_harnessPopoutForm.IsDisposed) _harnessPopoutForm.Close(); } catch { /* 有意吞掉 */ }
+            // 先还原最大化再隐藏窗口，避免全屏残留 + WebView2 释放资源瞬间露出白屏
+            HideMainSafely();
             try { _trayIcon.Visible = false; _trayIcon.Dispose(); } catch { /* 有意吞掉 */ }
             Application.Exit();
         }
@@ -154,6 +368,7 @@ namespace DSHHotplugHub
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "DSH-Hotplug-Hub", "WebView2");
                 CoreWebView2Environment env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                _env = env;
                 await webView.EnsureCoreWebView2Async(env);
 
                 webView.CoreWebView2.WebMessageReceived += async delegate (object sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -161,9 +376,87 @@ namespace DSHHotplugHub
                     try
                     {
                         string message = e.TryGetWebMessageAsString();
-                        if (message == "launch")
+                        if (message != null && message.StartsWith("themeBg:"))
                         {
-                            LaunchOfficialHarness();
+                            // 页面主题背景色回传：同步窗体/WebView2 背景，消除四周 6px 白边框
+                            string bg = message.Substring("themeBg:".Length).Trim();
+                            ApplyThemeBackground(bg);
+                        }
+                        else if (message == "winDrag")
+                        {
+                            // 延后到消息循环稳定后执行拖拽，避免 WebView2 仍持有鼠标状态导致拖拽失效
+                            BeginInvoke((Action)(() => BeginWindowDrag()));
+                        }
+                        else if (message == "winMin")
+                        {
+                            WindowState = FormWindowState.Minimized;
+                        }
+                        else if (message == "winClose")
+                        {
+                            // 无边框自绘关闭按钮 → 与系统关闭一致：隐藏到托盘
+                            // 主窗 Hide 前先关闭 harness 子窗体（内嵌/跳出），否则它们会被顶到前台显示成纯色空窗
+                            try { if (_harnessEmbedForm != null && !_harnessEmbedForm.IsDisposed) _harnessEmbedForm.Close(); } catch { /* 有意吞掉 */ }
+                            try { if (_harnessPopoutForm != null && !_harnessPopoutForm.IsDisposed) _harnessPopoutForm.Close(); } catch { /* 有意吞掉 */ }
+                            HideMainSafely();
+                        }
+                        else if (message == "winMax")
+                        {
+                            // 无边框自绘最大化/还原按钮
+                            if (WindowState == FormWindowState.Maximized)
+                            {
+                                MaximizedBounds = Rectangle.Empty;
+                                WindowState = FormWindowState.Normal;
+                            }
+                            else
+                            {
+                                // 最大化时只占屏幕工作区（留出底部任务栏）
+                                MaximizedBounds = Screen.FromHandle(Handle).WorkingArea;
+                                WindowState = FormWindowState.Maximized;
+                            }
+                        }
+                        else if (message == "launch")
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在启动 dsh 服务…');");
+                            int port = await Task.Run(() => {
+                                bool ok = LaunchOfficialHarness();
+                                return ok ? _harnessPort : 0;
+                            });
+                            if (port > 0)
+                            {
+                                // 等待端口就绪（dsh web 启动需数秒）
+                                bool ready = await Task.Run(() => WaitForPortReady(port, 20000));
+                                if (ready)
+                                {
+                                    // 启动成功后自动弹出独立对话窗口（承载官方界面，UI 随官方更新）
+                                    await OpenHarnessPopout();
+                                }
+                                else
+                                {
+                                    await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('dsh 服务启动超时，请到自检页点「一键修复环境」排查');");
+                                }
+                            }
+                            else
+                            {
+                                await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('未启动 dsh（未找到 dsh CLI 或已取消）');");
+                            }
+                        }
+                        else if (message == "harnessEmbed")
+                        {
+                            OpenHarnessEmbed();
+                        }
+                        else if (message == "harnessPopout")
+                        {
+                            await OpenHarnessPopout();
+                        }
+                        else if (message == "harnessStop")
+                        {
+                            StopOfficialHarness();
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('官方 DSH 已停止');");
+                        }
+                        else if (message == "harnessEnv")
+                        {
+                            string envResult = await Task.Run(() => EnsureEnvironmentAuto());
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(envResult) + ");");
                         }
                         else if (message == "recheck")
                         {
@@ -182,21 +475,38 @@ namespace DSHHotplugHub
                                 await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                             }
                         }
-                        else if (message == "downloadHarness")
-                        {
-                            OpenOfficialDownloadPage();
-                        }
                         else if (message == "installHarness")
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在获取官方 DSH Desktop 安装包（约 70MB），请稍候…');");
-                            string harnessResult = await Task.Run(() => InstallOrUpdateHarness());
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在更新官方 dsh CLI 到最新版（@deepseek-ai/dsh），请稍候…');");
+                            string harnessResult = await Task.Run(() => UpdateDshCli());
                             await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(harnessResult) + ");");
                             ClearGitHubCache();
                             await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                         }
+                        else if (message == "repairConfig")
+                        {
+                            DialogResult confirm = MessageBox.Show(
+                                "确定要修复 dsh 配置文件吗？\n\n将检查并修复 ~/.dsh 下已知的损坏：\n· settings.yaml 重复键\n· .credentials.yaml 格式错误\n\n修复会直接改写这些文件。",
+                                "Dseam世界 · 修复配置", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                            if (confirm == DialogResult.Yes)
+                            {
+                                await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在修复 dsh 配置文件…');");
+                                string repairResult = await Task.Run(() => RepairDshConfig());
+                                await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(repairResult) + ");");
+                                await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
+                            }
+                        }
+                        else if (message == "setEnvMode")
+                        {
+                            // 前端会发 setEnvMode:windows 或 setEnvMode:wsl
+                            string newMode = message.Length > "setEnvMode:".Length ? message.Substring("setEnvMode:".Length) : "";
+                            SetEnvMode(newMode == "wsl" ? "wsl" : "windows");
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('dsh 环境已切换为：" + (newMode == "wsl" ? "WSL 子系统" : "Windows 本机") + "');");
+                            await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
+                        }
                         else if (message == "autoInstallEnv")
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在检查并修复 Node/pnpm/官方客户端环境，可能需要几分钟…');");
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在检查并修复 Node/pnpm/dsh 环境，可能需要几分钟…');");
                             string envResult = await Task.Run(() => EnsureHarnessEnvironment());
                             await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(envResult) + ");");
                             ClearGitHubCache();
@@ -377,24 +687,17 @@ namespace DSHHotplugHub
                             await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildApiIntegrationScript());
                             await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory=function(d){window.__memoryData=d||[];if(typeof renderMemory==='function')renderMemory();if(typeof renderShell==='function')renderShell();};window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setSkillSource=function(d){window.__skillSourceData=d||null;if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.__setPlugins=function(d){window.__pluginsData=d||[];if(typeof renderPlugins==='function')renderPlugins();if(typeof renderMarket==='function')renderMarket();};window.chrome.webview.postMessage('listMemory');window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listSkillSource');window.chrome.webview.postMessage('listMcp');window.chrome.webview.postMessage('listPlugins');");
+                            // 同步窗体背景到页面主题色（消除四周 6px 空隙的白边框）
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.chrome.webview.postMessage('themeBg:'+getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());");
                             string latestCheck = null;
-                            string panelInstalledCheck = null;
                             await Task.Run(delegate
                             {
                                 latestCheck = GetLatestReleaseVersion();
-                                panelInstalledCheck = GetInstalledPanelVersion();
                             });
                             if (!_updateNotified && !string.IsNullOrEmpty(latestCheck) && IsNewerVersion(latestCheck, APP_VERSION))
                             {
                                 _updateNotified = true;
                                 await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('发现新版本 v" + latestCheck + "，请到 自检更新 下载');");
-                            }
-                            string panelLatestCheck = PANEL_VERSION;
-                            if (!_panelUpdateNotified && !string.IsNullOrEmpty(panelLatestCheck)
-                                && !string.IsNullOrEmpty(panelInstalledCheck) && IsNewerVersion(panelLatestCheck, panelInstalledCheck))
-                            {
-                                _panelUpdateNotified = true;
-                                await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('内置 Skill/MCP 管理器可更新到 v" + panelLatestCheck + "，请到 自检更新 安装');");
                             }
                         }
                     }
@@ -431,32 +734,11 @@ namespace DSHHotplugHub
             }
         }
 
-        // 左侧栏底部版本信息上方注入居中启动按钮；同时补上原型缺失的 .hidden 规则，让左侧导航真正切换视图
+        // 仅补上原型缺失的 .hidden 规则（视图切换依赖）；不再注入折叠启动器（启动/选择/配置已并入主页）
         private static string InjectSidebarLaunchButton(string html)
         {
-            string style = "<style>" +
-                ".hidden { display: none !important; }" +
-                ".side-launch { margin: 4px 0 12px; text-align: center; }" +
-                ".side-launch .launch-btn {" +
-                " width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;" +
-                " background: #0e7c6b; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;" +
-                " }" +
-                ".side-launch .launch-btn:hover { background: #0a6a5c; }" +
-                ".side-launch .launch-btn.secondary { background: transparent; border: 1px solid rgba(255,255,255,0.35); color: #e7f0ec; margin-top: 8px; }" +
-                ".side-launch .launch-btn.secondary:hover { background: rgba(255,255,255,0.08); }" +
-                "</style>";
-
-            string buttonHtml =
-                "<div class=\"side-launch\">" +
-                "<button class=\"launch-btn\" style=\"margin-bottom:8px\" onclick=\"if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('openApiConfig');}\">⚙ DSH API 配置</button>" +
-                "<button class=\"launch-btn\" onclick=\"if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('launch');}\">▶ 启动 DSH 官方启动器</button>" +
-                "<button class=\"launch-btn secondary\" onclick=\"if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('chooseHarness');}\">📁 选择桌面端</button>" +
-                "</div>";
-
+            string style = "<style>.hidden { display: none !important; }</style>";
             html = html.Replace("</head>", style + "</head>");
-            html = html.Replace(
-                "<div class=\"side-foot\" id=\"sideFoot\"></div>",
-                buttonHtml + "<div class=\"side-foot\" id=\"sideFoot\"></div>");
             return html;
         }
 
@@ -467,30 +749,35 @@ namespace DSHHotplugHub
             string pnpm = GetPnpmVersion();
             string dshDesktop = FindOfficialHarness();
             string dshVersion = GetDshCoreVersion();
+            string dshCli = FindDshCommand() != null ? "ok" : null;
             string wv = null;
             try { wv = CoreWebView2Environment.GetAvailableBrowserVersionString(); } catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             string profiles = DetectProfiles();
             string latest = GetLatestReleaseVersion();
+            string dshLatest = GetLatestDshCliVersion();
             string panelInstalled = GetInstalledPanelVersion();
             string panelLatest = PANEL_VERSION;
+            string envMode = GetEnvMode();
+            string wslAvailable = WslAvailable() ? "ok" : null;
+            string wslDsh = WslDshAvailable() ? "ok" : null;
 
-            Dictionary<string, string> harnessInfo = GetHarnessReleaseInfo();
-            string harnessLatest = harnessInfo != null && harnessInfo.ContainsKey("latest") ? harnessInfo["latest"] : null;
-            string harnessInstalled = GetInstalledHarnessVersion();
             string js =
                 "window.__nativeSelfCheck={" +
                 "node:" + JsString(node) + "," +
                 "pnpm:" + JsString(pnpm) + "," +
                 "dshDesktop:" + JsString(dshDesktop) + "," +
                 "dshVersion:" + JsString(dshVersion) + "," +
+                "dshCli:" + JsString(dshCli) + "," +
                 "webview2:" + JsString(wv) + "," +
                 "profiles:" + JsString(profiles) + "," +
                 "appVersion:" + JsString(APP_VERSION) + "," +
                 "latestVersion:" + JsString(latest) + "," +
+                "dshLatest:" + JsString(dshLatest) + "," +
                 "panelInstalled:" + JsString(panelInstalled) + "," +
                 "panelLatest:" + JsString(panelLatest) + "," +
-                "harnessLatest:" + JsString(harnessLatest) + "," +
-                "harnessInstalled:" + JsString(harnessInstalled) +
+                "envMode:" + JsString(envMode) + "," +
+                "wslAvailable:" + JsString(wslAvailable) + "," +
+                "wslDsh:" + JsString(wslDsh) +
                 "};" +
                 "if(window.__nativeSelfCheck.dshVersion){state.dshVersion=window.__nativeSelfCheck.dshVersion;if(window.__nativeSelfCheck.latestVersion){state.latestVersion=window.__nativeSelfCheck.latestVersion;}if(typeof renderShell==='function')renderShell();}" +
                 "if(window.__nativeSelfCheck.panelInstalled||window.__nativeSelfCheck.panelLatest){state.panelInstalled=window.__nativeSelfCheck.panelInstalled||state.panelInstalled||null;state.panelLatest=window.__nativeSelfCheck.panelLatest||state.panelLatest||null;}" +
@@ -500,12 +787,12 @@ namespace DSHHotplugHub
                 "for(var i=0;i<r.length;i++){" +
                 "if(r[i].name==='Node.js'){r[i].val=window.__nativeSelfCheck.node||'未检测到';r[i].text=window.__nativeSelfCheck.node?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.node?'ok':'err';}" +
                 "if(r[i].name==='pnpm'){r[i].val=window.__nativeSelfCheck.pnpm||'未检测到';r[i].text=window.__nativeSelfCheck.pnpm?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.pnpm?'ok':'err';}" +
-                "if(r[i].name==='DSH 版本'){var dv=window.__nativeSelfCheck.dshVersion||'';var hv=window.__nativeSelfCheck.harnessInstalled||'';var hl=window.__nativeSelfCheck.harnessLatest||'';r[i].val=dv||r[i].val;if(window.__nativeSelfCheck.dshDesktop){if(hl&&hv&&nv(hl,hv)>0){r[i].text='官方 Harness 可更新至 v'+hl;r[i].status='update';}else{r[i].text='官方 Harness 已安装'+(hv?' v'+hv:'');r[i].status='ok';}}else if(dv){r[i].text='本地 DSH（CLI/全局安装）';r[i].status='ok';}else{r[i].text='未检测到 DSH（可自动安装官方客户端）';r[i].status='warn';}}" +
+                "if(r[i].name==='DSH 版本'){var dv=window.__nativeSelfCheck.dshVersion||'';var dl=window.__nativeSelfCheck.dshLatest||'';r[i].val=dv||r[i].val;if(dv){r[i].text='当前 v'+dv+(dl&&dl!==dv?' · 最新 v'+dl:'');r[i].status='ok';}else{r[i].text='未检测到 dsh CLI（可自动安装）';r[i].status='warn';}}" +
                 "if(r[i].name==='官方 Skill/MCP 面板'){var pi=window.__nativeSelfCheck.panelInstalled;var pl=window.__nativeSelfCheck.panelLatest;r[i].val=pi||'未安装';if(!pi){r[i].status='warn';r[i].text='可安装 v'+(pl||'?');}else if(pl&&pi!==pl){r[i].status='update';r[i].text='可更新至 v'+pl;}else{r[i].status='ok';r[i].text='已最新';}}" +
                 "}" +
                 "if(window.__nativeSelfCheck.webview2){r.push({name:'WebView2',desc:'桌面渲染内核',val:window.__nativeSelfCheck.webview2,status:'ok',text:'可用'});}" +
                 "if(window.__nativeSelfCheck.profiles){r.push({name:'本地 DSH Profile',desc:'~/.dsh/profiles 探测',val:window.__nativeSelfCheck.profiles,status:'ok',text:'已探测'});}" +
-                "if(window.__nativeSelfCheck.dshDesktop){r.push({name:'官方 Harness 路径',desc:'当前启动器',val:window.__nativeSelfCheck.dshDesktop,status:'ok',text:'已选择'});}" +
+                "if(window.__nativeSelfCheck.dshCli){r.push({name:'dsh CLI',desc:'官方 DeepSeek Harness 命令行',val:window.__nativeSelfCheck.dshVersion||'已安装',status:'ok',text:'可用'});}" +
                 "if(window.__nativeSelfCheck.appVersion){r.push({name:'本程序版本',desc:'当前安装版本',val:window.__nativeSelfCheck.appVersion,status:'ok',text:'v'+window.__nativeSelfCheck.appVersion});}" +
                 "if(window.__nativeSelfCheck.latestVersion){var nCmp=nv(window.__nativeSelfCheck.latestVersion,window.__nativeSelfCheck.appVersion);r.push({name:'最新版本',desc:'GitHub 最新发布',val:window.__nativeSelfCheck.latestVersion,status:nCmp>0?'warn':'ok',text:nCmp>0?'可更新':'已最新'});}" +
                 "return r;};" +
@@ -632,48 +919,445 @@ namespace DSHHotplugHub
             }
         }
 
-        private static void LaunchOfficialHarness()
+        private bool LaunchOfficialHarness()
         {
-            string harnessPath = FindOfficialHarness();
-            if (harnessPath == null)
+            // 已在运行且端口已知：直接返回（聚焦交给内嵌/跳出按钮）
+            if (_harnessProc != null && !_harnessProc.HasExited && _harnessPort > 0)
             {
+                return true;
+            }
+
+            string[] dshCmd = FindDshCommand();
+            if (dshCmd == null || dshCmd.Length < 2)
+            {
+                // 未找到 dsh CLI，尝试自动装环境（Node/pnpm/dsh），不再拉起第三方桌面壳
                 DialogResult choose = MessageBox.Show(
-                    "未找到官方 DSH 桌面端（DSH Desktop / DeepSeek Harness）。\n\n是否手动选择 DSH 桌面端启动程序？",
+                    "未找到 dsh（DeepSeek Harness CLI）。\n\n是否自动检查并安装 Node / pnpm / dsh 环境？",
                     "Dseam世界", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-                if (choose == DialogResult.Yes)
+                if (choose != DialogResult.Yes) return false;
+                string envResult = EnsureDshCliEnvironment();
+                dshCmd = FindDshCommand();
+                if (dshCmd == null || dshCmd.Length < 2)
                 {
-                    harnessPath = ChooseHarnessManually();
-                }
-                if (harnessPath == null)
-                {
-                    MessageBox.Show("未选择官方 DSH 桌面端。", "Dseam世界",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-            }
-
-            string processName = Path.GetFileNameWithoutExtension(harnessPath);
-            Process[] running = Process.GetProcessesByName(processName);
-            if (running.Length > 0)
-            {
-                foreach (Process p in running)
-                {
-                    if (p.MainWindowHandle != IntPtr.Zero)
-                    {
-                        SetForegroundWindow(p.MainWindowHandle);
-                        return;
-                    }
+                    MessageBox.Show("环境安装后仍未找到 dsh，请重启程序后重试。\n\n" + envResult,
+                        "Dseam世界", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return false;
                 }
             }
 
+            // 选一个空闲端口，直接起官方 web 服务（dsh web）
+            int port = GetFreeTcpPort();
+            if (port <= 0) port = 61890;
+
+            string args = dshCmd[1] + " web --host 127.0.0.1 --port " + port + " --no-open";
             try
             {
-                Process.Start(new ProcessStartInfo(harnessPath) { UseShellExecute = true });
+                ProcessStartInfo psi = new ProcessStartInfo(dshCmd[0], args);
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                _harnessProc = Process.Start(psi);
+                _harnessPort = port;
+                return true;
             }
             catch (Exception ex)
             {
-                MessageBox.Show("启动官方 DSH 桌面端失败：\n" + ex.Message, "Dseam世界",
+                MessageBox.Show("启动 dsh web 服务失败：\n" + ex.Message, "Dseam世界",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
+        }
+
+        // 轮询等待端口开始监听（dsh web 启动需要数秒）；超时返回 false
+        private static bool WaitForPortReady(int port, int timeoutMs)
+        {
+            if (port <= 0) return false;
+            DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            while (DateTime.UtcNow < deadline)
+            {
+                try
+                {
+                    foreach (var l in IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners())
+                    {
+                        if (l.Port == port && (l.Address.Equals(IPAddress.Loopback) || l.Address.Equals(IPAddress.Any)))
+                            return true;
+                    }
+                }
+                catch { /* 继续轮询 */ }
+                Thread.Sleep(500);
+            }
+            return false;
+        }
+
+        // 动态探测官方 harness 的 web 监听端口（官方最新版用 --port 0 随机端口，不能硬编码）
+        // 策略：扫描 harness 进程树所有进程监听的 127.0.0.1 端口，取最新出现的 http 服务端口。
+        private int DetectHarnessPort()
+        {
+            // 1. 我们启动 dsh web 时已知端口（最可靠），优先返回
+            if (_harnessPort > 0)
+            {
+                // 确认进程还在，端口仍被监听
+                if (_harnessProc != null && !_harnessProc.HasExited) return _harnessPort;
+                try
+                {
+                    foreach (var l in IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners())
+                    {
+                        if (l.Port == _harnessPort && (l.Address.Equals(IPAddress.Loopback) || l.Address.Equals(IPAddress.Any)))
+                            return _harnessPort;
+                    }
+                }
+                catch { /* 探测失败，继续走兜底 */ }
+            }
+
+            // 2. 兜底：扫描本机监听端口，取监听于 127.0.0.1 / 0.0.0.0 的端口，返回最大的（最新启动通常端口递增）
+            var candidates = new List<int>();
+            try
+            {
+                foreach (var l in IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners())
+                {
+                    if (l.Address.Equals(IPAddress.Loopback) || l.Address.Equals(IPAddress.Any))
+                    {
+                        candidates.Add(l.Port);
+                    }
+                }
+            }
+            catch { /* 探测失败返回 0 */ }
+            candidates.Sort();
+            return candidates.Count > 0 ? candidates[candidates.Count - 1] : 0;
+        }
+
+        // 停止官方 harness（终止进程树）
+        private void StopOfficialHarness()
+        {
+            try
+            {
+                // 杀掉我们启动的 dsh web 进程树（cmd/node 会 fork 子进程，用 taskkill /T 递归）
+                if (_harnessProc != null)
+                {
+                    try
+                    {
+                        if (!_harnessProc.HasExited)
+                        {
+                            RunCli("taskkill", "/F /T /PID " + _harnessProc.Id);
+                        }
+                    }
+                    catch { /* 有意吞掉 */ }
+                }
+            }
+            catch { /* 有意吞掉 */ }
+            _harnessProc = null;
+            _harnessPort = 0;
+        }
+
+        // 内嵌弹窗：加载官方 harness web UI
+        private async void OpenHarnessEmbed()
+        {
+            // 若已有内嵌窗，聚焦
+            if (_harnessEmbedForm != null && !_harnessEmbedForm.IsDisposed)
+            {
+                _harnessEmbedForm.Activate();
+                return;
+            }
+            int port = DetectHarnessPort();
+            if (port == 0)
+            {
+                MessageBox.Show("官方 DSH 桌面端尚未运行或未检测到其 Web 服务端口。\n请先在主页点击「启动 DSH」。", "Dseam世界",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            _harnessPort = port;
+            _harnessEmbedForm = BuildHarnessForm("官方 DSH · 内嵌", new Size(1080, 720), false);
+            _harnessEmbedForm.FormClosed += delegate { _harnessEmbedForm = null; };
+            await ((BorderlessHarnessForm)_harnessEmbedForm).WebView.EnsureCoreWebView2Async(_env);
+            ((BorderlessHarnessForm)_harnessEmbedForm).WebView.CoreWebView2.Navigate("http://127.0.0.1:" + port + "/");
+            ((BorderlessHarnessForm)_harnessEmbedForm).BringTitleBarToFront();
+            _harnessEmbedForm.Show();
+        }
+
+        // 跳出独立窗口：新窗口加载官方 harness web UI
+        private async Task OpenHarnessPopout()
+        {
+            if (_harnessPopoutForm != null && !_harnessPopoutForm.IsDisposed)
+            {
+                _harnessPopoutForm.Activate();
+                return;
+            }
+            int port = DetectHarnessPort();
+            if (port == 0)
+            {
+                MessageBox.Show("dsh 服务尚未运行或未检测到其 Web 服务端口。", "Dseam世界",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            _harnessPort = port;
+            _harnessPopoutForm = BuildHarnessForm("DSH 对话", new Size(1280, 800), true);
+            _harnessPopoutForm.FormClosed += delegate { _harnessPopoutForm = null; };
+            await ((BorderlessHarnessForm)_harnessPopoutForm).WebView.EnsureCoreWebView2Async(_env);
+            ((BorderlessHarnessForm)_harnessPopoutForm).WebView.CoreWebView2.Navigate("http://127.0.0.1:" + port + "/");
+            ((BorderlessHarnessForm)_harnessPopoutForm).BringTitleBarToFront();
+            _harnessPopoutForm.Show();
+        }
+
+        // 构建承载官方 web UI 的无边框窗体（圆角 + 标题栏拖动 + 边缘缩放 + 自绘窗口控制，沿用主窗设计）
+        private BorderlessHarnessForm BuildHarnessForm(string title, Size size, bool independent)
+        {
+            var f = new BorderlessHarnessForm(title, this.Icon, size);
+            f.StartPosition = independent ? FormStartPosition.CenterScreen : FormStartPosition.CenterParent;
+            f.ShowInTaskbar = independent;
+            return f;
+        }
+
+        // 无边框 harness 承载窗体：与主窗一致的设计语言（圆角、拖动、边缘缩放、自绘标题栏）
+        private sealed class BorderlessHarnessForm : Form
+        {
+            public readonly WebView2 WebView = new WebView2();
+            private const int TITLE_H = 36;
+            private readonly Panel _titleBar;
+            private readonly Button _btnMin;
+            private readonly Button _btnMax;
+            private readonly Button _btnClose;
+
+            public BorderlessHarnessForm(string title, Icon icon, Size defaultSize)
+            {
+                Text = title;
+                FormBorderStyle = FormBorderStyle.None;
+                BackColor = Color.FromArgb(30, 41, 59);
+                try { Icon = icon; } catch { /* 图标加载失败不影响使用 */ }
+
+                // 恢复上次窗口尺寸（默认用传入的 defaultSize）
+                int[] saved = LoadState();
+                Size = saved != null ? new Size(saved[0], saved[1]) : defaultSize;
+                MinimumSize = new Size(640, 480);
+
+                // 自绘标题栏：深色 + 标题 + 最小化/最大化/关闭按钮（沿用主窗顶部导航深色 + 强调色）
+                _titleBar = new Panel();
+                _titleBar.Dock = DockStyle.Top;
+                _titleBar.Height = TITLE_H;
+                _titleBar.BackColor = Color.FromArgb(30, 41, 59);
+
+                var titleLabel = new Label();
+                titleLabel.Text = title;
+                titleLabel.ForeColor = Color.FromArgb(229, 231, 235);
+                titleLabel.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
+                titleLabel.AutoSize = false;
+                titleLabel.TextAlign = ContentAlignment.MiddleLeft;
+                titleLabel.Left = 12;
+                titleLabel.Top = 0;
+                titleLabel.Height = TITLE_H;
+                titleLabel.Width = 300;
+                titleLabel.Cursor = Cursors.SizeAll;
+
+                // 按钮文字用 Windows 字体必显示的字符（— 最小化 / □ 最大化 / × 关闭）
+                _btnMin = MakeTitleButton("—", (s, e) => { WindowState = FormWindowState.Minimized; });
+                _btnMax = MakeTitleButton("□", (s, e) => ToggleMaximize());
+                _btnClose = MakeTitleButton("×", (s, e) => { Close(); }, true);
+                _btnMin.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                _btnMax.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                _btnClose.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+
+                _titleBar.Controls.Add(titleLabel);
+                _titleBar.Controls.Add(_btnMin);
+                _titleBar.Controls.Add(_btnMax);
+                _titleBar.Controls.Add(_btnClose);
+                _titleBar.SizeChanged += (s, e) => LayoutTitleButtons();
+                LayoutTitleButtons();
+
+                // 标题栏空白处拖动窗口（按钮不冒泡，点击按钮不触发拖动）
+                // 关键：与主窗一致，用 BeginInvoke 延后到消息循环稳定后再拖，否则 WebView2 仍持有鼠标状态会导致"松手才生效"
+                _titleBar.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) BeginDrag(); };
+                titleLabel.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) BeginDrag(); };
+
+                WebView.DefaultBackgroundColor = Color.FromArgb(30, 41, 59);
+                Controls.Add(WebView);
+                Controls.Add(_titleBar);
+
+                Load += (s, e) =>
+                {
+                    LayoutWebView();
+                    ReapplyRound();
+                    if (saved != null && saved.Length >= 3 && saved[2] == 1)
+                    {
+                        MaximizedBounds = Screen.FromHandle(Handle).WorkingArea;
+                        WindowState = FormWindowState.Maximized;
+                        _btnMax.Text = "❐";
+                    }
+                };
+                // WebView 布局须在 ClientSize 就绪后（Load/Resize）计算，构造时 ClientSize 未就绪会算错导致覆盖标题栏/边缘
+                Resize += (s, e) => LayoutWebView();
+                // 圆角只在拖动结束时重设（Resize 里频繁 SetWindowRgn 会引发闪烁）
+                ResizeEnd += (s, e) => ReapplyRound();
+                FormClosing += (s, e) => SaveState();
+            }
+
+            private void LayoutTitleButtons()
+            {
+                _btnClose.Left = _titleBar.Width - 46;
+                _btnMax.Left = _titleBar.Width - 92;
+                _btnMin.Left = _titleBar.Width - 138;
+            }
+
+            // WebView 四周留 6px 裸窗体边缘 + 顶部让位给标题栏，供 WM_NCHITTEST 识别边缘缩放
+            private void LayoutWebView()
+            {
+                WebView.SetBounds(
+                    resizeBorder,
+                    TITLE_H + resizeBorder,
+                    Math.Max(1, ClientSize.Width - resizeBorder * 2),
+                    Math.Max(1, ClientSize.Height - TITLE_H - resizeBorder * 2));
+            }
+
+            // 最大化/还原：最大化时留出任务栏（WorkingArea），还原时清空边界
+            private void ToggleMaximize()
+            {
+                if (WindowState == FormWindowState.Maximized)
+                {
+                    MaximizedBounds = Rectangle.Empty;
+                    WindowState = FormWindowState.Normal;
+                    _btnMax.Text = "□";
+                }
+                else
+                {
+                    MaximizedBounds = Screen.FromHandle(Handle).WorkingArea;
+                    WindowState = FormWindowState.Maximized;
+                    _btnMax.Text = "❐";
+                }
+            }
+
+            private Button MakeTitleButton(string text, EventHandler onClick, bool danger = false)
+            {
+                var b = new Button();
+                b.Text = text;
+                b.FlatStyle = FlatStyle.Flat;
+                b.FlatAppearance.BorderSize = 0;
+                b.FlatAppearance.MouseOverBackColor = danger ? Color.FromArgb(220, 38, 38) : Color.FromArgb(55, 65, 81);
+                b.BackColor = Color.FromArgb(30, 41, 59);
+                b.ForeColor = danger ? Color.FromArgb(248, 113, 113) : Color.FromArgb(229, 231, 235);
+                b.Font = new Font("Segoe UI", 10F, FontStyle.Regular);
+                b.Size = new Size(40, TITLE_H);
+                b.Top = 0;
+                b.Cursor = Cursors.Hand;
+                b.Click += onClick;
+                return b;
+            }
+
+            private void BeginDrag()
+            {
+                // 延后到消息循环稳定后执行拖拽，避免 WebView2 仍持有鼠标状态导致拖拽失效
+                try { BeginInvoke((Action)(() => DragWindow())); } catch { /* 有意吞掉 */ }
+            }
+
+            private void DragWindow()
+            {
+                ReleaseCapture();
+                SendMessage(Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+            }
+
+            private void ReapplyRound()
+            {
+                try
+                {
+                    if (WindowState == FormWindowState.Maximized)
+                    {
+                        SetWindowRgn(Handle, IntPtr.Zero, true);
+                    }
+                    else
+                    {
+                        IntPtr rgn = CreateRoundRectRgn(0, 0, Width, Height, 16, 16);
+                        SetWindowRgn(Handle, rgn, true);
+                    }
+                }
+                catch { /* 圆角失败不影响使用 */ }
+            }
+
+            // ---- 窗口尺寸持久化（独立文件，不与主窗冲突） ----
+            private static string StatePath()
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DSH-Hotplug-Hub", "harness-window-state.txt");
+            }
+
+            private static int[] LoadState()
+            {
+                try
+                {
+                    string text = File.ReadAllText(StatePath()).Trim();
+                    string[] parts = text.Split('|');
+                    if (parts.Length >= 2)
+                    {
+                        int w, h;
+                        if (int.TryParse(parts[0], out w) && int.TryParse(parts[1], out h) && w >= 640 && h >= 480)
+                        {
+                            int max = parts.Length >= 3 && parts[2] == "1" ? 1 : 0;
+                            return new int[] { w, h, max };
+                        }
+                    }
+                }
+                catch { /* 无记录则用默认尺寸 */ }
+                return null;
+            }
+
+            private void SaveState()
+            {
+                try
+                {
+                    // 记录还原尺寸（最大化/最小化时 RestoreBounds 才是用户拖到的大小）
+                    Rectangle r = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+                    if (r.Width < 640 || r.Height < 480) return;
+                    string file = StatePath();
+                    Directory.CreateDirectory(Path.GetDirectoryName(file));
+                    File.WriteAllText(file, r.Width + "|" + r.Height + "|" + (WindowState == FormWindowState.Maximized ? "1" : "0"));
+                }
+                catch { /* 有意吞掉 */ }
+            }
+
+            // WebView2 的 native 子窗口创建后可能覆盖标题栏，这里把标题栏重新置顶（确保按钮可见可点）
+            public void BringTitleBarToFront()
+            {
+                try { _titleBar.BringToFront(); } catch { /* 有意吞掉 */ }
+            }
+
+            protected override void WndProc(ref Message m)
+            {
+                if (m.Msg == WM_NCHITTEST)
+                {
+                    if (WindowState == FormWindowState.Maximized)
+                    {
+                        base.WndProc(ref m);
+                        return;
+                    }
+                    long lp = m.LParam.ToInt64();
+                    int sx = (short)(lp & 0xFFFF);
+                    int sy = (short)((lp >> 16) & 0xFFFF);
+                    Point pt = PointToClient(new Point(sx, sy));
+                    int w = ClientSize.Width, h = ClientSize.Height;
+                    bool left = pt.X <= resizeBorder, right = pt.X >= w - resizeBorder;
+                    bool top = pt.Y <= resizeBorder, bottom = pt.Y >= h - resizeBorder;
+                    if (left && top) m.Result = (IntPtr)HTTOPLEFT;
+                    else if (right && top) m.Result = (IntPtr)HTTOPRIGHT;
+                    else if (left && bottom) m.Result = (IntPtr)HTBOTTOMLEFT;
+                    else if (right && bottom) m.Result = (IntPtr)HTBOTTOMRIGHT;
+                    else if (left) m.Result = (IntPtr)HTLEFT;
+                    else if (right) m.Result = (IntPtr)HTRIGHT;
+                    else if (top) m.Result = (IntPtr)HTTOP;
+                    else if (bottom) m.Result = (IntPtr)HTBOTTOM;
+                    else base.WndProc(ref m);
+                    return;
+                }
+                base.WndProc(ref m);
+            }
+        }
+
+        // 环境自检并自动安装（Node/pnpm/官方客户端）：返回给前端的文案
+        private string EnsureEnvironmentAuto()
+        {
+            try
+            {
+                string env = EnsureHarnessEnvironment();
+                return string.IsNullOrEmpty(env) ? "环境已就绪" : env;
+            }
+            catch (Exception ex)
+            {
+                return "环境检查失败：" + ex.Message;
             }
         }
 
@@ -691,19 +1375,6 @@ namespace DSHHotplugHub
                 }
             }
             return null;
-        }
-
-        private static void OpenOfficialDownloadPage()
-        {
-            try
-            {
-                Process.Start("https://github.com/" + HARNESS_REPO + "/releases/latest");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("打开官方下载页失败：\n" + ex.Message, "Dseam世界",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
         }
 
         private static void OpenProjectDownloadPage()
@@ -809,38 +1480,33 @@ namespace DSHHotplugHub
             return null;
         }
 
-
-        // ---------- 官方 Skill/MCP 面板插件（dsh-skill-mcp-panel）安装与自动更新 ----------
-
-        private static Dictionary<string, string> GetPanelReleaseInfo()
+        // dsh CLI（@deepseek-ai/dsh）最新版本：官方 deepseek-ai/deepseek-harness 仓库无 release，
+        // 最新版本从 npm registry 查（与 dsh 实际分发渠道一致）。
+        private static string GetLatestDshCliVersion()
         {
-            Dictionary<string, object> root = GitHubGetJsonCached("https://api.github.com/repos/" + PANEL_REPO + "/releases/latest", 10);
-            if (root == null) return null;
-            Dictionary<string, string> info = new Dictionary<string, string>();
-            if (root.ContainsKey("tag_name"))
+            try
             {
-                info["latest"] = Convert.ToString(root["tag_name"]).TrimStart('v');
-            }
-            if (root.ContainsKey("assets"))
-            {
-                object[] assets = root["assets"] as object[];
-                if (assets != null)
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://registry.npmjs.org/@deepseek-ai/dsh/latest");
+                request.Method = "GET";
+                request.UserAgent = "DSH-Hotplug-Hub";
+                request.Timeout = 15000;
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
                 {
-                    foreach (object assetObj in assets)
+                    Dictionary<string, object> root = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+                    if (root != null && root.ContainsKey("version"))
                     {
-                        Dictionary<string, object> asset = assetObj as Dictionary<string, object>;
-                        if (asset == null) continue;
-                        string name = Convert.ToString(asset.ContainsKey("name") ? asset["name"] : "");
-                        if (name.EndsWith(".tgz") && asset.ContainsKey("browser_download_url"))
-                        {
-                            info["url"] = Convert.ToString(asset["browser_download_url"]);
-                            break;
-                        }
+                        string v = Convert.ToString(root["version"]);
+                        if (!string.IsNullOrEmpty(v)) return v.TrimStart('v');
                     }
                 }
             }
-            return info.Count > 0 ? info : null;
+            catch { /* 网络失败返回 null，UI 不显示"最新"即可 */ }
+            return null;
         }
+
+
+        // ---------- 官方 Skill/MCP 面板插件（dsh-skill-mcp-panel）安装（内置于 EXE，不做联网更新检查） ----------
 
         private static string GetInstalledPanelVersion()
         {
@@ -880,7 +1546,41 @@ namespace DSHHotplugHub
         // 返回 dsh 命令启动方式：{可执行文件, 参数前缀}；找不到返回 null。
         private static string[] FindDshCommand()
         {
-            // 1. 官方 DSH Desktop 内置 dsh CLI（最可靠，优先）
+            // 环境切换：WSL 模式下直接用 wsl.exe 在 Linux 子系统里跑 dsh
+            if (GetEnvMode() == "wsl")
+            {
+                if (WslDshAvailable())
+                {
+                    return new string[] { "wsl.exe", "-e dsh" };
+                }
+                // WSL 模式下没装 dsh，仍回退到 Windows 侧探测（避免完全不可用）
+            }
+
+            // 启动方式优先级：直接跑 dsh CLI（绕开第三方桌面壳）——
+            //   1) PATH 中全局 dsh（npm/pnpm 安装，最常见，实测 dsh web 可直接起官方浏览器 UI）
+            //   2) ~/.dsh 下的 dsh（用户级安装）
+            //   3) 官方 DSH Desktop 内置 dsh CLI（兜底）
+            // 返回 {可执行文件, 参数前缀}；找不到返回 null。
+
+            // 1. PATH 中直接有 dsh（npm/pnpm 全局安装）。
+            //    注意：cmd.exe /c dsh --version 在找不到 dsh 时会打印 cmd 自身版本横幅，
+            //    必须排除 "Microsoft"/"Windows" 字样，避免把 cmd 横幅误判成 dsh 版本。
+            string probe = RunCli("cmd.exe", "/c dsh --version");
+            if (!string.IsNullOrEmpty(probe) && probe.Contains(".")
+                && !probe.Contains("Microsoft") && !probe.Contains("Windows"))
+            {
+                return new string[] { "cmd.exe", "/c dsh" };
+            }
+
+            // 2. ~/.dsh 下的 dsh（用户级安装）
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string altBin = Path.Combine(home, ".dsh", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+            if (File.Exists(altBin))
+            {
+                return new string[] { GetNodeExe(), "\"" + altBin + "\"" };
+            }
+
+            // 3. 官方 DSH Desktop 内置 dsh CLI（兜底，仅在装了桌面壳时才用）
             string harness = FindOfficialHarness();
             if (harness != null)
             {
@@ -895,25 +1595,22 @@ namespace DSHHotplugHub
                 }
             }
 
-            // 2. PATH 中直接有 dsh（npm/pnpm 全局安装）。
-            //    注意：cmd.exe /c dsh --version 在找不到 dsh 时会打印 cmd 自身版本横幅，
-            //    必须排除 "Microsoft"/"Windows" 字样，避免把 cmd 横幅误判成 dsh 版本。
-            string probe = RunCli("cmd.exe", "/c dsh --version");
-            if (!string.IsNullOrEmpty(probe) && probe.Contains(".")
-                && !probe.Contains("Microsoft") && !probe.Contains("Windows"))
-            {
-                return new string[] { "cmd.exe", "/c dsh" };
-            }
-
-            // 3. Linux/macOS 常见位置（本 EXE 在 Windows 上运行，此项保留给未来移植）
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            string altBin = Path.Combine(home, ".dsh", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
-            if (File.Exists(altBin))
-            {
-                return new string[] { GetNodeExe(), "\"" + altBin + "\"" };
-            }
-
             return null;
+        }
+
+        // 获取本机一个空闲 TCP 端口（临时监听后释放，返回可复用的端口号）
+        private static int GetFreeTcpPort()
+        {
+            try
+            {
+                TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
+                listener.Start();
+                int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+                listener.Stop();
+                return port;
+            }
+            catch { /* 失败返回 0，由调用方兜底 */ }
+            return 0;
         }
 
 
@@ -1065,63 +1762,28 @@ namespace DSHHotplugHub
         {
             try
             {
-                // 1. 官方 DSH Desktop：resources/app/package.json 的 @deepseek-ai/dsh 依赖版本
+                // 架构改为直接用 dsh CLI 启动官方 web 服务，因此「DSH 版本」= 本机 dsh CLI 版本。
+                // 1. 直接跑 dsh --version（最准确，和启动逻辑一致）
+                string cliVer = RunCli("cmd.exe", "/c dsh --version");
+                if (!string.IsNullOrEmpty(cliVer) && cliVer.Contains(".")
+                    && !cliVer.Contains("Microsoft") && !cliVer.Contains("Windows"))
+                {
+                    return cliVer.Trim();
+                }
+                // 2. 兜底：读全局 npm 安装的 @deepseek-ai/dsh package.json
+                string npmPkg = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "npm", "node_modules", "@deepseek-ai", "dsh", "package.json");
+                string npmVer = ReadPackageJsonVersion(npmPkg);
+                if (!string.IsNullOrEmpty(npmVer)) return npmVer;
+                // 3. 兜底：官方 DSH Desktop 内置 dsh 包（仅装了桌面壳时）
                 string appDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "Programs", "DSH Desktop", "resources", "app");
-                string pkg = Path.Combine(appDir, "package.json");
-                if (File.Exists(pkg))
-                {
-                    JavaScriptSerializer ser = new JavaScriptSerializer();
-                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(pkg));
-                    if (root != null && root.ContainsKey("dependencies"))
-                    {
-                        Dictionary<string, object> deps = root["dependencies"] as Dictionary<string, object>;
-                        if (deps != null && deps.ContainsKey("@deepseek-ai/dsh"))
-                        {
-                            string v = Convert.ToString(deps["@deepseek-ai/dsh"]);
-                            if (!string.IsNullOrEmpty(v)) return v.Trim();
-                        }
-                    }
-                    if (root != null && root.ContainsKey("version"))
-                    {
-                        string v = Convert.ToString(root["version"]);
-                        if (!string.IsNullOrEmpty(v)) return v.Trim();
-                    }
-                }
-                // 2. 官方 Desktop 内置 dsh 包（结构差异兜底）
                 string binPkg = Path.Combine(appDir, "node_modules", "@deepseek-ai", "dsh", "package.json");
                 string binV = ReadPackageJsonVersion(binPkg);
                 if (!string.IsNullOrEmpty(binV)) return binV;
-                // 3. 全局 Node 安装目录（node-v24.18.0-win-x64 / nodejs 等）
-                string[] roots = new string[]
-                {
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs"),
-                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
-                };
-                foreach (string root in roots)
-                {
-                    if (!Directory.Exists(root)) continue;
-                    string[] dirs;
-                    try { dirs = Directory.GetDirectories(root); }
-                    catch { continue; }
-                    foreach (string dir in dirs)
-                    {
-                        string name = Path.GetFileName(dir).ToLowerInvariant();
-                        if (!name.StartsWith("node")) continue;
-                        string globalV = ReadPackageJsonVersion(
-                            Path.Combine(dir, "node_modules", "@deepseek-ai", "dsh", "package.json"));
-                        if (!string.IsNullOrEmpty(globalV)) return globalV;
-                    }
-                }
-                // 4. PATH 中的 dsh CLI
-                string cli = RunCli("cmd.exe", "/c dsh --version");
-                if (!string.IsNullOrEmpty(cli) && cli.Contains(".")
-                    && !cli.Contains("Microsoft") && !cli.Contains("Windows"))
-                {
-                    return cli.Trim();
-                }
+                return null;
             }
             catch { /* 有意吞掉：尽力而为的探测，失败返回 null */ }
             return null;
@@ -1217,6 +1879,102 @@ namespace DSHHotplugHub
                 "DSH-Hotplug-Hub", "harness-path.txt");
         }
 
+        // ---------- dsh 运行环境切换（Windows 本机 / WSL 子系统） ----------
+
+        // 环境模式持久化文件：内容为 "windows" 或 "wsl"
+        private static string EnvModePath()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DSH-Hotplug-Hub", "env-mode.txt");
+        }
+
+        // 读取当前环境模式，缺省 windows
+        private static string GetEnvMode()
+        {
+            try
+            {
+                string text = File.ReadAllText(EnvModePath()).Trim().ToLowerInvariant();
+                if (text == "wsl") return "wsl";
+            }
+            catch { /* 无文件则默认 windows */ }
+            return "windows";
+        }
+
+        // 保存环境模式
+        private static void SetEnvMode(string mode)
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(EnvModePath());
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(EnvModePath(), mode == "wsl" ? "wsl" : "windows");
+            }
+            catch { /* 有意吞掉：持久化失败不影响本次运行 */ }
+        }
+
+        // 探测 WSL 是否可用（wsl.exe 存在且至少有一个发行版）
+        private static bool WslAvailable()
+        {
+            try
+            {
+                string outText = RunCli("wsl.exe", "-l -q");
+                return !string.IsNullOrEmpty(outText) && !outText.Contains("未安装") && !outText.Contains("not installed");
+            }
+            catch { return false; }
+        }
+
+        // 探测 WSL 里是否装了 dsh
+        private static bool WslDshAvailable()
+        {
+            string outText = RunCli("wsl.exe", "-e dsh --version");
+            return !string.IsNullOrEmpty(outText) && outText.Contains(".") && !outText.Contains("command not found");
+        }
+
+        // 窗口状态（尺寸/位置/最大化）持久化文件
+        private static string WindowStatePath()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DSH-Hotplug-Hub", "window-state.txt");
+        }
+
+        // 读取上次窗口状态：{w,h,maximized}；无则返回 null
+        private static int[] LoadWindowState()
+        {
+            try
+            {
+                string text = File.ReadAllText(WindowStatePath()).Trim();
+                string[] parts = text.Split('|');
+                if (parts.Length >= 2)
+                {
+                    int w, h;
+                    if (int.TryParse(parts[0], out w) && int.TryParse(parts[1], out h) && w >= 900 && h >= 600)
+                    {
+                        int max = parts.Length >= 3 && parts[2] == "1" ? 1 : 0;
+                        return new int[] { w, h, max };
+                    }
+                }
+            }
+            catch { /* 有意吞掉 */ }
+            return null;
+        }
+
+        // 记录窗口状态（关闭/退出时调用；仅记录非最大化状态下的尺寸）
+        private void SaveWindowState()
+        {
+            try
+            {
+                if (WindowState != FormWindowState.Maximized)
+                {
+                    string file = WindowStatePath();
+                    Directory.CreateDirectory(Path.GetDirectoryName(file));
+                    File.WriteAllText(file, Width + "|" + Height + "|" + (WindowState == FormWindowState.Maximized ? "1" : "0"));
+                }
+            }
+            catch { /* 有意吞掉 */ }
+        }
+
         private static string LoadHarnessPath()
         {
             try
@@ -1243,56 +2001,6 @@ namespace DSHHotplugHub
             }
         }
 
-
-        // ---------- 官方 DSH Desktop 自动安装/更新 + Node/pnpm 环境自愈 ----------
-        private static Dictionary<string, string> GetHarnessReleaseInfo()
-        {
-            Dictionary<string, object> root = GitHubGetJsonCached("https://api.github.com/repos/" + HARNESS_REPO + "/releases/latest", 10);
-            if (root == null || !root.ContainsKey("assets")) return null;
-            object[] assets = root["assets"] as object[];
-            if (assets == null) return null;
-            Dictionary<string, string> setup = null;
-            Dictionary<string, string> portable = null;
-            foreach (object assetObj in assets)
-            {
-                Dictionary<string, object> asset = assetObj as Dictionary<string, object>;
-                if (asset == null) continue;
-                string name = Convert.ToString(asset.ContainsKey("name") ? asset["name"] : "");
-                if (string.IsNullOrEmpty(name) || !asset.ContainsKey("browser_download_url")) continue;
-                string url = Convert.ToString(asset["browser_download_url"]);
-                if (name.StartsWith("DSH-Desktop-Setup-") && name.EndsWith("-win-x64.exe"))
-                {
-                    setup = new Dictionary<string, string>();
-                    setup["url"] = url;
-                    setup["asset"] = name;
-                    setup["kind"] = "setup";
-                    break;
-                }
-                if (portable == null && name.StartsWith("DSH-Desktop-Portable-") && name.EndsWith("-win-x64.zip"))
-                {
-                    portable = new Dictionary<string, string>();
-                    portable["url"] = url;
-                    portable["asset"] = name;
-                    portable["kind"] = "portable";
-                }
-            }
-            Dictionary<string, string> info = setup != null ? setup : portable;
-            if (info == null) return null;
-            if (root.ContainsKey("tag_name"))
-            {
-                info["latest"] = Convert.ToString(root["tag_name"]).TrimStart('v');
-            }
-            return info;
-        }
-
-        // DSH Desktop 应用版本（不是 @deepseek-ai/dsh 内核版本）：读 resources/app/package.json 的 version 字段
-        private static string GetInstalledHarnessVersion()
-        {
-            string exe = FindOfficialHarness();
-            if (exe == null) return null;
-            string appPkg = Path.Combine(Path.GetDirectoryName(exe), "resources", "app", "package.json");
-            return ReadPackageJsonVersion(appPkg);
-        }
 
         private static bool TryDownloadFile(string url, string local, string authToken, int timeoutMs)
         {
@@ -1324,31 +2032,6 @@ namespace DSHHotplugHub
             {
                 return false;
             }
-        }
-
-        private static string[] GetGitHubMirrorUrls(string url)
-        {
-            List<string> list = new List<string>();
-            if (url.StartsWith("https://github.com/"))
-            {
-                list.Add("https://ghfast.top/" + url);
-                list.Add("https://gh-proxy.com/" + url);
-                list.Add("https://ghproxy.net/" + url);
-            }
-            list.Add(url);
-            return list.ToArray();
-        }
-
-        private static bool DownloadWithMirrors(string url, string local, string authToken)
-        {
-            string[] urls = GetGitHubMirrorUrls(url);
-            foreach (string u in urls)
-            {
-                bool isOriginal = u == url;
-                string token = isOriginal ? authToken : null;
-                if (TryDownloadFile(u, local, token, 120000)) return true;
-            }
-            return false;
         }
 
         private static bool DownloadNodeZip(string version, string local)
@@ -1398,67 +2081,6 @@ namespace DSHHotplugHub
             {
             }
             return null;
-        }
-
-        private static string InstallOrUpdateHarness()
-        {
-            try
-            {
-                Dictionary<string, string> info = GetHarnessReleaseInfo();
-                if (info == null || !info.ContainsKey("latest") || !info.ContainsKey("url"))
-                {
-                    return "无法获取官方 DSH Desktop 最新版本（网络不可用或 GitHub 限流），请稍后重试";
-                }
-                string latest = info["latest"];
-                string url = info["url"];
-                string installed = GetInstalledHarnessVersion();
-                if (!string.IsNullOrEmpty(installed) && !IsNewerVersion(latest, installed))
-                {
-                    return "官方 DSH Desktop 已是最新 v" + installed;
-                }
-                string dir = Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-harness");
-                Directory.CreateDirectory(dir);
-                string assetName = info.ContainsKey("asset") ? info["asset"] : "DSH-Desktop-Setup-" + latest + "-win-x64.exe";
-                string local = Path.Combine(dir, assetName);
-                string githubToken = GetGithubToken();
-                if (!DownloadWithMirrors(url, local, githubToken))
-                {
-                    return "下载官方 DSH Desktop v" + latest + " 失败（GitHub 直连与国内镜像均不可用），请稍后重试";
-                }
-                if (info.ContainsKey("kind") && info["kind"] == "portable")
-                {
-                    string dest = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                        "Programs", "DSH Desktop");
-                    Directory.CreateDirectory(dest);
-                    string extractOut = RunCliLong("tar.exe", "-xf \"" + local + "\" -C \"" + dest + "\"", 600000, null);
-                    if (extractOut != null && extractOut.Contains("error"))
-                    {
-                        return "便携版解压失败：" + extractOut;
-                    }
-                    return "官方 DSH Desktop 便携版 v" + latest + " 已解压到 " + dest + "，请重新自检或启动";
-                }
-                try
-                {
-                    ProcessStartInfo psi = new ProcessStartInfo(local);
-                    psi.UseShellExecute = true;
-                    psi.Arguments = "/S";
-                    Process p = Process.Start(psi);
-                    if (p != null)
-                    {
-                        try { p.WaitForExit(600000); } catch { /* 有意吞掉：安装程序可能已被 UAC 托管 */ }
-                    }
-                    return "官方 DSH Desktop v" + latest + " 安装程序已执行，完成后请点击“重新自检”";
-                }
-                catch (Exception ex)
-                {
-                    return "官方 DSH Desktop 安装程序启动失败：" + ex.Message + "，请手动运行 " + local;
-                }
-            }
-            catch (Exception ex)
-            {
-                return "自动安装/更新官方客户端异常：" + ex.Message;
-            }
         }
 
         private static string GetNodeInstallDir()
@@ -1569,14 +2191,215 @@ namespace DSHHotplugHub
             if (string.IsNullOrEmpty(node)) step1 = EnsureNodeEnvironment();
             string pnpm = GetPnpmVersion();
             if (string.IsNullOrEmpty(pnpm)) step2 = EnsurePnpmEnvironment();
-            string harness = FindOfficialHarness();
-            if (harness == null) step3 = InstallOrUpdateHarness();
+            // 绕开第三方桌面壳：直接检查/安装 dsh CLI（官方 DeepSeek Harness 核心）
+            string dsh = RunCli("cmd.exe", "/c dsh --version");
+            if (string.IsNullOrEmpty(dsh) || dsh.Contains("Microsoft") || dsh.Contains("Windows"))
+                step3 = EnsureDshCli();
             List<string> steps = new List<string>();
             if (step1 != null) steps.Add(step1);
             if (step2 != null) steps.Add(step2);
             if (step3 != null) steps.Add(step3);
-            if (steps.Count == 0) return "Harness 环境已就绪";
+            if (steps.Count == 0) return "dsh 环境已就绪";
             return string.Join("；", steps.ToArray());
+        }
+
+        // 一键安装 dsh CLI（检查 Node/pnpm/dsh，缺啥装啥），供「启动 DSH」和「一键修复」共用
+        private static string EnsureDshCliEnvironment()
+        {
+            string step1 = null, step2 = null, step3 = null;
+            string node = RunCli(GetNodeExe(), "--version");
+            if (string.IsNullOrEmpty(node)) step1 = EnsureNodeEnvironment();
+            string pnpm = GetPnpmVersion();
+            if (string.IsNullOrEmpty(pnpm)) step2 = EnsurePnpmEnvironment();
+            string dsh = RunCli("cmd.exe", "/c dsh --version");
+            if (string.IsNullOrEmpty(dsh) || dsh.Contains("Microsoft") || dsh.Contains("Windows"))
+                step3 = EnsureDshCli();
+            List<string> steps = new List<string>();
+            if (step1 != null) steps.Add(step1);
+            if (step2 != null) steps.Add(step2);
+            if (step3 != null) steps.Add(step3);
+            if (steps.Count == 0) return "dsh 环境已就绪";
+            return string.Join("；", steps.ToArray());
+        }
+
+        // 全局安装 @deepseek-ai/dsh（官方 DeepSeek Harness CLI）
+        private static string EnsureDshCli()
+        {
+            try
+            {
+                // npm 是 npm.cmd / npm.ps1，必须经 cmd.exe /c 调用，直接 spawn "npm" 会报「系统找不到文件」；
+                // 带 --allow-scripts 允许 koffi/node-pty 等原生模块编译，否则运行时「Mismatched native Koffi modules」。
+                RunCliLong("cmd.exe", "/c npm install -g --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs @deepseek-ai/dsh", 600000, null);
+                string after = RunCli("cmd.exe", "/c dsh --version");
+                if (!string.IsNullOrEmpty(after) && !after.Contains("Microsoft") && !after.Contains("Windows"))
+                    return "dsh v" + after.Trim() + " 已安装";
+                return "dsh 安装已提交，请重启程序后重试";
+            }
+            catch (Exception ex)
+            {
+                return "自动安装 dsh 失败：" + ex.Message;
+            }
+        }
+
+        // 强制更新 dsh 到 npm 最新版（installHarness 按钮用，区别于 EnsureDshCliEnvironment 的「缺啥装啥」）
+        private static string UpdateDshCli()
+        {
+            try
+            {
+                string before = RunCli("cmd.exe", "/c dsh --version");
+                string beforeVer = (before != null && before.Contains(".") && !before.Contains("Microsoft") && !before.Contains("Windows")) ? before.Trim() : null;
+                string latest = GetLatestDshCliVersion();
+
+                // npm 是 npm.cmd / npm.ps1，UseShellExecute=false 直接 spawn "npm" 会报「系统找不到文件」，
+                // 必须经 cmd.exe /c 调用；否则更新静默失败又被下面的「已是最新」判断掩盖。
+                // 必须带 --allow-scripts 允许 koffi/node-pty/dsh-subprocess-local 等原生模块编译，
+                // 否则运行时「Mismatched native Koffi modules」导致 dsh web 起不来。
+                string outText = RunCliLong("cmd.exe", "/c npm install -g --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs @deepseek-ai/dsh@latest", 600000, null);
+
+                string after = RunCli("cmd.exe", "/c dsh --version");
+                string afterVer = (after != null && after.Contains(".") && !after.Contains("Microsoft") && !after.Contains("Windows")) ? after.Trim() : null;
+
+                // 以 npm 最新版为准判断是否更新到位，而非「前后版本没变就说已是最新」
+                if (afterVer != null && latest != null && afterVer == latest)
+                {
+                    if (beforeVer != null && beforeVer == afterVer)
+                    {
+                        return "dsh 已是最新 v" + afterVer;
+                    }
+                    return "dsh 已更新：v" + (beforeVer ?? "未安装") + " → v" + afterVer;
+                }
+                if (afterVer != null && beforeVer != null && beforeVer != afterVer)
+                {
+                    // 版本变了但还没到最新（可能 npm 源滞后），如实报告
+                    return "dsh 已更新到 v" + afterVer + "（npm 最新为 v" + (latest ?? "?") + "）";
+                }
+                // 更新后版本未变：说明安装失败或已是最新但 latest 未取到
+                if (beforeVer != null && afterVer != null && beforeVer == afterVer)
+                {
+                    string tail = "";
+                    if (outText != null && outText.Length > 0)
+                    {
+                        string shortText = outText.Trim();
+                        if (shortText.Length > 160) shortText = shortText.Substring(0, 160);
+                        tail = "：\n" + shortText;
+                    }
+                    return "dsh 更新失败，版本未变化（仍为 v" + afterVer + "）" + tail;
+                }
+                return "dsh 更新已提交，请重启程序后重试";
+            }
+            catch (Exception ex)
+            {
+                return "dsh 更新失败：" + ex.Message;
+            }
+        }
+
+        // ---------- 配置修复（修复 ~/.dsh 下已知的损坏模式，让 dsh 能正常启动） ----------
+
+        // 修复 dsh 配置文件（settings.yaml 重复键 / .credentials.yaml 格式错误等）
+        private static string RepairDshConfig()
+        {
+            List<string> results = new List<string>();
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string dshDir = Path.Combine(home, ".dsh");
+            if (!Directory.Exists(dshDir)) return "未找到 ~/.dsh 目录，跳过配置修复";
+
+            // 1. settings.yaml：移除同一缩进层级下连续重复的键（保留第一个）
+            string settingsPath = Path.Combine(dshDir, "settings.yaml");
+            if (File.Exists(settingsPath))
+            {
+                try
+                {
+                    string[] lines = File.ReadAllLines(settingsPath);
+                    List<string> kept = new List<string>();
+                    int removed = 0;
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        string line = lines[i];
+                        // 跳过空行与注释
+                        string trimmed = line.TrimEnd();
+                        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.TrimStart().StartsWith("#"))
+                        {
+                            kept.Add(line);
+                            continue;
+                        }
+                        int indent = line.Length - line.TrimStart().Length;
+                        string key = trimmed.Split(':')[0].Trim();
+                        // 检查前一行是否为「相同缩进 + 相同键」（重复键）
+                        bool dup = false;
+                        if (kept.Count > 0)
+                        {
+                            string prev = kept[kept.Count - 1];
+                            if (!string.IsNullOrWhiteSpace(prev) && !prev.TrimStart().StartsWith("#"))
+                            {
+                                int prevIndent = prev.Length - prev.TrimStart().Length;
+                                string prevKey = prev.TrimEnd().Split(':')[0].Trim();
+                                if (prevIndent == indent && prevKey == key)
+                                {
+                                    dup = true;
+                                }
+                            }
+                        }
+                        if (dup) { removed++; continue; }
+                        kept.Add(line);
+                    }
+                    if (removed > 0)
+                    {
+                        File.WriteAllLines(settingsPath, kept.ToArray(), new UTF8Encoding(false));
+                        results.Add("settings.yaml 已移除 " + removed + " 处重复键");
+                    }
+                }
+                catch (Exception ex) { results.Add("settings.yaml 修复失败：" + ex.Message); }
+            }
+
+            // 2. .credentials.yaml：必须是「凭证名 → 字符串」扁平映射；修复 version/refs 包裹层
+            string credPath = Path.Combine(dshDir, ".credentials.yaml");
+            if (File.Exists(credPath))
+            {
+                try
+                {
+                    string[] lines = File.ReadAllLines(credPath);
+                    bool hasWrap = false;
+                    foreach (string l in lines)
+                    {
+                        string t = l.TrimEnd();
+                        if (t.TrimStart().StartsWith("version:") || t.TrimStart().StartsWith("refs:"))
+                        {
+                            hasWrap = true;
+                            break;
+                        }
+                    }
+                    if (hasWrap)
+                    {
+                        List<string> outLines = new List<string>();
+                        foreach (string l in lines)
+                        {
+                            string t = l.TrimEnd();
+                            string ts = t.TrimStart();
+                            if (ts.StartsWith("version:") || ts.StartsWith("refs:")) continue;
+                            // refs 下的缩进 key 提升到顶层
+                            int indent = t.Length - ts.Length;
+                            if (indent >= 2 && ts.Contains(":"))
+                            {
+                                outLines.Add(ts);
+                            }
+                            else if (!string.IsNullOrWhiteSpace(t) && !ts.StartsWith("#"))
+                            {
+                                outLines.Add(ts);
+                            }
+                            else if (string.IsNullOrWhiteSpace(t))
+                            {
+                                // 跳过空行
+                            }
+                        }
+                        File.WriteAllLines(credPath, outLines.ToArray(), new UTF8Encoding(false));
+                        results.Add(".credentials.yaml 已扁平化为凭证映射");
+                    }
+                }
+                catch (Exception ex) { results.Add(".credentials.yaml 修复失败：" + ex.Message); }
+            }
+
+            if (results.Count == 0) return "配置文件未发现需要修复的损坏";
+            return string.Join("；", results.ToArray());
         }
 
         // ---------- API 模型配置 ----------
@@ -2525,7 +3348,8 @@ namespace DSHHotplugHub
                 if (info != null && info.ContainsKey("latest")) return info["latest"];
                 return "0.8.0-pre";
             }
-            if (name == "dseam-skillmcp") return PANEL_VERSION;
+            // dseam-skillmcp 内置于 EXE，不做版本比对/更新提示
+            if (name == "dseam-skillmcp") return null;
             return null;
         }
 
@@ -2533,7 +3357,7 @@ namespace DSHHotplugHub
         {
             if (name == "dsh-hub") return "https://github.com/ARFCON/dsh-hub-DSH";
             if (name == "dsh-memory-hub") return "https://github.com/ARFCON/dsh-hotplug-hub";
-            if (name == "dseam-skillmcp") return "https://github.com/ARFCON/dsh-hotplug-hub";
+            // dseam-skillmcp 内置于 EXE，不显示仓库按钮
             return null;
         }
 

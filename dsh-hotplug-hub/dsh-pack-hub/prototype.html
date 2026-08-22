@@ -6,38 +6,60 @@
 <title>DSH 插座中枢 · 原型</title>
 <style>
 :root {
-  --bg: #f1f2ec;
-  --panel: #fffef9;
-  --ink: #17201d;
-  --muted: #66736e;
-  --line: #d9ddd4;
-  --teal: #0e7c6b;
-  --teal-dark: #0f2f2a;
-  --teal-soft: #dceeea;
-  --teal-hover: #0a6a5c;
-  --amber: #b45309;
-  --amber-soft: #fbeede;
-  --red: #b3261e;
-  --red-soft: #fbe7e4;
-  --green: #1a7f4b;
-  --sidebar-ink: #e7f0ec;
-  --nav-ink: #d9e7e0;
-  --surface-dark: #10241f;
-  --surface-dark-ink: #cde8dd;
-  --green-soft: #e7f5eb;
-  --neutral-soft: #f0f2ec;
+  /* ===== 设计系统 v2 · 现代中性 + 深蓝强调 ===== */
+  /* 强调色统一由 --teal 驱动（随主题切换），--accent 系列是它的别名 */
+  --accent: var(--teal);
+  --accent-strong: var(--teal-hover);
+  --accent-soft: var(--teal-soft);
+  --accent-ink: #ffffff;
+
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #1a1f26;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+
+  /* 默认主题强调色（切主题时被 THEME_PRESETS 覆盖） */
+  --teal: #2563eb;
+  --teal-dark: #1e293b;
+  --teal-soft: #eff4ff;
+  --teal-hover: #1d4ed8;
+
+  --amber: #d97706;
+  --amber-soft: #fdf3e3;
+  --red: #dc2626;
+  --red-soft: #fee2e2;
+  --green: #16a34a;
+  --green-soft: #dcfce7;
+  --neutral-soft: #f3f4f6;
+
+  --sidebar-ink: #1a1f26;
+  --nav-ink: #6b7280;
+  --surface-dark: #1f2937;
+  --surface-dark-ink: #e5e7eb;
+
   --font-sans: ui-sans-serif, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --rad-sm: 6px;
-  --rad: 8px;
-  --rad-lg: 10px;
-  --rad-full: 20px;
-  --shadow-toast: 0 8px 24px rgba(0,0,0,.2);
+  --rad: 10px;
+  --rad-lg: 12px;
+  --rad-full: 999px;
+  --shadow-toast: 0 8px 24px rgba(17,24,39,.18);
+  --fs: 14px;
+  --nav-h: 56px;
 }
 * { box-sizing: border-box; }
+/* 全局滚动条美化（细、圆角、语义色，暗色主题也协调） */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 html, body { margin: 0; height: 100%; }
 body {
   font-family: var(--font-sans);
+  font-size: var(--fs);
   background: var(--bg);
   color: var(--ink);
   letter-spacing: 0;
@@ -45,65 +67,76 @@ body {
 button { font: inherit; color: inherit; }
 .hidden { display: none !important; }
 .app {
-  display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
-  min-height: 100vh;
-}
-.sidebar {
-  background: var(--teal-dark);
-  color: var(--sidebar-ink);
-  padding: 18px 14px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow-y: auto;
+  min-height: 100vh;
 }
+/* 顶部导航栏（替代原左侧栏） */
+.topnav {
+  display: flex; align-items: center; gap: 20px;
+  height: var(--nav-h);
+  padding: 0 22px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 20;
+  user-select: none;
+  cursor: default;
+}
+/* 窗口控制按钮（无边框自绘） */
+.win-ctrls { display: flex; align-items: center; gap: 2px; margin-left: auto; flex: 0 0 auto; }
+.win-btn {
+  display: grid; place-items: center; width: 34px; height: 34px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--muted);
+  cursor: pointer; transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.win-btn:hover { background: var(--neutral-soft); color: var(--ink); }
+.win-btn.win-close:hover { background: var(--red); color: #fff; }
 .brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 8px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  display: flex; align-items: center; gap: 10px;
+  flex: 0 0 auto;
 }
 .brand-mark {
-  width: 34px; height: 34px;
+  width: 32px; height: 32px;
   display: grid; place-items: center;
-  background: var(--sidebar-ink);
-  border-radius: var(--rad);
-  color: var(--teal-dark);
+  background: var(--accent);
+  border-radius: 8px;
+  color: #fff;
 }
 .brand-name { font-weight: 700; font-size: 15px; line-height: 1.2; }
-.brand-sub { font-size: 11px; opacity: 0.72; margin-top: 3px; }
-.nav { display: grid; gap: 4px; }
+.brand-sub { display: none; }
+.nav { display: flex; gap: 2px; flex: 1 1 auto; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.nav::-webkit-scrollbar { height: 4px; }
+.nav::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+.nav::-webkit-scrollbar-track { background: transparent; }
 .nav button {
-  display: flex; align-items: center; gap: 10px;
-  width: 100%; padding: 10px 12px;
-  border: 0; border-radius: var(--rad);
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 12px;
+  border: 0; border-bottom: 2px solid transparent;
   background: transparent; color: var(--nav-ink);
-  text-align: left; cursor: pointer;
-  font-size: 14px;
+  cursor: pointer; font-size: 13.5px; font-weight: 500;
+  white-space: nowrap;
+  border-radius: 8px 8px 0 0;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
-.nav button:hover { background: rgba(255, 255, 255, 0.08); }
-.nav button.active { background: var(--teal); color: #fff; }
+.nav button:hover { color: var(--ink); background: var(--neutral-soft); }
+.nav button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
 .nav .n-count {
-  margin-left: auto; font-size: 11px;
-  background: rgba(255,255,255,.16); border-radius: var(--rad-lg); padding: 2px 8px;
+  font-size: 11px;
+  background: var(--neutral-soft); border-radius: var(--rad-full); padding: 1px 7px;
+  color: var(--muted);
 }
-.nav button.active .n-count { background: rgba(255,255,255,.24); }
+.nav button.active .n-count { background: var(--accent-soft); color: var(--accent); }
 .side-foot {
-  margin-top: auto;
-  background: rgba(255,255,255,0.07);
-  border-radius: var(--rad);
-  padding: 12px;
-  display: grid;
-  gap: 8px;
-  font-size: 12px;
+  display: flex; align-items: center; gap: 14px;
+  flex: 0 0 auto;
+  font-size: 12px; color: var(--muted);
 }
-.side-row { display: flex; justify-content: space-between; gap: 8px; }
-.side-row .v { color: #fff; font-weight: 600; }
+.side-row { display: flex; align-items: center; gap: 6px; }
+.side-row .v { color: var(--ink); font-weight: 600; }
 .side-badge {
   display: inline-flex; align-items: center; gap: 6px;
   background: var(--amber); color: #fff;
@@ -113,20 +146,20 @@ button { font: inherit; color: inherit; }
 .topbar {
   display: flex; align-items: center; gap: 12px;
   padding: 14px 22px;
-  background: var(--panel);
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
-  position: sticky; top: 0; z-index: 5;
+  position: sticky; top: var(--nav-h); z-index: 10;
 }
 .topbar h1 { margin: 0; font-size: 18px; }
 .topbar .ctx { font-size: 12px; color: var(--muted); }
 .topbar .spacer { flex: 1; }
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--line); background: #f7f8f3;
+  border: 1px solid var(--line); background: var(--neutral-soft);
   color: var(--muted); border-radius: var(--rad-full); padding: 5px 12px; font-size: 12px;
 }
-.pill.good { color: var(--green); background: var(--green-soft); border-color: #bfe0c6; }
-.pill.warn { color: var(--amber); background: var(--amber-soft); border-color: #efd3ae; }
+.pill.good { color: var(--green); background: var(--green-soft); border-color: var(--green-soft); }
+.pill.warn { color: var(--amber); background: var(--amber-soft); border-color: var(--amber-soft); }
 .wrap { padding: 22px; display: grid; gap: 18px; }
 .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .stat {
@@ -148,7 +181,7 @@ button { font: inherit; color: inherit; }
   flex: 1 1 240px; min-width: 180px;
   display: flex; align-items: center; gap: 8px;
   border: 1px solid var(--line); border-radius: var(--rad);
-  padding: 8px 10px; background: #fff;
+  padding: 8px 10px; background: var(--panel);
 }
 .search input {
   border: 0; outline: 0; background: transparent; width: 100%; font: inherit;
@@ -156,20 +189,20 @@ button { font: inherit; color: inherit; }
 }
 .chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip {
-  border: 1px solid var(--line); background: #fff; color: var(--muted);
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
   border-radius: var(--rad-full); padding: 6px 12px; font-size: 12px; cursor: pointer;
 }
 .chip.on { background: var(--teal); border-color: var(--teal); color: #fff; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  border: 1px solid var(--line); background: #fff; color: var(--ink);
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
   border-radius: var(--rad); padding: 8px 12px; font-size: 13px; cursor: pointer;
   white-space: nowrap;
 }
-.btn:hover { border-color: #b8c1b6; background: #f8faf6; }
+.btn:hover { border-color: var(--muted); background: var(--neutral-soft); }
 .btn.primary { background: var(--teal); border-color: var(--teal); color: #fff; }
 .btn.primary:hover { background: var(--teal-hover); }
-.btn.danger { color: var(--red); border-color: #e6b7b1; }
+.btn.danger { color: var(--red); border-color: var(--red-soft); }
 .btn.danger:hover { background: var(--red-soft); }
 .btn.sm { padding: 5px 9px; font-size: 12px; }
 .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
@@ -191,21 +224,21 @@ button { font: inherit; color: inherit; }
 .tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .tag {
   font-size: 11px; color: var(--muted);
-  background: #f1f3ed; border: 1px solid var(--line);
+  background: var(--neutral-soft); border: 1px solid var(--line);
   padding: 2px 8px; border-radius: var(--rad-lg);
 }
 .plugins { display: grid; gap: 4px; }
 .plugin-row {
   display: flex; align-items: center; gap: 8px;
   font-size: 12px; color: var(--muted);
-  padding: 5px 8px; background: #f6f8f3; border: 1px solid #e9ece4; border-radius: var(--rad-sm);
+  padding: 5px 8px; background: var(--neutral-soft); border: 1px solid var(--line); border-radius: var(--rad-sm);
 }
 .plugin-row .role { margin-left: auto; color: var(--ink); }
 .pack-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; }
 .pack-foot .spacer { flex: 1; }
 .switch {
   width: 42px; height: 24px; border-radius: 16px;
-  border: 1px solid var(--line); background: #d6dbd2;
+  border: 1px solid var(--line); background: var(--neutral-soft);
   position: relative; cursor: pointer; transition: background 0.15s;
   flex: 0 0 auto;
 }
@@ -251,11 +284,11 @@ body.ai-view-active .topbar { display: none; }
 .ai-topbar .spacer { flex: 1; }
 .ai-chip-btn {
   display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--line); background: #fff; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel); border-radius: 999px;
   padding: 6px 12px; font-size: 13px; color: var(--ink); cursor: pointer;
 }
 .ai-chip-btn:hover { border-color: var(--teal); color: var(--teal); }
-.ai-chip-btn.active { border-color: var(--teal); background: rgba(16,124,107,.08); color: var(--teal); }
+.ai-chip-btn.active { border-color: var(--teal); background: rgba(37,99,235,.08); color: var(--teal); }
 .ai-turn-badge { font-size: 12px; color: var(--muted); white-space: nowrap; }
 /* 连接设置面板 v3：干净栅格 + 统一控件 + 明确分组（与 AI 装配间整体风格一致） */
 .ai-settings {
@@ -263,7 +296,7 @@ body.ai-view-active .topbar { display: none; }
   display: grid; gap: 8px;
 }
 .ai-settings-panel {
-  border: 1px solid var(--line); border-radius: 14px; background: #fff;
+  border: 1px solid var(--line); border-radius: 14px; background: var(--panel);
   padding: 14px 16px; display: grid; gap: 10px;
   box-shadow: 0 6px 24px rgba(15,23,42,.06);
 }
@@ -283,17 +316,17 @@ body.ai-view-active .topbar { display: none; }
 .ai-settings-panel .row .ctl-line { display: flex; gap: 10px; min-width: 0; flex-wrap: wrap; }
 .ai-ctl {
   box-sizing: border-box; width: 100%; height: 34px; padding: 0 10px;
-  border: 1px solid #d8dee6; border-radius: 9px; background: #fff;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--panel);
   font: inherit; font-size: 13px; color: var(--ink); min-width: 0;
   transition: border-color .15s, box-shadow .15s;
 }
-.ai-ctl::placeholder { color: #9aa6b5; }
-.ai-ctl:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(16,124,107,.12); }
-.ai-ctl:disabled { background: #f4f6f2; color: var(--muted); cursor: not-allowed; }
+.ai-ctl::placeholder { color: var(--muted); }
+.ai-ctl:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+.ai-ctl:disabled { background: var(--neutral-soft); color: var(--muted); cursor: not-allowed; }
 select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .ai-ctl-btn {
   height: 34px; padding: 0 14px; border: 1px solid var(--line); border-radius: 9px;
-  background: #fff; color: var(--ink); font-size: 13px; cursor: pointer; white-space: nowrap;
+  background: var(--panel); color: var(--ink); font-size: 13px; cursor: pointer; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
 }
 .ai-ctl-btn:hover { border-color: var(--teal); color: var(--teal); }
@@ -303,15 +336,15 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .ai-shell-note { font-size: 12px; color: var(--muted); }
 .ai-hint { font-size: 11.5px; color: var(--muted); line-height: 1.7; padding: 0 2px; }
 .ai-hint b { color: var(--teal-dark); font-weight: 600; }
-.ai-scroll { flex: 1; overflow-y: auto; scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+.ai-scroll { flex: 1; overflow-y: auto; scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 .ai-scroll::-webkit-scrollbar { width: 8px; }
-.ai-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
-.ai-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+.ai-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+.ai-scroll::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 .ai-scroll::-webkit-scrollbar-track { background: transparent; }
 .ai-col { max-width: 780px; margin: 0 auto; padding: 22px 24px 12px; display: flex; flex-direction: column; gap: 16px; }
 /* 空态欢迎 */
 .ai-welcome {
-  border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(160deg, #f0fdfa 0%, #f8fafc 60%, #fff 100%);
+  border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(160deg, var(--accent-soft) 0%, var(--panel) 60%, #fff 100%);
   padding: 30px 26px; display: grid; gap: 12px; text-align: center;
 }
 .ai-welcome .greet { font-size: 22px; font-weight: 800; color: var(--teal-dark); }
@@ -319,11 +352,11 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .ai-welcome .pv-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .ai-welcome .pv {
   display: inline-flex; gap: 8px; align-items: center;
-  border: 1px solid var(--line); border-radius: 12px; background: #fff;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
   padding: 10px 16px; font-size: 13px; cursor: pointer; color: var(--ink);
   transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease;
 }
-.ai-welcome .pv:hover { transform: translateY(-1px); border-color: var(--teal); box-shadow: 0 6px 18px rgba(16,124,107,.12); }
+.ai-welcome .pv:hover { transform: translateY(-1px); border-color: var(--teal); box-shadow: 0 6px 18px rgba(37,99,235,.12); }
 .ai-welcome .pv svg { width: 16px; height: 16px; }
 /* 消息气泡 */
 .ai-msg { display: flex; gap: 10px; align-items: flex-start; animation: aiIn .24s ease; }
@@ -332,36 +365,36 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .ai-avatar {
   flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%;
   display: grid; place-items: center; font-size: 15px; font-weight: 700;
-  border: 1px solid var(--line); background: #fff;
+  border: 1px solid var(--line); background: var(--panel);
 }
-.ai-avatar.av-err { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+.ai-avatar.av-err { background: var(--red-soft); border-color: var(--red); color: var(--red); }
 .ai-msg.user .ai-avatar { background: var(--teal-dark); border-color: var(--teal-dark); color: #fff; font-size: 12px; }
 .ai-bubble {
   max-width: 78%; border-radius: 16px; padding: 11px 15px;
   font-size: 14px; line-height: 1.75; white-space: pre-wrap; word-break: break-word;
 }
 .ai-msg.assistant .ai-bubble {
-  background: #fff; border: 1px solid var(--line);
+  background: var(--panel); border: 1px solid var(--line);
   border-top-left-radius: 5px; color: var(--ink);
   box-shadow: 0 2px 10px rgba(15,23,42,.05);
 }
 /* 气泡内轻量 markdown（先转义后渲染，安全） */
 .ai-bubble code {
-  background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 4px;
+  background: var(--neutral-soft); border: 1px solid var(--line); border-radius: 4px;
   padding: 1px 5px; font-family: var(--font-mono); font-size: 12.5px;
 }
 .ai-bubble pre {
-  background: #0f172a; color: #e2e8f0; border-radius: 10px;
+  background: var(--surface-dark); color: var(--line); border-radius: 10px;
   padding: 10px 12px; overflow-x: auto; margin: 8px 0;
   font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; white-space: pre;
 }
 .ai-bubble pre code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
 .ai-bubble b { font-weight: 700; }
 .ai-msg.user .ai-bubble {
-  background: linear-gradient(135deg, #0e7c6b, #115e59); color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong)); color: #fff;
   border-top-right-radius: 5px;
 }
-.ai-msg.err .ai-bubble { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+.ai-msg.err .ai-bubble { background: var(--red-soft); border-color: var(--red); color: var(--red); }
 /* 打字指示器 */
 .ai-typing { display: inline-flex; gap: 4px; align-items: center; padding: 4px 2px; }
 .ai-typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: aiDot 1.1s infinite; }
@@ -370,7 +403,7 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 @keyframes aiDot { 0%,60%,100% { opacity: .35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
 /* 产物卡片（聊天流内嵌） */
 .ai-pack-card {
-  border: 1px solid var(--line); border-radius: 16px; background: #fff;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--panel);
   padding: 14px 16px; display: grid; gap: 10px; margin-left: 44px; max-width: calc(100% - 44px);
   box-shadow: 0 4px 16px rgba(15,23,42,.05); animation: aiIn .28s ease;
 }
@@ -384,9 +417,9 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .ai-pack-card .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
 .ai-diff { display: flex; gap: 6px; flex-wrap: wrap; }
 .ai-diff b { font-weight: 600; border-radius: 8px; padding: 2px 8px; font-size: 12px; }
-.ai-diff .add { background: #ecfdf5; color: #047857; }
-.ai-diff .del { background: #fef2f2; color: #b91c1c; }
-.ai-diff .chg { background: #fffbeb; color: #b45309; }
+.ai-diff .add { background: var(--green-soft); color: var(--green); }
+.ai-diff .del { background: var(--red-soft); color: var(--red); }
+.ai-diff .chg { background: var(--amber-soft); color: var(--amber); }
 .ai-plugins { display: flex; flex-direction: column; gap: 4px; }
 .ai-plugins .p { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .ai-plugins .p .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); flex: 0 0 7px; }
@@ -404,10 +437,10 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .ai-samples .chip { white-space: nowrap; font-size: 12.5px; }
 .ai-input-wrap {
   display: flex; align-items: flex-end; gap: 10px;
-  border: 1.5px solid var(--line); border-radius: 18px; background: #fff;
+  border: 1.5px solid var(--line); border-radius: 18px; background: var(--panel);
   padding: 10px 10px 10px 16px; transition: border-color .15s ease, box-shadow .15s ease;
 }
-.ai-input-wrap:focus-within { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(16,124,107,.12); }
+.ai-input-wrap:focus-within { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
 .ai-input-wrap textarea {
   flex: 1; border: 0; outline: 0; resize: none; background: transparent;
   font: inherit; font-size: 14px; line-height: 1.6; max-height: 150px; min-height: 24px;
@@ -420,14 +453,14 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 }
 .ai-send:hover { background: var(--teal-dark); }
 .ai-send:active { transform: scale(.94); }
-.ai-send:disabled { background: #cbd5e1; cursor: default; }
+.ai-send:disabled { background: var(--line); cursor: default; }
 .ai-send svg { width: 18px; height: 18px; }
 .ai-dock-note { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
-.ai-dock-note .k { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-size: 11px; }
+.ai-dock-note .k { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-size: 11px; }
 .ai-label { font-size: 13px; color: var(--ink-dim); white-space: nowrap; }
 .req-box {
   width: 100%; min-height: 120px; resize: vertical;
-  border: 1px solid var(--line); border-radius: var(--rad); background: #fff;
+  border: 1px solid var(--line); border-radius: var(--rad); background: var(--panel);
   padding: 12px; font: inherit; color: var(--ink);
 }
 .req-box:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
@@ -438,16 +471,16 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
   min-height: 220px; max-height: 360px; overflow-y: auto;
   white-space: pre-wrap;
 }
-.log-box .ok { color: #7fd6a8; }
-.log-box .warn { color: #f3c076; }
+.log-box .ok { color: var(--green); }
+.log-box .warn { color: var(--amber); }
 .result {
   display: none;
-  border: 1px solid var(--teal); background: #f2faf7; border-radius: var(--rad); padding: 14px;
+  border: 1px solid var(--teal); background: var(--green-soft); border-radius: var(--rad); padding: 14px;
 }
 .result.show { display: block; }
 .result h3 { margin: 0 0 8px; font-size: 14px; }
 .json-pre {
-  background: #fff; border: 1px solid var(--line); border-radius: var(--rad);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--rad);
   padding: 10px; font-family: var(--font-mono);
   font-size: 11px; max-height: 220px; overflow: auto; white-space: pre;
   margin: 0;
@@ -490,13 +523,13 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 
 /* ===== 插件市场（真实 GitHub 数据源）样式 ===== */
 .mkt-banner { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; }
-.mkt-banner.err { background: var(--red-soft, rgba(220,38,38,0.12)); color: var(--red, #dc2626); }
-.mkt-banner.ok { background: var(--green-soft, rgba(16,185,129,0.12)); color: var(--green, #10b981); }
+.mkt-banner.err { background: var(--red-soft, rgba(220,38,38,0.12)); color: var(--red, var(--red)); }
+.mkt-banner.ok { background: var(--green-soft, rgba(16,185,129,0.12)); color: var(--green, var(--green)); }
 .mkt-tags { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .mkt-tags-toggle { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line, rgba(128,128,128,0.35)); background: transparent; color: var(--ink); border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer; align-self: flex-start; }
 .mkt-tags-toggle:hover { border-color: var(--teal); }
 .mkt-tags-label { font-weight: 600; }
-.mkt-tags-count { font-size: 12px; color: var(--teal); background: rgba(14,124,107,0.12); padding: 1px 8px; border-radius: 999px; }
+.mkt-tags-count { font-size: 12px; color: var(--teal); background: rgba(37,99,235,0.12); padding: 1px 8px; border-radius: 999px; }
 .mkt-tags-count.muted { color: var(--muted); background: rgba(128,128,128,0.12); }
 .mkt-tags-caret { font-size: 11px; color: var(--muted); transition: transform 0.15s; }
 .mkt-tags-panel { display: none; }
@@ -520,10 +553,9 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
   .ai-pane { grid-template-columns: 1fr; }
 }
 @media (max-width: 720px) {
-  .app { grid-template-columns: 72px minmax(0, 1fr); }
-  .brand-name, .brand-sub, .nav span, .nav .n-count, .side-foot { display: none; }
-  .sidebar { padding: 12px 10px; }
-  .nav button { justify-content: center; padding: 10px 0; }
+  .topnav { padding: 0 12px; gap: 12px; }
+  .brand-name, .side-foot { display: none; }
+  .nav button { padding: 7px 9px; }
   .grid-4, .pack-grid, .mem-list { grid-template-columns: 1fr; }
   .wrap { padding: 14px; }
   .topbar { padding: 12px 14px; }
@@ -531,29 +563,262 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 
 .mem-body{font-size:12.5px;color:var(--muted);line-height:1.6;white-space:pre-wrap;word-break:break-word}
 .mem-edit{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);padding:14px;margin-top:14px}
-.mem-ta{width:100%;min-height:120px;margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--rad-sm);font:inherit;font-size:12.5px;resize:vertical;background:#fff;color:var(--ink)}
+.mem-ta{width:100%;min-height:120px;margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--rad-sm);font:inherit;font-size:12.5px;resize:vertical;background: var(--panel);color:var(--ink)}
 .mem-ta:focus,.search:focus{outline:2px solid var(--teal);outline-offset:0}
+/* ===== 主题设置页签（换肤 / 色板 / 布局细节 / 命名保存） ===== */
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.skin-card {
+  background: var(--panel); border: 2px solid var(--line); border-radius: var(--rad);
+  padding: 12px; cursor: pointer; transition: border-color .15s, transform .1s;
+}
+.skin-card:hover { transform: translateY(-2px); }
+.skin-card.active { border-color: var(--teal); }
+.skin-swatch { display: flex; height: 42px; border-radius: var(--rad-sm); overflow: hidden; margin-bottom: 8px; border: 1px solid var(--line); }
+.skin-swatch i { flex: 1; }
+.skin-name { font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+.skin-name .dot { font-size: 11px; color: var(--muted); }
+.theme-sect { display: grid; gap: 10px; }
+.theme-sect h3 { margin: 0 0 2px; font-size: 14px; }
+.theme-sect .sub { font-size: 12px; color: var(--muted); }
+.var-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.var-item { display: grid; gap: 6px; }
+.var-item label { font-size: 12px; color: var(--muted); display: flex; align-items: center; justify-content: space-between; }
+.var-item .color-field { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: var(--rad-sm); padding: 4px 6px; background: var(--panel); }
+.var-item input[type="color"] { width: 34px; height: 26px; border: 0; padding: 0; background: none; cursor: pointer; }
+.var-item input[type="text"] { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 12px; color: var(--ink); }
+.var-item input[type="range"] { width: 100%; }
+.var-item input[type="number"], .var-item select { width: 100%; border: 1px solid var(--line); border-radius: var(--rad-sm); padding: 6px 8px; font: inherit; font-size: 12px; background: var(--panel); color: var(--ink); }
+.theme-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.skin-row { display: flex; align-items: center; gap: 10px; }
+.skin-row input[type="text"] { flex: 1; border: 1px solid var(--line); border-radius: var(--rad-sm); padding: 7px 10px; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); }
+.theme-reset { color: var(--muted); font-size: 12px; }
+
+/* ============================================================
+   统一过渡令牌 & 折叠式卡片（重构：好看简洁 · 折叠 · 过渡自然）
+   ============================================================ */
+:root {
+  --ease: cubic-bezier(.4, 0, .2, 1);
+  --dur: .22s;
+}
+/* 通用过渡：卡片 hover / 按钮 / 开关，统一缓动 */
+.pack, .mem, .check-row, .panel, .toolbar, .stat {
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.btn { transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease); }
+.btn:active { transform: scale(.97); }
+.chip, .tag, .pill, .badge { transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+.switch { transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+
+/* ---- 折叠卡片：头部常显核心信息，详情/低频操作折叠 ---- */
+.fold { border: 1px solid var(--line); border-radius: var(--rad); background: var(--panel); overflow: hidden; }
+.fold-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 16px; cursor: pointer; user-select: none;
+  transition: background var(--dur) var(--ease);
+}
+.fold-head:hover { background: var(--neutral-soft, var(--neutral-soft)); }
+.fold-head .fold-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
+.fold-chevron {
+  flex: 0 0 auto; width: 20px; height: 20px; color: var(--muted);
+  display: grid; place-items: center;
+  transition: transform var(--dur) var(--ease);
+}
+.fold-chevron svg { width: 15px; height: 15px; }
+.fold.open .fold-chevron { transform: rotate(180deg); }
+.fold-body {
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur) var(--ease);
+}
+.fold.open .fold-body { grid-template-rows: 1fr; }
+.fold-inner { overflow: hidden; min-height: 0; }
+.fold-inner > * { margin: 0; }
+.fold-inner .fold-content { padding: 2px 16px 16px; border-top: 1px dashed var(--line); }
+
+/* 折叠头部里的开关：点击不触发折叠 */
+.fold-head .switch, .fold-head .btn { pointer-events: auto; }
+
+/* 空状态统一 */
+.empty {
+  border: 1px dashed var(--line); border-radius: var(--rad);
+  color: var(--muted); font-size: 13px; padding: 20px 12px; text-align: center;
+}
+
+/* 状态点：语义色小圆点，替代纯文字 badge 的单调 */
+.status-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+.status-dot.ok { background: var(--green); }
+.status-dot.warn { background: var(--amber); }
+.status-dot.err { background: var(--red); }
+.status-dot.neutral { background: var(--muted); opacity: .5; }
+
+/* 折叠内列表项（插件行/子项）微调 */
+.fold-content .plugin-row { margin-bottom: 4px; }
+.fold-content .plugin-row:last-child { margin-bottom: 0; }
+
+/* ===== 左右分区 + 分类导航（小白友好） ===== */
+.split-view { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; }
+.split-side { position: sticky; top: calc(var(--nav-h) + 60px); }
+.split-side .cat-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: 0 12px 8px; }
+.cat-list { display: grid; gap: 3px; }
+.cat-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 8px 12px; border: 0; border-radius: var(--rad);
+  background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 13px; text-align: left;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.cat-item svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.cat-item:hover { background: var(--neutral-soft); color: var(--ink); }
+.cat-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.cat-item .c-count { margin-left: auto; font-size: 11px; background: var(--neutral-soft); border-radius: var(--rad-full); padding: 1px 8px; color: var(--muted); }
+.cat-item.active .c-count { background: var(--panel); color: var(--accent); }
+.split-main { min-width: 0; display: grid; gap: 14px; align-content: start; }
+.guide-hint {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border: 1px dashed var(--line); border-radius: var(--rad);
+  color: var(--muted); font-size: 12.5px; background: var(--panel);
+}
+.guide-hint b { color: var(--accent); font-weight: 600; }
+@media (max-width: 720px) {
+  .split-view { grid-template-columns: 1fr; }
+  .split-side { position: static; }
+  .cat-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cat-item { width: auto; }
+}
+
+/* ===== 主页（结构化 hero + 四板块卡片） ===== */
+.home-hero {
+  display: grid; justify-items: center; gap: 16px;
+  padding: 56px 24px 40px; text-align: center;
+}
+.home-logo {
+  width: 64px; height: 64px; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #fff; border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(37, 99, 235, .28);
+}
+.home-logo svg { width: 30px; height: 30px; }
+.home-hero h1 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -.02em; }
+.home-sub { margin: 0; color: var(--muted); font-size: 14px; }
+.home-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.home-launch {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 14px 40px; border: 0; border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #fff; font-size: 16px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, .3);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.home-launch:hover { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(37, 99, 235, .38); }
+.home-launch:active { transform: translateY(0); }
+/* 客户端按钮：青色系，与蓝色「启动」区分 */
+.home-launch.home-launch-secondary {
+  background: linear-gradient(135deg, #0891b2, #0e7490);
+  box-shadow: 0 8px 20px rgba(8, 145, 178, .3);
+}
+.home-launch.home-launch-secondary:hover { box-shadow: 0 12px 26px rgba(8, 145, 178, .38); }
+.hl-icon { font-size: 15px; }
+.home-meta { color: var(--muted); font-size: 12.5px; }
+.home-launch-side { display: flex; gap: 10px; }
+.home-mini-btn {
+  padding: 6px 14px; border: 1px solid var(--line); border-radius: var(--rad-full);
+  background: var(--panel); color: var(--muted); font-size: 12px; cursor: pointer;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.home-mini-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.home-mini-btn.home-mini-danger:hover { border-color: var(--red); color: var(--red); background: var(--red-soft); }
+/* ===== 客户端中心面板（内嵌官方 harness 选项 + 汇总 + 开关显示 + 环境自检） ===== */
+.client-center-backdrop {
+  position: fixed; inset: 0; background: rgba(17,24,39,.45);
+  display: none; align-items: center; justify-content: center; z-index: 60; padding: 20px;
+}
+.client-center-backdrop.show { display: flex; }
+.client-center {
+  width: min(760px, 100%); max-height: 86vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--rad-lg);
+  padding: 22px; display: grid; gap: 16px;
+  box-shadow: 0 24px 60px rgba(17,24,39,.28);
+}
+.cc-head { display: flex; align-items: center; gap: 12px; }
+.cc-head h2 { margin: 0; font-size: 17px; font-weight: 700; flex: 1; }
+.cc-close { border: 0; background: var(--neutral-soft); color: var(--muted); width: 30px; height: 30px; border-radius: 8px; cursor: pointer; }
+.cc-close:hover { background: var(--red-soft); color: var(--red); }
+.cc-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.cc-section { border: 1px solid var(--line); border-radius: var(--rad); overflow: hidden; }
+.cc-section-head { display: flex; align-items: center; gap: 8px; padding: 11px 14px; background: var(--neutral-soft); font-weight: 600; font-size: 13px; cursor: pointer; }
+.cc-section-head .cc-count { margin-left: auto; font-size: 11px; color: var(--muted); background: var(--panel); border-radius: var(--rad-full); padding: 1px 9px; }
+.cc-section-head .cc-caret { transition: transform var(--dur) var(--ease); color: var(--muted); }
+.cc-section.open .cc-caret { transform: rotate(180deg); }
+.cc-section-body { display: none; padding: 10px 14px; }
+.cc-section.open .cc-section-body { display: block; }
+.cc-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12.5px; border-bottom: 1px dashed var(--line); }
+.cc-item:last-child { border-bottom: 0; }
+.cc-item .cc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-item .cc-tag { font-size: 11px; color: var(--muted); background: var(--neutral-soft); border-radius: var(--rad-full); padding: 1px 8px; }
+.cc-empty { color: var(--muted); font-size: 12px; padding: 6px 0; }
+.cc-env-status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.cc-env-status .hc-dot { width: 8px; height: 8px; border-radius: 50%; }
+.cc-env-status .hc-dot.ok { background: var(--green); }
+.cc-env-status .hc-dot.err { background: var(--red); }
+.cc-env-status .hc-dot.warn { background: var(--amber); }
+.cc-env-switch { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.cc-env-label { font-size: 12.5px; color: var(--muted); margin-right: 4px; }
+.env-toggle {
+  padding: 5px 12px; font-size: 12px; border-radius: var(--rad-sm);
+  border: 1px solid var(--line); background: transparent; color: var(--muted);
+  cursor: pointer; transition: all var(--dur) var(--ease);
+}
+.env-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.env-toggle.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.home-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;
+  padding: 0 0 8px;
+}
+.home-card {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--rad-lg);
+  cursor: pointer; transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.home-card:hover { transform: translateY(-3px); border-color: var(--accent); box-shadow: 0 8px 22px rgba(17,24,39,.08); }
+.hc-head { display: flex; align-items: center; gap: 10px; }
+.hc-icon {
+  width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto;
+  background: var(--accent-soft); color: var(--accent); border-radius: 10px;
+}
+.hc-icon.maid { background: linear-gradient(135deg, #fdf2f8, #fce7f3); color: #db2777; font-weight: 800; }
+.hc-head h3 { margin: 0; font-size: 15px; font-weight: 700; }
+.home-card p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.hc-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: auto; font-size: 12px; color: var(--muted); }
+.hc-stat { font-size: 18px; font-weight: 700; color: var(--ink); }
+.hc-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+.hc-dot.ok { background: var(--green); }
+.hc-dot.err { background: var(--red); }
+.hc-update { color: var(--amber); font-weight: 600; }
+.hc-uptodate { color: var(--green); }
+.hc-maid-tip { color: #db2777; font-weight: 600; }
 </style>
 </head>
 <body>
 <div class="app">
-  <aside class="sidebar">
+  <header class="topnav">
     <div class="brand">
       <div class="brand-mark">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v7a3 3 0 0 1-3 3H4"/><path d="M15 2v7a3 3 0 0 0 3 3h2"/><path d="M6 12v2a6 6 0 0 0 6 6h0a6 6 0 0 0 6-6v-2"/><path d="M12 20v2"/></svg>
       </div>
-      <div>
-        <div class="brand-name">Dseam世界</div>
-        <div class="brand-sub">Dseam v0.9.8</div>
-      </div>
+      <div class="brand-name">Dseam世界</div>
     </div>
     <nav class="nav" id="nav"></nav>
     <div class="side-foot" id="sideFoot"></div>
-  </aside>
+    <div class="win-ctrls">
+      <button class="win-btn" id="winMin" title="最小化" aria-label="最小化"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+      <button class="win-btn" id="winMax" title="最大化/还原" aria-label="最大化"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
+      <button class="win-btn win-close" id="winClose" title="关闭" aria-label="关闭"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+  </header>
   <main class="main">
     <header class="topbar"></header>
     <div class="wrap">
-      <section id="view-hub" class="view"></section>
+      <section id="view-home" class="view"></section>
+      <section id="view-hub" class="view hidden"></section>
       <section id="view-market" class="view hidden"></section>
       <section id="view-ai" class="view hidden"></section>
       <section id="view-memory" class="view hidden"></section>
@@ -561,6 +826,7 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
         <section id="view-skills" class="view hidden"></section>
         <section id="view-plugins" class="view hidden"></section>
         <section id="view-mcp" class="view hidden"></section>
+        <section id="view-theme" class="view hidden"></section>
     </div>
   </main>
 </div>
@@ -576,9 +842,13 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 </div>
 <input type="file" id="importFile" hidden accept=".json,application/json">
 <div class="toast" id="toast"></div>
+<div class="client-center-backdrop" id="clientCenterBackdrop">
+  <div class="client-center" id="clientCenter"></div>
+</div>
 
 <script>
 const NAV = [
+  { id: 'home', label: '主页', icon: 'home' },
   { id: 'hub', label: '插件中枢', icon: 'box' },
   { id: 'market', label: '插件市场', icon: 'store' },
   { id: 'ai', label: 'AI 装配间', icon: 'spark' },
@@ -586,7 +856,8 @@ const NAV = [
   { id: 'skills', label: 'Skill 管理', icon: 'spark' },
   { id: 'plugins', label: '插件管理', icon: 'box' },
   { id: 'check', label: '自检更新', icon: 'shield' },
-  { id: 'mcp', label: 'MCP 管理', icon: 'box' }
+  { id: 'mcp', label: 'MCP 管理', icon: 'box' },
+  { id: 'theme', label: '主题设置', icon: 'palette' }
 ];
 
 const ICONS = {
@@ -603,7 +874,11 @@ const ICONS = {
   restart: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/></svg>',
   check: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
   warn: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><path d="M12 9v4M12 17h.01"/></svg>',
-  trash: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'
+  trash: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+  palette: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>',
+  home: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>',
+  chevron: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
+  chevronRight: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>'
 };
 
 const CATALOG = [
@@ -616,7 +891,7 @@ const CATALOG = [
       { name: '@dsh-community/dsh-paper-writer', role: '论文写作', version: '2.0.0' },
       { name: '@dsh-community/dsh-review-board', role: '审稿建议', version: '1.1.0' }
     ],
-    memory: ['global.research'], accent: '#0e7c6b'
+    memory: ['global.research'], accent: '#2563eb'
   },
   {
     id: 'pack-video', name: '视频制作插座包', author: '清泫', stars: 1920, version: '0.8.2',
@@ -627,7 +902,7 @@ const CATALOG = [
       { name: '@dsh-community/dsh-subtitle', role: '字幕', version: '1.0.5' },
       { name: '@dsh-community/dsh-cover', role: '封面', version: '0.3.1' }
     ],
-    memory: ['global.video'], accent: '#b45309'
+    memory: ['global.video'], accent: 'var(--amber)'
   },
   {
     id: 'pack-social', name: '自媒体插座包', author: '笑笑熊', stars: 1530, version: '1.1.0',
@@ -693,7 +968,11 @@ const DEFAULT_STATE = {
       { id: 'filesystem', name: '文件系统 MCP', enabled: false, command: 'npx', args: '-y @modelcontextprotocol/server-filesystem' },
       { id: 'fetch', name: '网络抓取 MCP', enabled: false, command: 'npx', args: '-y @modelcontextprotocol/server-fetch' }
     ],
-    plugins: []
+    plugins: [],
+  theme: {
+    activeSkin: 'default',
+    skins: []
+  }
 };
 
 let state;
@@ -709,7 +988,10 @@ if (!Array.isArray(state.installed)) state.installed = [];
 state.installed = state.installed.filter((i) => i && DEMO_PACK_IDS.indexOf(i.packId) === -1);
 if (!Array.isArray(state.imported)) state.imported = [];
 state.imported = state.imported.filter((i) => i && DEMO_PACK_IDS.indexOf(i.packId || i.id) === -1);
-if (typeof state.currentView !== 'string' || !NAV.some((n) => n.id === state.currentView)) state.currentView = 'hub';
+if (typeof state.currentView !== 'string' || !NAV.some((n) => n.id === state.currentView)) state.currentView = 'home';
+if (!state.theme || typeof state.theme !== 'object') state.theme = { activeSkin: 'default', skins: [] };
+if (typeof state.theme.activeSkin !== 'string') state.theme.activeSkin = 'default';
+if (!Array.isArray(state.theme.skins)) state.theme.skins = [];
 function save() {
   try { localStorage.setItem('dsh-pack-hub-prototype', JSON.stringify(state)); } catch (e) { /* file:// mode */ }
 }
@@ -745,7 +1027,7 @@ const packOf = (id) => CATALOG.find((p) => p.id === id) || state.imported.find((
 const isInstalled = (id) => state.installed.some((i) => i.packId === id);
 const installedRow = (id) => state.installed.find((i) => i.packId === id);
 
-let currentView = (state && state.currentView) || 'hub';
+let currentView = (state && state.currentView) || 'home';
 let marketQuery = '';
 let marketFilters = []; // 多选标签筛选（空 = 全部）
 let aiRunning = false;
@@ -1359,7 +1641,6 @@ function renderShell() {
   document.querySelectorAll('#nav button').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
   const restartable = state.pendingRestart > 0;
   $('sideFoot').innerHTML = `
-    <div class="side-row"><span>profile</span><span class="v">desktop</span></div>
     <div class="side-row"><span>dsh</span><span class="v">${esc(state.dshVersion)}</span></div>
     ${restartable ? '<div class="side-row"><span>待生效</span><span class="v" id="pendingText">' + state.pendingRestart + ' 项</span></div>' : ''}`;
   const top = document.querySelector('.topbar');
@@ -1367,7 +1648,7 @@ function renderShell() {
   top.innerHTML = `
     <div>
       <h1>${n.label}</h1>
-      <div class="ctx">profile desktop · dsh ${esc(state.dshVersion)}</div>
+      <div class="ctx">Dseam世界 · profile desktop · dsh ${esc(state.dshVersion)}</div>
     </div>
     <div class="spacer"></div>
     ${state.pendingRestart ? `<span class="pill warn">${ICONS.restart} 重启后生效 ${state.pendingRestart} 项</span>` : '<span class="pill good">已是最新会话</span>'}
@@ -1393,6 +1674,7 @@ function switchView(id) {
 }
 
 function renderCurrent() {
+  if (currentView === 'home') renderHome();
   if (currentView === 'hub') renderHub();
   if (currentView === 'market') {
     renderMarket();
@@ -1404,6 +1686,468 @@ function renderCurrent() {
     if (currentView === 'skills') renderSkills();
   if (currentView === 'plugins') renderPlugins();
     if (currentView === 'mcp') renderMcp();
+  if (currentView === 'theme') renderTheme();
+}
+
+// ===== 主题系统（换肤 / 色板 / 布局细节 / 命名保存） =====
+const THEME_VARS = [
+  { key: '--bg', label: '背景色', type: 'color' },
+  { key: '--panel', label: '面板色', type: 'color' },
+  { key: '--ink', label: '正文文字', type: 'color' },
+  { key: '--muted', label: '次要文字', type: 'color' },
+  { key: '--line', label: '分割线', type: 'color' },
+  { key: '--teal', label: '强调色', type: 'color' },
+  { key: '--teal-dark', label: '深色表面', type: 'color' },
+  { key: '--teal-soft', label: '强调浅底', type: 'color' },
+  { key: '--teal-hover', label: '强调悬停', type: 'color' },
+  { key: '--amber', label: '强调橙', type: 'color' },
+  { key: '--amber-soft', label: '橙浅底', type: 'color' },
+  { key: '--red', label: '危险红', type: 'color' },
+  { key: '--red-soft', label: '红浅底', type: 'color' },
+  { key: '--green', label: '成功绿', type: 'color' },
+  { key: '--green-soft', label: '绿浅底', type: 'color' },
+  { key: '--sidebar-ink', label: '主文字', type: 'color' },
+  { key: '--nav-ink', label: '导航文字', type: 'color' },
+  { key: '--surface-dark', label: '深色表面', type: 'color' },
+  { key: '--surface-dark-ink', label: '深色表面文字', type: 'color' },
+  { key: '--neutral-soft', label: '中性浅底', type: 'color' },
+  { key: '--fs', label: '正文字号', type: 'size', min: 12, max: 18, unit: 'px' },
+  { key: '--nav-h', label: '导航高度', type: 'size', min: 44, max: 72, unit: 'px' },
+  { key: '--rad-sm', label: '小圆角', type: 'size', min: 0, max: 16, unit: 'px' },
+  { key: '--rad', label: '圆角', type: 'size', min: 0, max: 20, unit: 'px' },
+  { key: '--rad-lg', label: '大圆角', type: 'size', min: 0, max: 24, unit: 'px' },
+  { key: '--rad-full', label: '全圆角', type: 'size', min: 0, max: 32, unit: 'px' },
+  { key: '--font-sans', label: '界面字体', type: 'font' },
+  { key: '--font-mono', label: '等宽字体', type: 'font' }
+];
+
+const THEME_PRESETS = [
+  { id: 'default', name: '默认', swatch: ['#f6f7f9', '#ffffff', '#2563eb'] },
+  { id: 'dark', name: '深色', swatch: ['#111827', '#1f2937', '#60a5fa'], vars: {
+    '--bg': '#111827', '--panel': '#1f2937', '--ink': '#f3f4f6', '--muted': '#9ca3af',
+    '--line': '#374151', '--teal': '#60a5fa', '--teal-dark': '#0b1120', '--teal-soft': '#1e3a5f',
+    '--teal-hover': '#3b82f6', '--amber': '#f59e0b', '--amber-soft': '#3a2d12', '--red': '#f87171',
+    '--red-soft': '#3a1d1d', '--green': '#34d399', '--sidebar-ink': '#f3f4f6', '--nav-ink': '#9ca3af',
+    '--surface-dark': '#0b1120', '--surface-dark-ink': '#d1d5db', '--green-soft': '#123325', '--neutral-soft': '#2b3544'
+  } },
+  { id: 'cyan', name: '青色', swatch: ['#ecfeff', '#ffffff', '#0891b2'], vars: {
+    '--bg': '#ecfeff', '--panel': '#ffffff', '--ink': '#083344', '--muted': '#5b7a86',
+    '--line': '#cce8ee', '--teal': '#0891b2', '--teal-dark': '#164e63', '--teal-soft': '#d8f3f8',
+    '--teal-hover': '#0e7490', '--amber': '#d97706', '--amber-soft': '#fef3e2', '--red': '#dc2626',
+    '--red-soft': '#fee2e2', '--green': '#16a34a', '--sidebar-ink': '#083344', '--nav-ink': '#5b7a86',
+    '--surface-dark': '#164e63', '--surface-dark-ink': '#d8f3f8', '--green-soft': '#dcfce7', '--neutral-soft': '#f0f9fb'
+  } },
+  { id: 'amber', name: '琥珀', swatch: ['#fbeede', '#ffffff', '#d97706'], vars: {
+    '--bg': '#fbeede', '--panel': '#ffffff', '--ink': '#3d2c0a', '--muted': '#8a7442',
+    '--line': '#f1e3c3', '--teal': '#d97706', '--teal-dark': '#4a2f05', '--teal-soft': '#fdf0d3',
+    '--teal-hover': '#b45309', '--amber': '#d97706', '--amber-soft': '#fbeede', '--red': '#dc2626',
+    '--red-soft': '#fee2e2', '--green': '#16a34a', '--sidebar-ink': '#3d2c0a', '--nav-ink': '#8a7442',
+    '--surface-dark': '#4a2f05', '--surface-dark-ink': '#fdf0d3', '--green-soft': '#dcfce7', '--neutral-soft': '#faf3e0'
+  } },
+  { id: 'emerald', name: '翠绿', swatch: ['#d1fae5', '#ffffff', '#059669'], vars: {
+    '--bg': '#d1fae5', '--panel': '#ffffff', '--ink': '#064e3b', '--muted': '#5f8a7a',
+    '--line': '#cdeede', '--teal': '#059669', '--teal-dark': '#064e3b', '--teal-soft': '#d1fae5',
+    '--teal-hover': '#047857', '--amber': '#d97706', '--amber-soft': '#fef3e2', '--red': '#dc2626',
+    '--red-soft': '#fee2e2', '--green': '#16a34a', '--sidebar-ink': '#064e3b', '--nav-ink': '#5f8a7a',
+    '--surface-dark': '#064e3b', '--surface-dark-ink': '#d1fae5', '--green-soft': '#dcfce7', '--neutral-soft': '#eefaf4'
+  } }
+];
+
+function themeVarsOf(skinId) {
+  if (!skinId || skinId === 'default') return null;
+  const preset = THEME_PRESETS.find((p) => p.id === skinId);
+  if (preset) return preset.vars || null;
+  if (skinId.startsWith('custom:')) {
+    const name = skinId.slice(7);
+    const sk = state.theme.skins.find((s) => s.name === name);
+    return sk ? sk.vars : null;
+  }
+  return null;
+}
+
+let themeDraft = null;
+let themeDraftName = '';
+
+function applyThemeVars(vars) {
+  const root = document.documentElement;
+  if (window.__themeInjected) {
+    window.__themeInjected.forEach((k) => root.style.removeProperty(k));
+  }
+  window.__themeInjected = [];
+  if (!vars) return;
+  Object.entries(vars).forEach(([k, v]) => {
+    root.style.setProperty(k, v);
+    window.__themeInjected.push(k);
+  });
+}
+
+function applyTheme() {
+  applyThemeVars(themeVarsOf(state.theme.activeSkin));
+  // 主题切换后同步窗体背景色（消除四周 6px 白边框）
+  if (window.chrome && window.chrome.webview) {
+    try {
+      window.chrome.webview.postMessage('themeBg:' + getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());
+    } catch (e) { /* 忽略 */ }
+  }
+}
+
+function currentDraftVars() {
+  if (themeDraft === null) {
+    themeDraft = Object.assign({}, themeVarsOf(state.theme.activeSkin) || {});
+  }
+  return themeDraft;
+}
+
+function displayVars() {
+  if (themeDraft !== null) return themeDraft;
+  return themeVarsOf(state.theme.activeSkin) || {};
+}
+
+function parseSizeVal(v) {
+  const m = String(v).match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : 0;
+}
+
+function cssVarDefault(k) {
+  return getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+}
+
+function renderTheme() {
+  const view = $('view-theme');
+  const active = state.theme.activeSkin;
+  const presetCards = THEME_PRESETS.map((p) => `
+    <div class="skin-card ${active === p.id ? 'active' : ''}" data-skin="${p.id}">
+      <div class="skin-swatch">${p.swatch.map((c) => `<i style="background:${c}"></i>`).join('')}</div>
+      <div class="skin-name"><span>${esc(p.name)}</span>${p.id === 'default' ? '<span class="dot">原始</span>' : ''}</div>
+    </div>`).join('');
+  const customCards = state.theme.skins.map((s) => {
+    const sid = 'custom:' + s.name;
+    const sw = [s.vars['--bg'] || '#fff', s.vars['--panel'] || '#fff', s.vars['--teal'] || '#2563eb'];
+    return `
+    <div class="skin-card ${active === sid ? 'active' : ''}" data-skin="${esc(sid)}">
+      <div class="skin-swatch">${sw.map((c) => `<i style="background:${c}"></i>`).join('')}</div>
+      <div class="skin-name"><span>${esc(s.name)}</span><span class="dot">自定义</span></div>
+      <button class="btn sm danger" data-del="${esc(sid)}" title="删除皮肤" style="margin-top:6px;width:100%">删除</button>
+    </div>`;
+  }).join('');
+  const isDirty = themeDraft !== null;
+  const draft = displayVars();
+  const colorRows = THEME_VARS.filter((v) => v.type === 'color').map((v) => {
+    const cur = draft[v.key] !== undefined ? draft[v.key] : cssVarDefault(v.key);
+    return `
+    <div class="var-item">
+      <label>${esc(v.label)}</label>
+      <div class="color-field">
+        <input type="color" data-var="${v.key}" value="${esc(cur)}">
+        <input type="text" data-var-text="${v.key}" value="${esc(cur)}" spellcheck="false">
+      </div>
+    </div>`;
+  }).join('');
+  const sizeRows = THEME_VARS.filter((v) => v.type === 'size').map((v) => {
+    const raw = draft[v.key] !== undefined ? draft[v.key] : cssVarDefault(v.key);
+    const val = parseSizeVal(raw);
+    return `
+    <div class="var-item">
+      <label>${esc(v.label)}<span style="opacity:.7">${val}${v.unit}</span></label>
+      <input type="range" min="${v.min}" max="${v.max}" step="1" value="${val}" data-range="${v.key}">
+    </div>`;
+  }).join('');
+  const fontRows = THEME_VARS.filter((v) => v.type === 'font').map((v) => {
+    const cur = draft[v.key] !== undefined ? draft[v.key] : cssVarDefault(v.key);
+    return `
+    <div class="var-item">
+      <label>${esc(v.label)}</label>
+      <input type="text" data-var-text="${v.key}" value="${esc(cur)}" spellcheck="false">
+    </div>`;
+  }).join('');
+  view.innerHTML = `
+    <div class="theme-sect">
+      <div class="section-head">
+        <div>
+          <h2>换肤</h2>
+          <div class="sub">选择预设皮肤，或自定义后命名保存为专属皮肤</div>
+        </div>
+      </div>
+      <div class="theme-grid" id="skinGrid">${presetCards}${customCards}</div>
+    </div>
+    <div class="theme-sect">
+      <div class="section-head">
+        <h3>自定义皮肤</h3>
+        <div class="sub">调整下方变量后，命名并保存，即可在换肤区一键切换</div>
+      </div>
+      <div class="skin-row">
+        <input type="text" id="skinName" placeholder="皮肤名称，例如：我的深色" maxlength="30" value="${esc(themeDraftName)}">
+        <button class="btn primary" id="saveSkinBtn">${ICONS.plus} 保存为皮肤</button>
+        <button class="btn" id="resetThemeBtn">${ICONS.refresh} 还原默认</button>
+      </div>
+    </div>
+    <div class="theme-sect">
+      <div class="section-head"><h3>颜色</h3><div class="sub">实时预览</div></div>
+      <div class="var-grid">${colorRows}</div>
+    </div>
+    <div class="theme-sect">
+      <div class="section-head"><h3>布局与尺寸</h3><div class="sub">圆角 / 字号 / 侧栏宽度</div></div>
+      <div class="var-grid">${sizeRows}</div>
+    </div>
+    <div class="theme-sect">
+      <div class="section-head"><h3>字体</h3></div>
+      <div class="var-grid">${fontRows}</div>
+    </div>
+    ${isDirty ? '<div class="theme-reset">当前有未保存的修改（预览中）</div>' : ''}
+  `;
+  view.querySelectorAll('#skinGrid .skin-card').forEach((c) => c.addEventListener('click', () => {
+    const sid = c.dataset.skin;
+    state.theme.activeSkin = sid;
+    themeDraft = null; themeDraftName = '';
+    save(); applyTheme(); renderShell(); renderTheme();
+    toast('已切换皮肤');
+  }));
+  view.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const sid = b.dataset.del;
+    const name = sid.slice(7);
+    state.theme.skins = state.theme.skins.filter((s) => s.name !== name);
+    if (state.theme.activeSkin === sid) state.theme.activeSkin = 'default';
+    themeDraft = null; themeDraftName = '';
+    save(); applyTheme(); renderShell(); renderTheme();
+    toast('已删除皮肤「' + name + '」');
+  }));
+  view.querySelectorAll('input[type="color"]').forEach((inp) => inp.addEventListener('input', () => {
+    const k = inp.dataset.var;
+    currentDraftVars()[k] = inp.value;
+    applyThemeVars(currentDraftVars());
+    const txt = view.querySelector(`[data-var-text="${k}"]`);
+    if (txt) txt.value = inp.value;
+  }));
+  view.querySelectorAll('input[data-var-text]').forEach((inp) => inp.addEventListener('input', () => {
+    const k = inp.dataset.varText;
+    currentDraftVars()[k] = inp.value.trim();
+    applyThemeVars(currentDraftVars());
+    const color = view.querySelector(`[data-var="${k}"]`);
+    if (color && /^#[0-9a-fA-F]{6}$/.test(inp.value.trim())) color.value = inp.value.trim();
+  }));
+  view.querySelectorAll('input[data-range]').forEach((inp) => inp.addEventListener('input', () => {
+    const k = inp.dataset.range;
+    const v = THEME_VARS.find((x) => x.key === k);
+    currentDraftVars()[k] = inp.value + v.unit;
+    applyThemeVars(currentDraftVars());
+    const label = inp.closest('.var-item').querySelector('label span');
+    if (label) label.textContent = inp.value + v.unit;
+  }));
+  const saveBtn = $('saveSkinBtn');
+  if (saveBtn) saveBtn.addEventListener('click', () => {
+    const name = ($('skinName').value || '').trim();
+    if (!name) { toast('请输入皮肤名称'); return; }
+    const vars = Object.assign({}, currentDraftVars());
+    const existing = state.theme.skins.find((s) => s.name === name);
+    if (existing) existing.vars = vars; else state.theme.skins.push({ name, vars });
+    state.theme.activeSkin = 'custom:' + name;
+    themeDraft = null; themeDraftName = '';
+    save(); renderTheme();
+    toast('已保存皮肤「' + name + '」');
+  });
+  const resetBtn = $('resetThemeBtn');
+  if (resetBtn) resetBtn.addEventListener('click', () => {
+    state.theme.activeSkin = 'default';
+    themeDraft = null; themeDraftName = '';
+    save(); applyTheme(); renderShell(); renderTheme();
+    toast('已还原默认主题');
+  });
+}
+
+function renderHome() {
+  const installed = state.installed.length + state.imported.length;
+  const active = state.installed.filter((i) => i.active).length;
+  const conflicts = getConflicts().length;
+  const harnessOk = !!(window.__nativeSelfCheck && window.__nativeSelfCheck.dshVersion);
+  const dshVer = harnessOk ? (window.__nativeSelfCheck && window.__nativeSelfCheck.dshVersion || state.dshVersion) : null;
+  const nodeOk = !!(window.__nativeSelfCheck && window.__nativeSelfCheck.node);
+  const pnpmOk = !!(window.__nativeSelfCheck && window.__nativeSelfCheck.pnpm);
+  const appVer = (window.__nativeSelfCheck && window.__nativeSelfCheck.appVersion) || '';
+  const latest = (window.__nativeSelfCheck && window.__nativeSelfCheck.latestVersion) || state.latestVersion;
+  const hasUpdate = latest && appVer && (function (a, b) { var A = String(a).replace(/^v/i, '').split('-')[0].split('.'), B = String(b).replace(/^v/i, '').split('-')[0].split('.'); for (var i = 0; i < Math.max(A.length, B.length); i++) { var x = parseInt(A[i] || '0', 10), y = parseInt(B[i] || '0', 10); if (x !== y) return x - y; } return 0; })(latest, appVer) > 0;
+  $('view-home').innerHTML = `
+    <div class="home-hero">
+      <div class="home-logo">${ICONS.home}</div>
+      <h1>Dseam世界</h1>
+      <p class="home-sub">DSH 热插拔插座中枢 · 一键管理插件、Skill、MCP 与全局记忆</p>
+      <div class="home-actions">
+        <button class="home-launch" id="homeLaunchBtn">
+          <span class="hl-icon">▶</span>
+          <span>启动 DSH</span>
+        </button>
+        <button class="home-launch home-launch-secondary" id="homeHarnessBtn">
+          <span class="hl-icon">🖥</span>
+          <span>客户端</span>
+        </button>
+      </div>
+      <div class="home-launch-side">
+        <button class="home-mini-btn" id="homeRepairBtn" title="修复 dsh 配置文件">🛠 修复配置</button>
+        <button class="home-mini-btn" id="homeApiBtn" title="API 配置">⚙ API 配置</button>
+        <button class="home-mini-btn" id="homeChooseBtn" title="选择客户端">📁 选择客户端</button>
+        <button class="home-mini-btn home-mini-danger" id="homeHarnessStopBtn" title="关闭 dsh">⏻ 关闭</button>
+      </div>
+      <div class="home-meta">已装 ${installed} 包 · 激活 ${active} · dsh ${dshVer ? esc(dshVer) : '未安装'}</div>
+    </div>
+    <div class="home-grid">
+      <div class="home-card" data-goto="hub">
+        <div class="hc-head"><span class="hc-icon">${ICONS.box}</span><h3>插件中枢</h3></div>
+        <p>管理已安装的插座包，查看健康状态与冲突</p>
+        <div class="hc-foot"><span class="hc-stat">${installed}</span><span>个包</span></div>
+      </div>
+      <div class="home-card" data-goto="check">
+        <div class="hc-head"><span class="hc-icon">${ICONS.shield}</span><h3>服务状态</h3></div>
+        <p>DSH / Node / pnpm 运行环境自检</p>
+        <div class="hc-foot">
+          <span class="hc-dot ${harnessOk ? 'ok' : 'err'}"></span><span>DSH ${harnessOk ? '就绪' : '未检测'}</span>
+          <span class="hc-dot ${nodeOk ? 'ok' : 'err'}"></span><span>Node ${nodeOk ? '就绪' : '缺失'}</span>
+          <span class="hc-dot ${pnpmOk ? 'ok' : 'err'}"></span><span>pnpm ${pnpmOk ? '就绪' : '缺失'}</span>
+        </div>
+      </div>
+      <div class="home-card" data-goto="market">
+        <div class="hc-head"><span class="hc-icon">${ICONS.store}</span><h3>更新公告</h3></div>
+        <p>发现社区新插件与官方发布动态</p>
+        <div class="hc-foot">${hasUpdate ? `<span class="hc-update">v${esc(latest)} 可更新</span>` : '<span class="hc-uptodate">已是最新 v' + esc(appVer) + '</span>'}</div>
+      </div>
+      <div class="home-card home-maid" data-goto="ai">
+        <div class="hc-head"><span class="hc-icon maid">织</span><h3>DeepSeek 女仆</h3></div>
+        <p>「小织」——把零散插件织成完整 hotpack 的 AI 女仆</p>
+        <div class="hc-foot"><span class="hc-maid-tip">去装配间找小织聊聊 →</span></div>
+      </div>
+    </div>`;
+  const lb = $('homeLaunchBtn');
+  if (lb) lb.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('launch'); return; }
+    toast('请在 Dseam世界 桌面端启动 DSH');
+  });
+  const repairBtn = $('homeRepairBtn');
+  if (repairBtn) repairBtn.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('repairConfig'); return; }
+    toast('请在 Dseam世界 桌面端执行修复');
+  });
+  const apiBtn = $('homeApiBtn');
+  if (apiBtn) apiBtn.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('openApiConfig'); return; }
+    toast('请在 Dseam世界 桌面端配置 API');
+  });
+  const chooseBtn = $('homeChooseBtn');
+  if (chooseBtn) chooseBtn.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('chooseHarness'); return; }
+    toast('请在 Dseam世界 桌面端选择客户端');
+  });
+  const harnessBtn = $('homeHarnessBtn');
+  if (harnessBtn) harnessBtn.addEventListener('click', () => openClientCenter());
+  const harnessStopBtn = $('homeHarnessStopBtn');
+  if (harnessStopBtn) harnessStopBtn.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('harnessStop'); return; }
+    toast('请在 Dseam世界 桌面端停止 dsh');
+  });
+  document.querySelectorAll('[data-goto]').forEach((c) => c.addEventListener('click', () => switchView(c.dataset.goto)));
+}
+
+// ===== 客户端中心：汇总 Skill/MCP/插件/记忆 + 开关显示 + 环境自检 + 启动/停止/内嵌/跳出 =====
+function clientCenterSummary() {
+  const skills = window.__skillsData || [];
+  const mcps = window.__mcpsData || [];
+  const plugins = window.__pluginsData || [];
+  const memories = window.__memoryData || [];
+  const native = window.__nativeSelfCheck || {};
+  return { skills, mcps, plugins, memories, native };
+}
+
+function renderClientCenter() {
+  const s = clientCenterSummary();
+  const section = (id, title, count, bodyHtml) => `
+    <div class="cc-section" data-cc="${id}">
+      <div class="cc-section-head" data-cc-toggle="${id}">
+        <span>${title}</span>
+        <span class="cc-count">${count}</span>
+        <span class="cc-caret">▾</span>
+      </div>
+      <div class="cc-section-body">${bodyHtml}</div>
+    </div>`;
+
+  const skillRows = s.skills.length ? s.skills.map((x) => `
+    <div class="cc-item"><span class="cc-name">${esc(x.name || x.id)}</span><span class="cc-tag">${x.enabled ? '启用' : '停用'}</span></div>`).join('')
+    : '<div class="cc-empty">暂无 Skill</div>';
+  const mcpRows = s.mcps.length ? s.mcps.map((x) => `
+    <div class="cc-item"><span class="cc-name">${esc(x.name || x.id)}</span><span class="cc-tag">${x.enabled ? '启用' : '停用'}</span></div>`).join('')
+    : '<div class="cc-empty">暂无 MCP</div>';
+  const pluginRows = s.plugins.length ? s.plugins.map((x) => `
+    <div class="cc-item"><span class="cc-name">${esc(x.name || x.id)}</span><span class="cc-tag">${x.enabled ? '启用' : '停用'}</span></div>`).join('')
+    : '<div class="cc-empty">暂无插件</div>';
+  const memRows = s.memories.length ? s.memories.map((x) => `
+    <div class="cc-item"><span class="cc-name">${esc(x.title || x.id)}</span><span class="cc-tag">${esc(x.type || '')}</span></div>`).join('')
+    : '<div class="cc-empty">暂无全局记忆</div>';
+
+  const n = s.native;
+  const envOk = !!(n.node && n.pnpm && n.dshVersion);
+  const isWsl = (n.envMode === 'wsl');
+  const wslOk = !!(n.wslAvailable && n.wslDsh);
+  const envLine = `
+    <div class="cc-env-status">
+      <span class="hc-dot ${n.node ? 'ok' : 'err'}"></span>Node ${n.node ? '✓' : '缺失'}
+      <span class="hc-dot ${n.pnpm ? 'ok' : 'err'}"></span>pnpm ${n.pnpm ? '✓' : '缺失'}
+      <span class="hc-dot ${n.dshVersion ? 'ok' : 'err'}"></span>dsh CLI ${n.dshVersion ? '✓' : '缺失'}
+    </div>
+    <div class="cc-env-switch">
+      <span class="cc-env-label">dsh 环境</span>
+      <button class="env-toggle ${isWsl ? '' : 'active'}" id="envWin" title="在 Windows 本机运行 dsh">Windows</button>
+      <button class="env-toggle ${isWsl ? 'active' : ''}" id="envWsl" title="在 WSL 子系统运行 dsh">WSL${n.wslDsh ? '' : (n.wslAvailable ? '（未装 dsh）' : '（不可用）')}</button>
+    </div>
+    ${envOk ? '' : '<button class="btn sm primary" id="ccEnvInstall">⚙ 自动安装环境</button>'}`;
+
+  $('clientCenter').innerHTML = `
+    <div class="cc-head">
+      <h2>客户端中心</h2>
+      <button class="cc-close" id="ccClose">✕</button>
+    </div>
+    <div class="cc-actions">
+      <button class="btn primary" id="ccLaunch">▶ 启动 DSH</button>
+      <button class="btn" id="ccEmbed">🖥 内嵌显示</button>
+      <button class="btn" id="ccPopout">↗ 跳出窗口</button>
+      <button class="btn danger" id="ccStop">⏻ 停止</button>
+    </div>
+    ${envLine}
+    ${section('skills', '已加载 Skill', s.skills.length, skillRows)}
+    ${section('mcps', '已加载 MCP', s.mcps.length, mcpRows)}
+    ${section('plugins', '已加载插件（自己 + 官方）', s.plugins.length, pluginRows)}
+    ${section('memories', '全局记忆', s.memories.length, memRows)}
+  `;
+
+  // 折叠分组
+  document.querySelectorAll('[data-cc-toggle]').forEach((h) => h.addEventListener('click', () => {
+    h.parentElement.classList.toggle('open');
+  }));
+  // 默认展开前两个
+  document.querySelectorAll('.cc-section').forEach((c, i) => { if (i < 2) c.classList.add('open'); });
+
+  const bind = (id, msg) => { const el = $(id); if (el) el.addEventListener('click', () => { if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(msg); }); };
+  bind('ccLaunch', 'launch');
+  bind('ccEmbed', 'harnessEmbed');
+  bind('ccPopout', 'harnessPopout');
+  bind('ccStop', 'harnessStop');
+  bind('ccEnvInstall', 'harnessEnv');
+  const envWin = $('envWin');
+  if (envWin) envWin.addEventListener('click', () => { if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('setEnvMode:windows'); });
+  const envWsl = $('envWsl');
+  if (envWsl) envWsl.addEventListener('click', () => { if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('setEnvMode:wsl'); });
+  const ccClose = $('ccClose');
+  if (ccClose) ccClose.addEventListener('click', closeClientCenter);
+}
+
+function openClientCenter() {
+  renderClientCenter();
+  $('clientCenterBackdrop').classList.add('show');
+}
+function closeClientCenter() {
+  $('clientCenterBackdrop').classList.remove('show');
+}
+
+// 点击遮罩空白处关闭客户端中心
+function bindClientCenterBackdrop() {
+  const bd = $('clientCenterBackdrop');
+  if (bd) bd.addEventListener('click', (e) => { if (e.target === bd) closeClientCenter(); });
 }
 
 function renderHub() {
@@ -1442,39 +2186,48 @@ function packCard(p, showManage = false) {
   const active = row ? row.active : false;
   const installed = Boolean(row);
   const conflict = getConflicts().some((c) => c.packId === p.id);
-  const statusBadge = installed
-    ? (conflict ? '<span class="badge err">冲突</span>' : '<span class="badge ok">健康</span>')
-    : '<span class="badge neutral">未装</span>';
+  const statusDot = installed
+    ? (conflict ? '<span class="status-dot err" title="冲突"></span>' : '<span class="status-dot ok" title="健康"></span>')
+    : '<span class="status-dot neutral" title="未安装"></span>';
   const letter = (p.name || '包').trim().slice(0, 1);
-  const accent = p.accent || '#0e7c6b';
+  const accent = p.accent || '#2563eb';
+  const nBundles = (p.bundles || []).length;
   return `
-    <div class="pack">
-      <div class="pack-top">
+    <div class="fold" data-fold>
+      <div class="fold-head" data-fold-toggle>
         <div class="pack-icon" style="background:${accent}">${esc(letter)}</div>
-        <div class="pack-title">
-          <h3>${esc(p.name)}</h3>
-          <div class="meta">${esc(p.author || '社区')} · ⭐ ${p.stars || 0} · v${esc(p.version || '0.0.0')}</div>
+        <div class="fold-main">
+          <div class="pack-title">
+            <h3>${esc(p.name)}</h3>
+            <div class="meta">${esc(p.author || '社区')} · ⭐ ${p.stars || 0} · v${esc(p.version || '0.0.0')} · ${nBundles} 插件</div>
+          </div>
         </div>
-        ${statusBadge}
+        ${statusDot}
+        ${installed ? `<button class="switch" role="switch" aria-checked="${active}" aria-label="切换 ${esc(p.name)}" data-toggle="${p.id}"></button>` : ''}
+        <span class="fold-chevron">${ICONS.chevron}</span>
       </div>
-      <div class="tags">${(p.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
-      <div class="plugins">
-        ${(p.bundles || []).slice(0, 5).map((b) => `
-          <div class="plugin-row">
-            <span>${esc(b.name)}</span>
-            <span class="role">${esc(b.role)} · v${esc(b.version)}</span>
-          </div>`).join('')}
-      </div>
-      <div class="pack-foot">
-        <span style="font-size:11px;color:var(--muted)">${(p.bundles || []).length} 插件</span>
-        <div class="spacer"></div>
-        ${showManage && installed
-          ? `<button class="btn sm danger" data-uninstall="${p.id}">${ICONS.trash} 卸载</button>
-             <button class="switch" role="switch" aria-checked="${active}" aria-label="切换 ${esc(p.name)}" data-toggle="${p.id}"></button>`
-          : installed
-            ? `<span class="badge ok">${ICONS.check} 已装</span>
-               <button class="switch" role="switch" aria-checked="${active}" aria-label="切换 ${esc(p.name)}" data-toggle="${p.id}"></button>`
-            : `<button class="btn sm primary" data-install="${p.id}">${ICONS.plus} 一键安装</button>`}
+      <div class="fold-body">
+        <div class="fold-inner">
+          <div class="fold-content">
+            ${(p.tags || []).length ? `<div class="tags">${(p.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+            <div class="plugins">
+              ${(p.bundles || []).slice(0, 6).map((b) => `
+                <div class="plugin-row">
+                  <span>${esc(b.name)}</span>
+                  <span class="role">${esc(b.role)} · v${esc(b.version)}</span>
+                </div>`).join('')}
+              ${(p.bundles || []).length > 6 ? `<div class="plugin-row"><span style="color:var(--muted)">… 另有 ${(p.bundles || []).length - 6} 个插件</span></div>` : ''}
+            </div>
+            <div class="pack-foot" style="margin-top:10px">
+              <div class="spacer"></div>
+              ${showManage && installed
+                ? `<button class="btn sm danger" data-uninstall="${p.id}">${ICONS.trash} 卸载</button>`
+                : installed
+                  ? `<span class="badge ok">${ICONS.check} 已装</span>`
+                  : `<button class="btn sm primary" data-install="${p.id}">${ICONS.plus} 一键安装</button>`}
+            </div>
+          </div>
+        </div>
       </div>
     </div>`;
 }
@@ -1539,7 +2292,7 @@ function marketInstallSpec(e) {
   return "";
 }
 function renderMarketCard(e) {
-  const accent = '#0e7c6b';
+  const accent = '#2563eb';
   const letter = (e.name || e.repo).trim().slice(0, 1);
   const pending = e.detailPending === true;
   const metaBits = [];
@@ -2452,21 +3205,30 @@ function memoryRowHtml(m, index) {
   const body = m.body || '';
   const shown = body.length > 240 ? body.slice(0, 240) + '…' : body;
   return `
-    <div class="mem" data-mem="${esc(m.id)}">
-      <div class="mem-top">
+    <div class="fold" data-fold>
+      <div class="fold-head" data-fold-toggle>
         <div class="pack-icon" style="background:var(--teal)">${esc((m.title || 'M').slice(0, 1))}</div>
-        <div class="pack-title">
-          <h3>${esc(m.title || m.id)}</h3>
-          <div class="meta">${esc(m.packId || '')} · ${esc(m.type || '')} · ${esc((m.updatedAt || '').slice(0, 10))}</div>
+        <div class="fold-main">
+          <div class="pack-title">
+            <h3>${esc(m.title || m.id)}</h3>
+            <div class="meta">${esc(m.packId || '')} · ${esc(m.type || '')} · ${esc((m.updatedAt || '').slice(0, 10))}</div>
+          </div>
         </div>
-        <span class="badge ok">已记忆</span>
+        <span class="status-dot ok" title="已记忆"></span>
+        <span class="fold-chevron">${ICONS.chevron}</span>
       </div>
-      <div class="tags">${(m.keywords || []).map((k) => `<span class="kw">${esc(k)}</span>`).join('')}</div>
-      <div class="mem-body">${esc(shown)}</div>
-      <div class="pack-foot" style="margin-top:10px">
-        <div class="spacer"></div>
-        <button class="btn sm" data-edit-memory="${esc(m.id)}">${ICONS.edit || '✎'} 编辑</button>
-        <button class="btn sm danger" data-del-memory="${esc(m.id)}">${ICONS.trash} 删除</button>
+      <div class="fold-body">
+        <div class="fold-inner">
+          <div class="fold-content">
+            ${(m.keywords || []).length ? `<div class="tags" style="margin-bottom:8px">${(m.keywords || []).map((k) => `<span class="kw">${esc(k)}</span>`).join('')}</div>` : ''}
+            <div class="mem-body">${esc(body)}</div>
+            <div class="pack-foot" style="margin-top:10px">
+              <div class="spacer"></div>
+              <button class="btn sm" data-edit-memory="${esc(m.id)}">${ICONS.edit || '✎'} 编辑</button>
+              <button class="btn sm danger" data-del-memory="${esc(m.id)}">${ICONS.trash} 删除</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>`;
 }
@@ -2547,13 +3309,12 @@ function renderMemory() {
 function getChecks() {
   const conflicts = getConflicts();
   return [
-    { name: 'DSH 版本', desc: '当前版与最新版', val: state.dshVersion, status: state.dshVersion !== state.latestVersion ? 'update' : 'ok', text: state.dshVersion !== state.latestVersion ? '可更新至 ' + state.latestVersion : '已最新' },
+    { name: 'DSH 版本', desc: '当前版与最新版', val: state.dshVersion || '未安装', status: 'ok', text: state.dshVersion ? ('当前 v' + state.dshVersion) : '未检测到 dsh CLI' },
     { name: 'Node.js', desc: '内置运行时', val: state.nodeVersion, status: 'ok', text: '兼容' },
     { name: 'pnpm', desc: '包管理器', val: state.pnpmVersion, status: 'ok', text: '就绪' },
     { name: 'Profile 清单', desc: 'dsh.profile.bundles 可解析', val: 'desktop', status: 'ok', text: StateOk() ? '完好' : '需检查' },
     { name: '插件健康', desc: '已装包自检', val: conflicts.length + ' 冲突', status: conflicts.length ? 'warn' : 'ok', text: conflicts.length ? '见冲突矩阵' : '健康' },
-    { name: '记忆中枢', desc: '全局记忆包状态', val: (window.__memoryData || state.memories || []).length + ' 条', status: 'ok', text: (window.__memoryData || state.memories || []).length ? '在线' : '暂无真实记忆' },
-    { name: '内置 Skill/MCP 管理器', desc: 'dseam-skillmcp（内置于 Dseam世界 EXE）', val: state.panelInstalled || '未安装', status: state.panelInstalled ? (state.panelLatest && state.panelInstalled !== state.panelLatest ? 'update' : 'ok') : 'warn', text: state.panelInstalled ? (state.panelInstalled === state.panelLatest ? '已最新' : '可更新至 v' + (state.panelLatest || '?')) : '可安装 v' + (state.panelLatest || '?') }
+    { name: '记忆中枢', desc: '全局记忆包状态', val: (window.__memoryData || state.memories || []).length + ' 条', status: 'ok', text: (window.__memoryData || state.memories || []).length ? '在线' : '暂无真实记忆' }
   ];
 }
 function StateOk() { return true; }
@@ -2570,6 +3331,35 @@ function removeMcp(id) {
   state.mcps = (state.mcps || []).filter((m) => m.id !== id);
   save(); renderMcp();
 }
+
+// ===== 分类系统（启发式：按名称/描述关键词自动归类，方便小白快速筛选） =====
+const SKILL_CATEGORIES = [
+  { id: 'all', label: '全部', icon: 'box' },
+  { id: 'dev', label: '开发', icon: 'spark', kw: ['code','coding','git','build','debug','refactor','review','architecture','optimize','编程','代码','架构','重构','开发','工程','测试','优化'] },
+  { id: 'research', label: '研究', icon: 'search', kw: ['research','search','paper','literature','explore','研究','搜索','论文','文献','调研'] },
+  { id: 'design', label: '设计', icon: 'palette', kw: ['design','frontend','visual','make-ui','设计','界面','视觉','前端'] },
+  { id: 'security', label: '安全', icon: 'shield', kw: ['security','vuln','scan','安全','漏洞','审计'] },
+  { id: 'other', label: '其他', icon: 'box', kw: [] }
+];
+const MCP_CATEGORIES = [
+  { id: 'all', label: '全部', icon: 'box' },
+  { id: 'fs', label: '文件', icon: 'box', kw: ['filesystem','文件','file'] },
+  { id: 'web', label: '网页', icon: 'search', kw: ['fetch','search','web','browser','网页','搜索','抓取'] },
+  { id: 'db', label: '数据库', icon: 'box', kw: ['database','postgres','mysql','mongo','sql','数据库'] },
+  { id: 'dev', label: '开发', icon: 'spark', kw: ['git','github','code','开发'] },
+  { id: 'other', label: '其他', icon: 'box', kw: [] }
+];
+function categorize(text, cats) {
+  const s = String(text || '').toLowerCase();
+  for (const c of cats) {
+    if (c.id === 'all' || c.id === 'other') continue;
+    if ((c.kw || []).some((k) => s.includes(k))) return c.id;
+  }
+  return 'other';
+}
+let skillCat = 'all';
+let mcpCat = 'all';
+
 function renderSkills() {
   const isWebView = !!(window.chrome && window.chrome.webview);
   const rows = isWebView ? (window.__skillsData || []) : (state.skills || []);
@@ -2577,41 +3367,74 @@ function renderSkills() {
   const sourceRows = source && source.skills ? source.skills : [];
   const sourceDir = source ? (source.dir || '') : '';
   const picks = window.__skillPicks || [];
+  const catOf = (s) => categorize((s.name || '') + ' ' + (s.desc || '') + ' ' + (s.id || ''), SKILL_CATEGORIES);
+  const counts = {};
+  SKILL_CATEGORIES.forEach((c) => { counts[c.id] = 0; });
+  rows.forEach((s) => { counts[catOf(s)] = (counts[catOf(s)] || 0) + 1; });
+  counts.all = rows.length;
+  const filtered = skillCat === 'all' ? rows : rows.filter((s) => catOf(s) === skillCat);
+  const catNav = SKILL_CATEGORIES.map((c) => `
+    <button class="cat-item ${skillCat === c.id ? 'active' : ''}" data-skillcat="${c.id}">
+      ${ICONS[c.icon] || ''}<span>${c.label}</span><span class="c-count">${counts[c.id] || 0}</span>
+    </button>`).join('');
   $('view-skills').innerHTML = `
     <div class="section-head">
       <div><h2>Skill 管理</h2><div class="sub">AI 技能开关 · 从固定文件夹选择安装</div></div>
     </div>
-    <div class="pack-list">
-      ${rows.length ? rows.map((s) => `
-        <div class="pack">
-          <div class="pack-top">
-            <div class="pack-icon" style="background:#0e7c6b">${esc((s.name || 'S').slice(0, 1))}</div>
-            <div class="pack-title"><h3>${esc(s.name)}</h3><div class="meta">${esc(s.desc || '')}</div></div>
-            <span class="badge ${s.enabled ? 'ok' : 'neutral'}">${s.enabled ? '已启用' : '已停用'}</span>
+    <div class="split-view">
+      <aside class="split-side">
+        <div class="cat-title">已装分类</div>
+        <div class="cat-list">${catNav}</div>
+      </aside>
+      <div class="split-main">
+        <div class="guide-hint">💡 按类别浏览 AI 技能，点左侧分类快速筛选，右侧开关控制启用</div>
+        <div class="pack-list">
+          ${filtered.length ? filtered.map((s) => `
+            <div class="fold" data-fold>
+              <div class="fold-head" data-fold-toggle>
+                <div class="pack-icon" style="background:#2563eb">${esc((s.name || 'S').slice(0, 1))}</div>
+                <div class="fold-main">
+                  <div class="pack-title"><h3>${esc(s.name)}</h3><div class="meta">${esc(s.desc || '')}</div></div>
+                </div>
+                <span class="status-dot ${s.enabled ? 'ok' : 'neutral'}" title="${s.enabled ? '已启用' : '已停用'}"></span>
+                <button class="switch" role="switch" aria-checked="${s.enabled}" aria-label="切换 ${esc(s.name)}" data-skill="${esc(s.id)}"></button>
+                <span class="fold-chevron">${ICONS.chevron}</span>
+              </div>
+              <div class="fold-body">
+                <div class="fold-inner">
+                  <div class="fold-content">
+                    <div class="pack-foot">
+                      <div class="spacer"></div>
+                      <button class="btn sm danger" data-remove-skill="${esc(s.id)}">${ICONS.trash} 删除</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>`).join('') : '<div class="empty">该分类下暂无 Skill，从下方固定文件夹安装</div>'}
+        </div>
+        <div class="section-head" style="margin-top:8px">
+          <div><h2>固定 Skill 文件夹</h2><div class="sub">${isWebView ? '扫描 ' + esc(sourceDir || '') : 'DSH Desktop 内扫描 %APPDATA%\\reasonix\\skills（可用环境变量 DSH_SKILL_SOURCE_DIR 覆盖）'}</div></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn" id="skillSourceRefresh">${ICONS.refresh} 重新扫描</button>
+            <button class="btn primary" id="skillSourceInstall">＋ 安装所选</button>
           </div>
-          <div class="pack-foot">
-            <div class="spacer"></div>
-            <button class="btn sm danger" data-remove-skill="${esc(s.id)}">${ICONS.trash} 删除</button><button class="switch" role="switch" aria-checked="${s.enabled}" data-skill="${esc(s.id)}"></button>
-          </div>
-        </div>`).join('') : '<div class="empty">还没有 Skill，请从下方固定文件夹选择安装</div>'}
-    </div>
-    <div class="section-head" style="margin-top:18px">
-      <div><h2>固定 Skill 文件夹</h2><div class="sub">${isWebView ? '扫描 ' + esc(sourceDir || '') : 'DSH Desktop 内扫描 %APPDATA%\\reasonix\\skills（可用环境变量 DSH_SKILL_SOURCE_DIR 覆盖）'}</div></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn" id="skillSourceRefresh">${ICONS.refresh} 重新扫描</button>
-        <button class="btn primary" id="skillSourceInstall">＋ 安装所选</button>
+        </div>
+        <div class="pack-list">
+          ${isWebView ? (sourceRows.length ? sourceRows.map((s) => `
+            <div class="pack">
+              <div class="pack-top">
+                <label class="pack-icon" style="background:#6a5acd;cursor:pointer"><input type="checkbox" data-pick-skill="${esc(s.id)}" ${s.installed ? 'disabled' : (picks.includes(s.id) ? 'checked' : '')}></label>
+                <div class="pack-title"><h3>${esc(s.name)}</h3><div class="meta">${esc(s.id)} · ${esc(s.path || '')}</div><div class="meta">${esc(s.desc || '')}</div></div>
+                ${s.installed ? '<span class="badge ok">已安装</span>' : '<span class="badge neutral">未安装</span>'}
+              </div>
+            </div>`).join('') : '<div class="empty">固定文件夹中没有找到 SKILL.md</div>') : '<div class="empty">请到 DSH Desktop 中打开 Skill 管理进行固定文件夹扫描安装</div>'}
+        </div>
       </div>
-    </div>
-    <div class="pack-list">
-      ${isWebView ? (sourceRows.length ? sourceRows.map((s) => `
-        <div class="pack">
-          <div class="pack-top">
-            <label class="pack-icon" style="background:#6a5acd;cursor:pointer"><input type="checkbox" data-pick-skill="${esc(s.id)}" ${s.installed ? 'disabled' : (picks.includes(s.id) ? 'checked' : '')}></label>
-            <div class="pack-title"><h3>${esc(s.name)}</h3><div class="meta">${esc(s.id)} · ${esc(s.path || '')}</div><div class="meta">${esc(s.desc || '')}</div></div>
-            ${s.installed ? '<span class="badge ok">已安装</span>' : '<span class="badge neutral">未安装</span>'}
-          </div>
-        </div>`).join('') : '<div class="empty">固定文件夹中没有找到 SKILL.md</div>') : '<div class="empty">请到 DSH Desktop 中打开 Skill 管理进行固定文件夹扫描安装</div>'}
     </div>`;
+  document.querySelectorAll('[data-skillcat]').forEach((b) => b.addEventListener('click', () => {
+    skillCat = b.dataset.skillcat;
+    renderSkills();
+  }));
   if (isWebView) {
     const refresh = $('skillSourceRefresh');
     if (refresh) refresh.addEventListener('click', () => { window.chrome.webview.postMessage('listSkillSource'); });
@@ -2632,20 +3455,29 @@ function mcpRowHtml(m) {
   const isHttp = (m.transport === 'streamable-http');
   const target = isHttp ? (m.url || '') : ((m.command || '') + ' ' + ((m.args || []).join(' ')));
   return `
-    <div class="pack">
-      <div class="pack-top">
+    <div class="fold" data-fold>
+      <div class="fold-head" data-fold-toggle>
         <div class="pack-icon" style="background:#1d5f9e">${esc((m.name || 'M').slice(0, 1))}</div>
-        <div class="pack-title">
-          <h3>${esc(m.name)}</h3>
-          <div class="meta">${isHttp ? 'HTTP · ' : 'STDIO · '}${esc(target)}</div>
+        <div class="fold-main">
+          <div class="pack-title">
+            <h3>${esc(m.name)}</h3>
+            <div class="meta">${isHttp ? 'HTTP · ' : 'STDIO · '}${esc(target)}</div>
+          </div>
         </div>
-        <span class="badge ${m.enabled ? 'ok' : 'neutral'}">${m.enabled ? '已启用' : '已停用'}</span>
+        <span class="status-dot ${m.enabled ? 'ok' : 'neutral'}" title="${m.enabled ? '已启用' : '已停用'}"></span>
+        <button class="switch" role="switch" aria-checked="${m.enabled}" aria-label="切换 ${esc(m.name)}" data-mcp="${esc(m.id)}"></button>
+        <span class="fold-chevron">${ICONS.chevron}</span>
       </div>
-      <div class="pack-foot">
-        <div class="spacer"></div>
-        <button class="btn sm" data-test-mcp="${esc(m.id)}">${ICONS.play || '▶'} 测试</button>
-        <button class="btn sm danger" data-del-mcp="${esc(m.id)}">${ICONS.trash} 删除</button>
-        <button class="switch" role="switch" aria-checked="${m.enabled}" data-mcp="${esc(m.id)}"></button>
+      <div class="fold-body">
+        <div class="fold-inner">
+          <div class="fold-content">
+            <div class="pack-foot">
+              <div class="spacer"></div>
+              <button class="btn sm" data-test-mcp="${esc(m.id)}">${ICONS.play || '▶'} 测试</button>
+              <button class="btn sm danger" data-del-mcp="${esc(m.id)}">${ICONS.trash} 删除</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>`;
 }
@@ -2665,22 +3497,31 @@ function renderPlugins() {
     ${hasUpdate ? `<div class="pill warn" style="margin-bottom:8px">${hasUpdate} 个插件有可用更新</div>` : ''}
     <div class="pack-list">
       ${rows.length ? rows.map((r) => `
-        <div class="pack">
-          <div class="pack-top">
+        <div class="fold" data-fold>
+          <div class="fold-head" data-fold-toggle>
             <div class="pack-icon" style="background:#6a5acd">${esc((r.name || 'P').slice(0, 1))}</div>
-            <div class="pack-title">
-              <h3>${esc(r.name)}</h3>
-              <div class="meta">已装 ${esc(r.version || '未知')}${r.latest && r.latest !== r.version ? ' · 最新 ' + esc(r.latest) : ''}</div>
-              <div class="meta">${esc(r.spec || '')}</div>
+            <div class="fold-main">
+              <div class="pack-title">
+                <h3>${esc(r.name)}</h3>
+                <div class="meta">已装 ${esc(r.version || '未知')}${r.latest && r.latest !== r.version ? ' · 最新 ' + esc(r.latest) : ''}</div>
+              </div>
             </div>
-            <span class="badge ${r.enabled ? 'ok' : 'neutral'}">${r.enabled ? '已启用' : '已停用'}</span>
+            <span class="status-dot ${r.enabled ? 'ok' : 'neutral'}" title="${r.enabled ? '已启用' : '已停用'}"></span>
+            ${r.hasUpdate ? `<button class="btn sm primary" data-plugin-update="${esc(r.id)}">${ICONS.download} 立即更新</button>` : ''}
+            <button class="switch" role="switch" aria-checked="${r.enabled}" aria-label="切换 ${esc(r.name)}" data-plugin-toggle="${esc(r.id)}"></button>
+            <span class="fold-chevron">${ICONS.chevron}</span>
           </div>
-          <div class="pack-foot">
-            <div class="spacer"></div>
-            ${r.repo ? `<button class="btn sm" data-url="${esc(r.repo)}">${ICONS.store} 仓库</button>` : ''}
-            ${r.hasUpdate ? `<button class="btn sm" data-plugin-update="${esc(r.id)}">${ICONS.download} 更新</button>` : ''}
-            <button class="btn sm danger" data-plugin-del="${esc(r.id)}">${ICONS.trash} 删除</button>
-            <button class="switch" role="switch" aria-checked="${r.enabled}" data-plugin-toggle="${esc(r.id)}"></button>
+          <div class="fold-body">
+            <div class="fold-inner">
+              <div class="fold-content">
+                ${r.spec ? `<div class="meta" style="margin-bottom:10px">${esc(r.spec)}</div>` : ''}
+                <div class="pack-foot">
+                  <div class="spacer"></div>
+                  ${r.repo ? `<button class="btn sm" data-url="${esc(r.repo)}">${ICONS.store} 仓库</button>` : ''}
+                  <button class="btn sm danger" data-plugin-del="${esc(r.id)}">${ICONS.trash} 删除</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>`).join('') : '<div class="empty">还没有插件依赖，请在下方添加 dsh-hub / tgz / git 插件</div>'}
     </div>
@@ -2734,26 +3575,50 @@ function renderPlugins() {
 
 function renderMcp() {
   const rows = (window.chrome && window.chrome.webview && window.__mcpsData) || state.mcps || [];
+  const catOf = (m) => categorize((m.name || '') + ' ' + (m.command || '') + ' ' + (m.url || '') + ' ' + ((m.args || []).join(' ')), MCP_CATEGORIES);
+  const counts = {};
+  MCP_CATEGORIES.forEach((c) => { counts[c.id] = 0; });
+  rows.forEach((m) => { counts[catOf(m)] = (counts[catOf(m)] || 0) + 1; });
+  counts.all = rows.length;
+  const filtered = mcpCat === 'all' ? rows : rows.filter((m) => catOf(m) === mcpCat);
+  const catNav = MCP_CATEGORIES.map((c) => `
+    <button class="cat-item ${mcpCat === c.id ? 'active' : ''}" data-mcpcat="${c.id}">
+      ${ICONS[c.icon] || ''}<span>${c.label}</span><span class="c-count">${counts[c.id] || 0}</span>
+    </button>`).join('');
 
   $('view-mcp').innerHTML = `
     <div class="section-head">
       <div><h2>MCP 管理</h2><div class="sub">统一读写 dseam-skillmcp 受管块 · 支持 STDIO / streamable-http</div></div>
     </div>
-    <div class="pack-list">
-      ${rows.length ? rows.map(mcpRowHtml).join('') : '<div class="empty">还没有 MCP 服务器</div>'}
-    </div>
-    <div class="toolbar">
-      <input class="search" id="newMcpName" placeholder="MCP 名称（如 godot-mcp）">
-      <select class="search" id="newMcpTransport" style="max-width:160px">
-        <option value="stdio">STDIO 命令</option>
-        <option value="streamable-http">HTTP 地址</option>
-      </select>
-      <input class="search" id="newMcpCmd" placeholder="STDIO 命令，如 npx 或 http 地址">
-      <input class="search" id="newMcpArgs" placeholder="参数（空格分隔，STDIO 用）">
-      <button class="btn primary" id="addMcpBtn">＋ 新增 MCP</button>
-    </div>
-    <div class="section-head" style="margin-top:18px"><div><h2>MCP 市场</h2><div class="sub">暂无内置示例，可手动新增本地 MCP</div></div></div>
-    <div class="empty">暂无 MCP 市场条目</div>`;
+    <div class="split-view">
+      <aside class="split-side">
+        <div class="cat-title">服务器分类</div>
+        <div class="cat-list">${catNav}</div>
+      </aside>
+      <div class="split-main">
+        <div class="guide-hint">💡 按类别管理 MCP 服务器，点左侧分类筛选，右侧开关控制启用</div>
+        <div class="pack-list">
+          ${filtered.length ? filtered.map(mcpRowHtml).join('') : '<div class="empty">该分类下暂无 MCP，在下方新增</div>'}
+        </div>
+        <div class="section-head" style="margin-top:8px">
+          <div><h2>新增 MCP</h2><div class="sub">填名称 + 命令（STDIO）或地址（HTTP）即可</div></div>
+        </div>
+        <div class="toolbar">
+          <input class="search" id="newMcpName" placeholder="MCP 名称（如 godot-mcp）">
+          <select class="search" id="newMcpTransport" style="max-width:160px">
+            <option value="stdio">STDIO 命令</option>
+            <option value="streamable-http">HTTP 地址</option>
+          </select>
+          <input class="search" id="newMcpCmd" placeholder="STDIO 命令，如 npx 或 http 地址">
+          <input class="search" id="newMcpArgs" placeholder="参数（空格分隔，STDIO 用）">
+          <button class="btn primary" id="addMcpBtn">＋ 新增 MCP</button>
+        </div>
+      </div>
+    </div>`;
+  document.querySelectorAll('[data-mcpcat]').forEach((b) => b.addEventListener('click', () => {
+    mcpCat = b.dataset.mcpcat;
+    renderMcp();
+  }));
   const add = $('addMcpBtn');
   if (add) add.addEventListener('click', () => {
     const name = $('newMcpName').value.trim();
@@ -2787,7 +3652,7 @@ function renderCheck() {
       <div style="display:flex;gap:8px">
         <button class="btn" id="recheck">${ICONS.refresh} 重新自检</button>
         <button class="btn" id="fixEnv">${ICONS.restart} 一键修复环境</button>
-        <button class="btn primary" id="installHarness">${ICONS.download} 自动安装/更新官方客户端</button>
+        <button class="btn primary" id="installHarness">${ICONS.download} 自动安装/更新 dsh CLI</button>
       </div>
     </div>
     <div class="check-list">
@@ -2798,18 +3663,6 @@ function renderCheck() {
           <div class="val">${esc(c.val)}</div>
           <div style="font-size:12px;color:var(--muted);min-width:110px;text-align:right">${esc(c.text)}</div>
         </div>`).join('')}
-    </div>
-    <div class="section-head"><div><h2>内置 Skill/MCP 管理器</h2><div class="sub">dseam-skillmcp（原 dsh-skill-mcp-panel 开源改名适配，MIT） · 随 EXE 自动安装</div></div></div>
-    <div class="check-list">
-      <div class="check-row">
-        <span class="badge ${state.panelInstalled ? 'ok' : 'warn'}">${state.panelInstalled ? ICONS.check : ICONS.download}</span>
-        <div><div class="name">dseam-skillmcp</div><div class="desc">本地：${esc(state.panelInstalled || '未安装')} · 内置：${esc(state.panelLatest || '0.8.0-pre')}</div></div>
-        <div class="val">${esc(state.panelInstalled && state.panelInstalled === state.panelLatest ? '已内置' : '可安装')}</div>
-        <div style="display:flex;gap:8px;margin-left:auto">
-          <button class="btn sm primary" id="panelInstallBtn">${state.panelInstalled ? '重装内置管理器' : '安装内置管理器'}</button>
-          <button class="btn sm" id="panelPageBtn">发布页</button>
-        </div>
-      </div>
     </div>
     ${getConflicts().length ? `
       <div class="section-head"><div><h2>冲突矩阵</h2></div></div>
@@ -2830,24 +3683,14 @@ function renderCheck() {
       </div>
     </div>`;
   $('recheck').addEventListener('click', () => { if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('recheck'); return; } toast('自检完成，状态已更新'); renderCheck(); });
-  const panelInstall = $('panelInstallBtn');
-  if (panelInstall) panelInstall.addEventListener('click', () => {
-    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage(state.panelInstalled ? 'updatePanel' : 'installPanel'); return; }
-    toast('浏览器预览模式：请在 Dseam世界 桌面端中安装');
-  });
-  const panelPage = $('panelPageBtn');
-  if (panelPage) panelPage.addEventListener('click', () => {
-    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('openPanelPage'); return; }
-    window.open('https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.9.8', '_blank');
-  });
   const ih = $('installHarness');
   if (ih) ih.addEventListener('click', () => {
-    if (window.chrome && window.chrome.webview) { toast('正在获取官方 DSH Desktop 安装包（约 70MB），请稍候…'); window.chrome.webview.postMessage('installHarness'); return; }
-    window.open('https://github.com/myYangyunfan/dsh_desktop/releases/latest', '_blank');
+    if (window.chrome && window.chrome.webview) { toast('正在安装官方 dsh CLI（@deepseek-ai/dsh），请稍候…'); window.chrome.webview.postMessage('installHarness'); return; }
+    window.open('https://github.com/deepseek-ai/deepseek-harness', '_blank');
   });
   const fe = $('fixEnv');
   if (fe) fe.addEventListener('click', () => {
-    if (window.chrome && window.chrome.webview) { toast('正在检查并修复 Node/pnpm/官方客户端环境，可能需要几分钟…'); window.chrome.webview.postMessage('autoInstallEnv'); return; }
+    if (window.chrome && window.chrome.webview) { toast('正在检查并修复 Node/pnpm/dsh 环境，可能需要几分钟…'); window.chrome.webview.postMessage('autoInstallEnv'); return; }
     toast('请在 Dseam世界 桌面端执行');
   });
   $('importBtn3').addEventListener('click', () => $('importFile').click());
@@ -2908,6 +3751,16 @@ function renderAll() {
 
 function bindGlobal() {
   document.addEventListener('click', (e) => {
+    // 折叠卡片切换：点击头部展开/收起；头部内的开关/按钮/链接不触发折叠
+    const foldToggle = e.target.closest('[data-fold-toggle]');
+    if (foldToggle) {
+      const hitInteractive = e.target.closest('.switch, .btn, a, [data-toggle], [data-install], [data-uninstall], [data-skill], [data-mcp], [data-plugin-toggle], [data-plugin-del], [data-plugin-update], [data-test-mcp], [data-del-mcp], [data-remove-skill]');
+      if (!hitInteractive) {
+        const fold = foldToggle.closest('.fold') || foldToggle;
+        if (fold) fold.classList.toggle('open');
+        return;
+      }
+    }
     const inst = e.target.closest('[data-install]');
     if (inst) { installPack(inst.dataset.install); return; }
     const tog = e.target.closest('[data-toggle]');
@@ -3077,8 +3930,54 @@ function today() {
 document.addEventListener('DOMContentLoaded', () => {
   aiRestore(); // AI 装配间会话续接（刷新/重启）
   bindGlobal();
+  applyTheme();
+  bindWindowControls();
+  bindClientCenterBackdrop();
+  bindNavWheelScroll();
   renderAll();
 });
+
+// 无边框窗口控制：拖拽 + 最小化 + 关闭（经 WebView 桥转发给 C#）
+// 顶部导航横向滚动：鼠标滚轮 → 横向滚动（小窗口标签多时可左右滑动）
+function bindNavWheelScroll() {
+  const nav = document.getElementById('nav');
+  if (!nav) return;
+  nav.addEventListener('wheel', (e) => {
+    if (e.deltaY === 0) return;
+    // 只在标签确实溢出（可横向滚动）时才拦截，避免影响页面纵向滚动
+    if (nav.scrollWidth > nav.clientWidth) {
+      nav.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+  }, { passive: false });
+}
+
+function bindWindowControls() {
+  // 双保险拖拽：WebView2 原生 app-region: drag 为主，JS mousedown 桥接为兜底。
+  // mousedown 只在顶栏空白处触发（按钮/导航/输入框除外），通知 C# 执行系统拖拽。
+  const topnav = document.querySelector('.topnav');
+  if (topnav) {
+    topnav.addEventListener('mousedown', (e) => {
+      const t = e.target;
+      if (t.closest('button, input, select, a, .nav, .win-ctrls, .side-foot')) return;
+      if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage('winDrag');
+      }
+    });
+  }
+  const minBtn = document.getElementById('winMin');
+  if (minBtn) minBtn.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('winMin');
+  });
+  const maxBtn = document.getElementById('winMax');
+  if (maxBtn) maxBtn.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('winMax');
+  });
+  const closeBtn = document.getElementById('winClose');
+  if (closeBtn) closeBtn.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('winClose');
+  });
+}
 </script>
 </body>
 </html>

@@ -4,7 +4,7 @@
  *   Windows x64  安装版（Setup exe）+ 便携版（zip）
  *   Linux   x64  安装版（自解压 .sh）+ 便携版（tar.gz）
  *   macOS   x64  安装版（自解压 .command）+ 便携版（zip）
- * 三插件（dseam-skillmcp / dsh-memory-hub / dsh-hub）随包内置在 plugins/ 目录。
+ * 两个自有插件（dseam-skillmcp / dsh-hub）随包内置在 plugins/ 目录。
  */
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -12,15 +12,14 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..')
-const version = '0.9.8'
+const version = '1.0.0'
 const releaseDir = join(root, 'release')
 const distDir = join(releaseDir, 'dist')
 const uiFile = join(root, 'dsh-hotplug-hub', 'dsh-pack-hub', 'prototype.html')
 const embeddedDir = join(releaseDir, 'embedded')
 const plugins = [
   'dseam-skillmcp-0.8.1-pre.tgz',
-  'dsh-memory-hub-0.8.0-pre.tgz',
-  'dsh-hub-1.1.6.tgz',
+  'dsh-hub-1.1.8.tgz',
 ]
 const winDlls = [
   'Microsoft.Web.WebView2.Core.dll',

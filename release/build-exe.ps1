@@ -9,7 +9,7 @@ if (-not (Test-Path $csc)) { throw "找不到 csc.exe: $csc" }
 $protoHtml = Join-Path $root '..\dsh-hotplug-hub\dsh-pack-hub\prototype.html'
 $embeddedSkillmcpTgz = Join-Path $root 'embedded/dseam-skillmcp-0.8.1-pre.tgz'
 $embeddedMemoryHubTgz = Join-Path $root 'embedded/dsh-memory-hub-0.8.0-pre.tgz'
-$embeddedDshHubTgz = Join-Path $root 'embedded/dsh-hub-1.1.6.tgz'
+$embeddedDshHubTgz = Join-Path $root 'embedded/dsh-hub-1.1.8.tgz'
 $main = Join-Path $srcDir 'Main.cs'
 # v5（crosslang 重构）：Main.cs 引用 PatchContract（锁/分节/字符集契约），必须同编译单元
 $patchContract = Join-Path $srcDir 'PatchContract.cs'
