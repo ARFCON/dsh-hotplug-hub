@@ -8,6 +8,8 @@ if (-not (Test-Path $csc)) { throw "找不到 csc.exe: $csc" }
 
 $protoHtml = Join-Path $root '..\dsh-hotplug-hub\dsh-pack-hub\prototype.html'
 $embeddedSkillmcpTgz = Join-Path $root 'embedded/dseam-skillmcp-0.8.1-pre.tgz'
+$embeddedMemoryHubTgz = Join-Path $root 'embedded/dsh-memory-hub-0.8.0-pre.tgz'
+$embeddedDshHubTgz = Join-Path $root 'embedded/dsh-hub-1.1.6.tgz'
 $main = Join-Path $srcDir 'Main.cs'
 # v5（crosslang 重构）：Main.cs 引用 PatchContract（锁/分节/字符集契约），必须同编译单元
 $patchContract = Join-Path $srcDir 'PatchContract.cs'
@@ -31,13 +33,17 @@ foreach ($pair in @(@($coreDllSrc,$coreDll), @($winFormsDllSrc,$winFormsDll), @(
 
 if (-not (Test-Path $protoHtml)) { throw "找不到 prototype.html: $protoHtml" }
 if (-not (Test-Path $embeddedSkillmcpTgz)) { throw "找不到内置 Skill/MCP 管理器包: $embeddedSkillmcpTgz" }
+if (-not (Test-Path $embeddedMemoryHubTgz)) { throw "找不到内置全局记忆插件包: $embeddedMemoryHubTgz" }
+if (-not (Test-Path $embeddedDshHubTgz)) { throw "找不到内置插件中枢包: $embeddedDshHubTgz" }
 
 $args = @(
   '/nologo', '/target:winexe', '/optimize+',
   "/out:$out",
   "/win32icon:$srcDir\app.ico",
   "/resource:$protoHtml,DSHHotplugHub.Resources.prototype.html",
-  "/resource:$embeddedSkillmcpTgz,DSHHotplugHub.Resources.dseam_skillmcp.tgz"
+    "/resource:$embeddedSkillmcpTgz,DSHHotplugHub.Resources.dseam_skillmcp.tgz"
+  "/resource:$embeddedMemoryHubTgz,DSHHotplugHub.Resources.dsh_memory_hub.tgz"
+  "/resource:$embeddedDshHubTgz,DSHHotplugHub.Resources.dsh_hub.tgz"
   "/reference:$winFormsDll",
   "/reference:$coreDll",
   '/reference:System.Windows.Forms.dll',

@@ -8,8 +8,12 @@ DSH-Hotplug-Hub 是 **Dseam世界** 的桌面软件（Windows，WebView2 + C# Wi
 
 - 最新正式版：**v0.9.8**
 - 下载页：https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.9.8
-- 安装程序：`DSH-Hotplug-Hub-Setup.exe`
-- 绿色版主程序：`DSH-Hotplug-Hub.exe`
+- Windows 安装版：`DSH-Hotplug-Hub-win-x64-setup-v0.9.8.exe`
+- Windows 便携版：`DSH-Hotplug-Hub-win-x64-portable-v0.9.8.zip`
+- Linux 安装版：`DSH-Hotplug-Hub-linux-x64-setup-v0.9.8.sh`
+- Linux 便携版：`DSH-Hotplug-Hub-linux-x64-portable-v0.9.8.tar.gz`
+- macOS 安装版：`DSH-Hotplug-Hub-macos-x64-setup-v0.9.8.command`
+- macOS 便携版：`DSH-Hotplug-Hub-macos-x64-portable-v0.9.8.zip`
 
 ## 主要功能
 
@@ -18,6 +22,7 @@ DSH-Hotplug-Hub 是 **Dseam世界** 的桌面软件（Windows，WebView2 + C# Wi
 - **MCP 管理**：支持 `STDIO` 与 `streamable-http` 两种 MCP 的添加、删除、启停、测试，统一写入 `dseam-skillmcp` 受管块。
 - **全局记忆中枢**：真实读写 `~/.dsh/memory-hub`，支持每条记忆的查看、编辑、删除；配合 `dsh-memory-hub` 插件，在 AI 听到重要信息（偏好 / 决定 / 约束 / 背景 / 纠正 / 长期目标）时主动提醒记忆，并允许 AI 修改 / 删除记忆。
 - **内置 Skill/MCP 管理器**：`dseam-skillmcp`（原开源 `dsh-skill-mcp-panel` 改名适配，MIT License），随安装程序 / EXE 自动安装到 profile，无需另装。
+- **三插件全内置**：`dseam-skillmcp`、`dsh-memory-hub`、`dsh-hub` 已打进安装包 / 便携包，应用每次发版时随版本一起更新，不再单独下载插件包。
 - **托盘常驻**：关闭主窗口最小化到系统托盘，后台进程继续运行；单实例进程，重复启动只提示不重复打开。
 - **自检与更新**：启动时自动自检（Node / pnpm / profile / 插件 / 内置管理器），并自动安装 / 更新 `dsh-memory-hub` 与内置管理器。
 
@@ -25,20 +30,21 @@ DSH-Hotplug-Hub 是 **Dseam世界** 的桌面软件（Windows，WebView2 + C# Wi
 
 ### 方式一：安装程序（推荐）
 
-1. 到 Release 页下载 `DSH-Hotplug-Hub-Setup.exe`。
+1. 到 Release 页下载 `DSH-Hotplug-Hub-win-x64-setup-v0.9.8.exe`。
 2. 双击运行，选择安装位置（默认 `%LOCALAPPDATA%\Programs\DseamWorld`）。
 3. 点击「立即安装」，自动创建桌面 / 开始菜单快捷方式，完成后可直接启动。
 
 静默安装：
 
 ```powershell
-DSH-Hotplug-Hub-Setup.exe --silent
-DSH-Hotplug-Hub-Setup.exe --silent --dir "D:\MyApps\DseamWorld"
+DSH-Hotplug-Hub-win-x64-setup-v0.9.8.exe --silent
+DSH-Hotplug-Hub-win-x64-setup-v0.9.8.exe --silent --dir "D:\MyApps\DseamWorld"
 ```
 
 ### 方式二：绿色版
 
-下载 `DSH-Hotplug-Hub.exe`，放到任意目录后双击运行即可（Release 内的 WebView2 运行 DLL 与该 EXE 保持同目录时最稳）。
+下载 `DSH-Hotplug-Hub-win-x64-portable-v0.9.8.zip`，解压到任意目录后双击 `DSH-Hotplug-Hub.exe` 即可（WebView2 运行 DLL 已同目录打包）。
+Linux 下载 `DSH-Hotplug-Hub-linux-x64-portable-v0.9.8.tar.gz`，解压后执行 `./dsh-hotplug-hub`；macOS 下载 `DSH-Hotplug-Hub-macos-x64-portable-v0.9.8.zip`，解压后双击 `Start-DSH-Hotplug-Hub.command`。
 
 ## 目录结构
 

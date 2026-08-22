@@ -47,6 +47,8 @@ namespace DSHHotplugHub
         private const string APP_VERSION = "0.9.8";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_VERSION = "0.8.1-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
+        private const string MEMORY_HUB_VERSION = "0.8.0-pre"; // 内置全局记忆插件（dsh-memory-hub）当前版本
+        private const string DSH_HUB_VERSION = "1.1.6"; // 内置插件中枢（dsh-hub）当前版本
         // GitHub API 结果的会话级缓存：避免每次插件列表刷新都同步打 API、离线时反复等 15s 超时
         private static readonly Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>> _githubCache =
             new Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>>();
@@ -1001,34 +1003,9 @@ namespace DSHHotplugHub
 
         private static string InstallOrUpdatePanel()
         {
-            try
-            {
-                Dictionary<string, string> info = GetPanelReleaseInfo();
-                if (info == null || !info.ContainsKey("url"))
-                {
-                    return "未获取到 dsh-skill-mcp-panel 发布信息，请检查网络";
-                }
-                string latest = info.ContainsKey("latest") ? info["latest"] : "?";
-                string installed = GetInstalledPanelVersion();
-                if (!string.IsNullOrEmpty(installed) && NormalizeVersion(installed) == NormalizeVersion(latest))
-                {
-                    return "官方面板插件已是最新 v" + installed;
-                }
-                string output = RunDshPanelInstall(info["url"]);
-                if (output == null)
-                {
-                    return "未找到 dsh 命令，请先安装官方 DSH Desktop 或把 dsh 加入 PATH";
-                }
-                if (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:"))
-                {
-                    return "安装失败：" + output.Substring(0, Math.Min(output.Length, 160));
-                }
-                return "官方面板插件 v" + latest + " 已提交安装，重启 DSH 后生效";
-            }
-            catch (Exception ex)
-            {
-                return "安装异常：" + ex.Message;
-            }
+            // 内置 Skill/MCP 管理器：不再请求 Fishquito7 上游 Release（GitHub 限流/网络失败会导致“更新不了”），
+            // 一律从 EXE 内置 tgz 安装/升级到 PANEL_VERSION。
+            return InstallEmbeddedSkillMcp();
         }
         // 读取 DSH 核心版本，按真实来源优先级（避免把「DSH Desktop.exe 文件版本」当 DSH 版本）：
         //   1) 官方 DSH Desktop 的 resources/app/package.json（dependencies["@deepseek-ai/dsh"]，缺省取其根 version）
@@ -1903,18 +1880,20 @@ namespace DSHHotplugHub
         {
             try
             {
-                Dictionary<string, string> info = GetMemoryHubReleaseInfo();
-                string url = info != null && info.ContainsKey("url")
-                    ? info["url"]
-                    : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v0.9.7/dsh-memory-hub-0.8.0-pre.tgz";
-                string latest = info != null && info.ContainsKey("latest") ? info["latest"] : null;
-                string installed = GetInstalledMemoryHubVersion();
-                // 离线（latest 拿不到）且已安装时跳过：避免每次启动都白发一次注定失败的安装
-                bool needInstall = string.IsNullOrEmpty(installed)
-                    || (!string.IsNullOrEmpty(latest) && NormalizeVersion(installed) != NormalizeVersion(latest));
-                if (needInstall)
+                // 三插件全部内置：优先从 EXE 资源释放安装（随应用版本一起更新），
+                // 网络仅作为资源缺失时的兜底；插件仓库仍然保留用于手动“检查更新”。
+                string installedMemory = GetInstalledMemoryHubVersion();
+                if (NormalizeVersion(installedMemory) != MEMORY_HUB_VERSION)
                 {
-                    string output = InstallPluginPackage(url);
+                    string tgz = ExtractEmbeddedTgz("DSHHotplugHub.Resources.dsh_memory_hub.tgz", "dsh-memory-hub-" + MEMORY_HUB_VERSION + ".tgz");
+                    if (tgz == null)
+                    {
+                        Dictionary<string, string> info = GetMemoryHubReleaseInfo();
+                        tgz = info != null && info.ContainsKey("url")
+                            ? info["url"]
+                            : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v" + APP_VERSION + "/dsh-memory-hub-" + MEMORY_HUB_VERSION + ".tgz";
+                    }
+                    string output = InstallPluginPackage(tgz);
                     if (output != null && (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:")))
                     {
                         try
@@ -1959,26 +1938,57 @@ namespace DSHHotplugHub
         }
 
         // 内置 dseam-skillmcp（原开源 dsh-skill-mcp-panel 改名适配，MIT）：从 EXE 资源释放 tgz 并安装到 profile。
-        private static void InstallEmbeddedSkillMcp()
+        private static string InstallEmbeddedSkillMcp()
         {
             try
             {
                 string installed = GetInstalledPanelVersion();
-                if (NormalizeVersion(installed) == PANEL_VERSION) return;
-                using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("DSHHotplugHub.Resources.dseam_skillmcp.tgz"))
+                if (NormalizeVersion(installed) == PANEL_VERSION)
                 {
-                    if (stream == null) return;
+                    return "内置 Skill/MCP 管理器已是最新 v" + PANEL_VERSION;
+                }
+                string tgz = ExtractEmbeddedTgz("DSHHotplugHub.Resources.dseam_skillmcp.tgz", "dseam-skillmcp-" + PANEL_VERSION + ".tgz");
+                if (tgz == null)
+                {
+                    return "未找到内置 dseam-skillmcp 安装包，请重新下载完整版";
+                }
+                string output = InstallPluginPackage(tgz);
+                if (output == null)
+                {
+                    return "未找到 dsh 命令，请先安装官方 DSH Desktop 或把 dsh 加入 PATH";
+                }
+                if (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:"))
+                {
+                    return "安装失败：" + output.Substring(0, Math.Min(output.Length, 160));
+                }
+                return "内置 Skill/MCP 管理器 v" + PANEL_VERSION + " 已提交安装，重启 DSH 后生效";
+            }
+            catch (Exception ex)
+            {
+                return "安装异常：" + ex.Message;
+            }
+        }
+
+        // 从 EXE 内嵌资源释放 tgz 到临时目录，返回文件路径；资源不存在返回 null。
+        private static string ExtractEmbeddedTgz(string resourceName, string fileName)
+        {
+            try
+            {
+                using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
+                {
+                    if (stream == null) return null;
                     string dir = Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embedded");
                     Directory.CreateDirectory(dir);
-                    string tgz = Path.Combine(dir, "dseam-skillmcp-" + PANEL_VERSION + ".tgz");
+                    string tgz = Path.Combine(dir, fileName);
                     using (FileStream fs = new FileStream(tgz, FileMode.Create, FileAccess.Write))
                     {
                         stream.CopyTo(fs);
                     }
-                    InstallPluginPackage(tgz);
+                    return tgz;
                 }
             }
-            catch { /* 有意吞掉：内置管理器安装失败不阻塞启动，下次启动重试 */ }
+            catch { /* 有意吞掉：释放失败返回 null，调用方回退到网络下载 */ }
+            return null;
         }
 
         private static string GetInstalledMemoryHubVersion()
@@ -2011,17 +2021,37 @@ namespace DSHHotplugHub
             catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             return null;
         }
-        // 内置 dsh-hub：插件仓库保持为 ARFCON/dsh-hub-DSH，每次更新从该仓库 main 分支获取。
+        // 内置 dsh-hub：随应用版本一起更新（EXE 资源），插件仓库 ARFCON/dsh-hub-DSH 保留用于手动“检查更新”。
         private static void EnsureDshHub()
         {
             try
             {
-                string latest = GetLatestDshHubVersion();
-                // 离线/接口失败（latest 为空）时跳过：旧逻辑此时会每次启动都重新下载 main 分支 tarball
-                if (string.IsNullOrEmpty(latest)) return;
                 string installed = GetInstalledDshHubVersion();
-                if (NormalizeVersion(installed) == NormalizeVersion(latest)) return;
-                InstallPluginPackage("https://codeload.github.com/ARFCON/dsh-hub-DSH/tar.gz/refs/heads/main");
+                if (NormalizeVersion(installed) == DSH_HUB_VERSION) return;
+                string tgz = ExtractEmbeddedTgz("DSHHotplugHub.Resources.dsh_hub.tgz", "dsh-hub-" + DSH_HUB_VERSION + ".tgz");
+                if (tgz == null)
+                {
+                    string latest = GetLatestDshHubVersion();
+                    // 离线/接口失败（latest 为空）时跳过：旧逻辑此时会每次启动都重新下载 main 分支 tarball
+                    if (string.IsNullOrEmpty(latest)) return;
+                    if (NormalizeVersion(installed) == NormalizeVersion(latest)) return;
+                    InstallPluginPackage("https://codeload.github.com/ARFCON/dsh-hub-DSH/tar.gz/refs/heads/main");
+                    return;
+                }
+                string output = InstallPluginPackage(tgz);
+                if (output != null && (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:")))
+                {
+                    try
+                    {
+                        string logDir = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                            "DSH-Hotplug-Hub");
+                        Directory.CreateDirectory(logDir);
+                        File.AppendAllText(Path.Combine(logDir, "plugin-install.log"),
+                            DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " dsh-hub install failed: " + output + Environment.NewLine);
+                    }
+                    catch { /* 有意吞掉：内置 dsh-hub 安装失败不阻塞启动，插件管理页可手动更新 */ }
+                }
             }
             catch { /* 有意吞掉：内置 dsh-hub 安装失败不阻塞启动，插件管理页可手动更新 */ }
         }

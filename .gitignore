@@ -38,3 +38,6 @@ assembly/*/resolvedAssembly.json
 
 # 内部审查/规划文档（本地工作产物，不入库）
 /AI*.md
+
+# 跨平台发布包构建输出（GitHub Release 资产，不提交仓库）
+release/dist/
