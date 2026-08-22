@@ -1260,6 +1260,26 @@ namespace DSHHotplugHub
             ApiConfig cfg = DefaultApiConfig();
             try
             {
+                // 应用自身保存的配置（api-config.json）作为基底：修复“保存后重启即丢”
+                string appCfgPath = ApiConfigPath();
+                if (File.Exists(appCfgPath))
+                {
+                    try
+                    {
+                        JavaScriptSerializer ser = new JavaScriptSerializer();
+                        ApiConfig saved = ser.Deserialize<ApiConfig>(File.ReadAllText(appCfgPath));
+                        if (saved != null)
+                        {
+                            if (!string.IsNullOrEmpty(saved.provider)) cfg.provider = saved.provider;
+                            if (!string.IsNullOrEmpty(saved.baseUrl)) cfg.baseUrl = saved.baseUrl;
+                            if (!string.IsNullOrEmpty(saved.apiKey)) cfg.apiKey = saved.apiKey;
+                            if (!string.IsNullOrEmpty(saved.models)) cfg.models = saved.models;
+                            if (!string.IsNullOrEmpty(saved.defaultModel)) cfg.defaultModel = saved.defaultModel;
+                            if (saved.temperature > 0) cfg.temperature = saved.temperature;
+                        }
+                    }
+                    catch { /* 配置损坏时回退官方配置 */ }
+                }
                 string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
                 string dshDir = Path.Combine(home, ".dsh");
                 string settingsPath = Path.Combine(dshDir, "settings.yaml");
@@ -1650,13 +1670,14 @@ namespace DSHHotplugHub
                 // 1. 同步 API Key 到 .credentials.yaml
                 string credPath = Path.Combine(dshDir, ".credentials.yaml");
                 string credText = File.Exists(credPath) ? File.ReadAllText(credPath) : "";
-                string keyLine = "DEEPSEEK_API_KEY: " + cfg.apiKey;
-                if (credText.Contains("DEEPSEEK_API_KEY:"))
+                string keyName = ProviderKeyName(cfg.provider);
+                string keyLine = keyName + ": " + cfg.apiKey;
+                if (credText.Contains(keyName + ":"))
                 {
                     string[] credLines = credText.Replace("\r\n", "\n").Split('\n');
                     for (int i = 0; i < credLines.Length; i++)
                     {
-                        if (credLines[i].StartsWith("DEEPSEEK_API_KEY:"))
+                        if (credLines[i].StartsWith(keyName + ":"))
                         {
                             credLines[i] = keyLine;
                         }
@@ -1694,12 +1715,20 @@ namespace DSHHotplugHub
         {
             ApiConfig cfg = LoadApiConfig();
             JavaScriptSerializer ser = new JavaScriptSerializer();
-            string configJson = ser.Serialize(cfg);
+            ApiConfig pageCfg = new ApiConfig();
+            pageCfg.provider = cfg.provider;
+            pageCfg.baseUrl = cfg.baseUrl;
+            pageCfg.models = cfg.models;
+            pageCfg.defaultModel = cfg.defaultModel;
+            pageCfg.temperature = cfg.temperature;
+            pageCfg.apiKey = ""; // 隐私：真实 API Key 绝不注入页面全局变量
+            string configJson = ser.Serialize(pageCfg);
+            string hasKeyJs = (!string.IsNullOrEmpty(cfg.apiKey)) ? "true" : "false";
 
             // 与原型同构：EXE 渠道复用页面的 beginTurn/processAiRaw/failAssistTurn/aiErrorText，
             // 保证按钮锁定、轮次徽标、欢迎卡移除、产物校验与话术与 standalone 完全一致。
             string js =
-                "window.__apiConfig=" + configJson + ";" +
+                "window.__apiConfig=" + configJson + ";var HAS_SHELL_KEY=" + hasKeyJs + ";" +
                 "(function(){var cfg=window.__apiConfig||{};" +
                 // 面板由页面统一渲染（模型/Key/端点直接填写）；外壳配置仅在留空时兜底填充，
                 // 不再注入「外壳提供」UI（该功能后续再拓展）
@@ -1709,11 +1738,11 @@ namespace DSHHotplugHub
                 "if(mi&&cfg&&cfg.defaultModel&&!mi.value){mi.value=cfg.defaultModel;}" +
                 "if(bi&&cfg&&cfg.baseUrl&&!bi.value){bi.value=cfg.baseUrl;}" +
                 "var note=document.getElementById('aiConnNote');" +
-                "var ki2=document.getElementById('aiKeyInput');var kt=((ki2&&ki2.value&&ki2.value.trim())||(cfg&&cfg.apiKey)||'');" +
+                "var ki2=document.getElementById('aiKeyInput');var kt=((ki2&&ki2.value&&ki2.value.trim())?true:HAS_SHELL_KEY);" +
                 "if(note){var m0=(mi&&mi.value)||(cfg&&cfg.defaultModel)||'?';note.textContent='当前模型：'+m0+(kt?'（DSH API）':'（未配置 Key，点「⚙ 模型」填写）');}" +
                 "};" +
                 "var origRenderAi=renderAi;renderAi=function(){origRenderAi();ensure();};" +
-                "var origRefresh=refreshConnNote;refreshConnNote=function(){var mi2=document.getElementById('aiModelInput');var ki3=document.getElementById('aiKeyInput');var kt2=((ki3&&ki3.value&&ki3.value.trim())||(cfg&&cfg.apiKey)||'');var n2=document.getElementById('aiConnNote');if(n2){n2.textContent='当前模型：'+((mi2&&mi2.value)||(cfg&&cfg.defaultModel)||'?')+(kt2?'（DSH API）':'（未配置 Key，点「⚙ 模型」填写）');}};" +
+                "var origRefresh=refreshConnNote;refreshConnNote=function(){var mi2=document.getElementById('aiModelInput');var ki3=document.getElementById('aiKeyInput');var kt2=((ki3&&ki3.value&&ki3.value.trim())?true:HAS_SHELL_KEY);var n2=document.getElementById('aiConnNote');if(n2){n2.textContent='当前模型：'+((mi2&&mi2.value)||(cfg&&cfg.defaultModel)||'?')+(kt2?'（DSH API）':'（未配置 Key，点「⚙ 模型」填写）');}};" +
                 "if(document.readyState!=='loading'){ensure();}" +
                 "var origCompose=compose;" +
                 "compose=function(){" +
@@ -1722,13 +1751,13 @@ namespace DSHHotplugHub
                 "if(typeof aiRunning!=='undefined'&&aiRunning)return;" +
                 "var personaSel=document.getElementById('aiPersona');var persona=personaSel?personaSel.value:'maid';" +
                 "var mi3=document.getElementById('aiModelInput');var model=(mi3&&mi3.value&&mi3.value.trim())||(cfg&&cfg.defaultModel)||'deepseek-chat';" +
-                "var ki3=document.getElementById('aiKeyInput');var key=(ki3&&ki3.value&&ki3.value.trim())||(cfg&&cfg.apiKey)||'';" +
+                "var ki3=document.getElementById('aiKeyInput');var key=(ki3&&ki3.value&&ki3.value.trim())||'';" +
                 "var bi3=document.getElementById('aiBaseUrlInput');var bUrl=(bi3&&bi3.value&&bi3.value.trim())||(cfg&&cfg.baseUrl)||'';" +
                 "var isFirst=(!aiSession||aiSession.messages.length===0||!aiSession.pack);" +
                 "if(typeof beginTurn!=='function'){origCompose();return;}" +   // 页面组件未就绪：回退原路径
                 "beginTurn(text,persona);" +
                 "input.value='';input.style.height='auto';" +
-                "if(!key||!bUrl){" +
+                "if((!key&&!HAS_SHELL_KEY)||!bUrl){" +
                 "if(typeof failAssistTurn==='function'){failAssistTurn('未配置 API Key：请点击「⚙ 模型」填写（仅本次会话内存，不持久化）',persona);}" +
                 "return;}" +
                 "var sys='';if(typeof buildAiSystem==='function'){sys=buildAiSystem(persona,isFirst?'assembly':'chat');}" +
@@ -3221,10 +3250,10 @@ namespace DSHHotplugHub
         private static bool TestApiConnection(ApiConfig cfg, string model, string apiKeyOverride, string baseUrlOverride, out string error)
         {
             error = "";
+            string apiKey = string.IsNullOrEmpty(apiKeyOverride) ? cfg.apiKey : apiKeyOverride;
             try
             {
                 string baseUrl = string.IsNullOrEmpty(baseUrlOverride) ? cfg.baseUrl : baseUrlOverride;
-                string apiKey = string.IsNullOrEmpty(apiKeyOverride) ? cfg.apiKey : apiKeyOverride;
                 string endpoint = (baseUrl.TrimEnd('/')) + "/chat/completions";
                 string body = "{\"model\":" + JsString(string.IsNullOrEmpty(model) ? cfg.defaultModel : model) +
                     ",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":1}";
@@ -3254,10 +3283,10 @@ namespace DSHHotplugHub
         }
         private string CallLlm(string userText, string model, string systemPrompt, List<Dictionary<string, string>> history, string packJson, ApiConfig cfg, string apiKeyOverride = null, string baseUrlOverride = null)
         {
+            string apiKey = string.IsNullOrEmpty(apiKeyOverride) ? cfg.apiKey : apiKeyOverride;
             try
             {
                 string baseUrl = string.IsNullOrEmpty(baseUrlOverride) ? cfg.baseUrl : baseUrlOverride;
-                string apiKey = string.IsNullOrEmpty(apiKeyOverride) ? cfg.apiKey : apiKeyOverride;
                 string endpoint = (baseUrl.TrimEnd('/')) + "/chat/completions";
                 const string defaultSystem =
                     "你是 DSH 插件包组装器。请根据用户需求生成一个 hotpack 1.0 插件包清单：" +
@@ -3279,7 +3308,8 @@ namespace DSHHotplugHub
                 msgs.Add("{\"role\":\"user\",\"content\":" + JsString(userContent) + "}");
                 string body = "{\"model\":" + JsString(model) +
                     ",\"messages\":[" + string.Join(",", msgs) +
-                    "],\"temperature\":" + cfg.temperature.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "}";
+                    "],\"temperature\":" + cfg.temperature.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) +
+                    ",\"max_tokens\":4096}";
 
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(endpoint);
                 request.Method = "POST";
@@ -3307,9 +3337,29 @@ namespace DSHHotplugHub
                     return Convert.ToString(message["content"]);
                 }
             }
-            catch
+            catch (WebException we)
             {
-                return null;
+                string detail = "";
+                try
+                {
+                    if (we.Response != null)
+                    {
+                        using (StreamReader sr = new StreamReader(we.Response.GetResponseStream(), Encoding.UTF8))
+                        {
+                            detail = sr.ReadToEnd();
+                            if (detail.Length > 300) detail = detail.Substring(0, 300);
+                            if (!string.IsNullOrEmpty(apiKey)) detail = detail.Replace(apiKey, "***");
+                        }
+                    }
+                }
+                catch { /* 错误正文读取失败时忽略 */ }
+                HttpWebResponse resp = we.Response as HttpWebResponse;
+                int status = (resp != null) ? (int)resp.StatusCode : 0;
+                throw new Exception("AI 服务 HTTP " + status + (detail.Length > 0 ? "：" + detail : "：" + we.Message), we);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("AI 请求失败：" + ex.Message, ex);
             }
         }
 

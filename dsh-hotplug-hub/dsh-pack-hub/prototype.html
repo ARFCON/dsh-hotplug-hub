@@ -1180,7 +1180,14 @@ function parseHotpackJson(text) {
   try { data = JSON.parse(text); } catch (e) { return null; }
   if (!data || data.hotpack !== '1.0') return null;
   // 版本必填（精确版本校验在安装侧；此处保证缺 version 直接拒绝，与权威解析器一致）
-  if (!data.id || !data.name || !data.version || !Array.isArray(data.plugins) || !data.plugins.length) return null;
+  if (!data.id || !data.name || !data.version || !Array.isArray(data.plugins)) return null;
+  if (data.plugins.length < 1 || data.plugins.length > 5) return null;
+  for (const p of data.plugins) {
+    if (!p || typeof p !== 'object') return null;
+    if (!p.id || !/^[a-z0-9][a-z0-9_-]{0,39}$/.test(p.id)) return null;
+    if (!p.name || typeof p.name !== 'string' || p.name.trim() === '') return null;
+    if (p.version && !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(p.version)) return null;
+  }
   return data;
 }
 
@@ -1750,7 +1757,7 @@ function renderAi() {
           </div>
         </div>
       </div>
-      <div class="ai-log" id="logBox" style="display:none"></div>
+      <div class="ai-log" id="logBox" style="display:none;max-height:110px;overflow:auto;font:12px/1.6 Consolas,monospace;color:#667085;background:#f6f8fa;border:1px solid #e5e7eb;border-radius:8px;padding:8px;margin:8px 0"></div>
     </div>`;
   // 恢复滚动位置 / 输入框内容与聚焦（增量体验：设置面板开合、视图切换不丢上下文）
   const nscl = $('aiScroll');
@@ -1956,10 +1963,10 @@ function packCardHtml(pack, diff, uid) {
     <div class="head"><span class="pack-mark">包</span><span class="name">${esc(pack.name)}</span><span class="meta">${(pack.plugins || []).length} 个插件 ${diffHtml}</span></div>
     <div class="ai-plugins">${plugs}</div>
     <div class="acts">
-      <button class="btn primary sm" id="importAiPack">一键导入</button>
-      <button class="btn sm" id="copyManifest">复制 JSON</button>
-      <button class="btn sm" id="copyReadme">复制 README</button>
-      <button class="btn sm" id="exportPack">导出到桌面</button>
+      <button class="btn primary sm ai-act-import">一键导入</button>
+      <button class="btn sm ai-act-copy-manifest">复制 JSON</button>
+      <button class="btn sm ai-act-copy-readme">复制 README</button>
+      <button class="btn sm ai-act-export">导出到桌面</button>
     </div>
   </div>`;
 }
@@ -2057,28 +2064,29 @@ function bindResultActions() {
     const res = (msg && msg.result)
       || (uid === '' && aiResult ? { manifest: aiResult.manifest, readme: aiResult.readme } : null);
     if (!res || !res.manifest) { toast('该产物关联数据缺失：请重新装配后再操作。'); return; }
-    if (e.target.closest('#copyManifest')) {
+    if (e.target.closest('.ai-act-copy-manifest')) {
       if (navigator.clipboard) navigator.clipboard.writeText(JSON.stringify(res.manifest, null, 2)).then(() => toast('manifest 已复制'));
       else toast('复制失败');
       return;
     }
-    if (e.target.closest('#copyReadme')) {
+    if (e.target.closest('.ai-act-copy-readme')) {
       if (navigator.clipboard) navigator.clipboard.writeText(res.readme || '').then(() => toast('README 已复制'));
       else toast('复制失败');
       return;
     }
-    if (e.target.closest('#exportPack')) {
+    if (e.target.closest('.ai-act-export')) {
       const pid = (res.manifest.packId || 'ai-pack');
       download(pid + '.dshpack.json', JSON.stringify(res.manifest, null, 2), 'application/json');
       setTimeout(() => download(pid + '-README.md', res.readme || '', 'text/markdown'), 500);
       toast('pack + README 已导出');
       return;
     }
-    if (e.target.closest('#importAiPack')) importPacks([res.manifest]);
+    if (e.target.closest('.ai-act-import')) importPacks([res.manifest]);
   });
 }
 
 function logLine(box, text, cls = '') {
+  if (box && box.style.display === 'none') box.style.display = 'block';
   box.insertAdjacentHTML('beforeend', `<div class="${cls}">${esc(text)}</div>`);
   box.scrollTop = box.scrollHeight;
 }
@@ -2316,7 +2324,7 @@ async function compose() {
           body: JSON.stringify({
             model,
             messages,
-            temperature: 1,
+            temperature: 0.7,
             max_tokens: 2048,
             stream: false
           }),
