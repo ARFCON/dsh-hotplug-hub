@@ -1244,7 +1244,7 @@ namespace DSHHotplugHub
             public string apiKey = "";
             public string models = "deepseek-chat,deepseek-reasoner";
             public string defaultModel = "deepseek-chat";
-            public double temperature = 0.7;
+            public double temperature = 0.8; // AI 对话温度：统一为 0.8，更自然、有人情味
         }
 
         private static string ApiConfigPath()
@@ -1274,7 +1274,7 @@ namespace DSHHotplugHub
                             if (!string.IsNullOrEmpty(saved.apiKey)) cfg.apiKey = saved.apiKey;
                             if (!string.IsNullOrEmpty(saved.models)) cfg.models = saved.models;
                             if (!string.IsNullOrEmpty(saved.defaultModel)) cfg.defaultModel = saved.defaultModel;
-                            if (saved.temperature > 0) cfg.temperature = saved.temperature;
+                            // 统一 AI 对话温度 0.8：旧保存值不再覆盖
                         }
                     }
                     catch { /* 配置损坏时回退官方配置 */ }

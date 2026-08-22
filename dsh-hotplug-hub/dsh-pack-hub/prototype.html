@@ -2324,7 +2324,7 @@ async function compose() {
           body: JSON.stringify({
             model,
             messages,
-            temperature: 0.7,
+            temperature: 0.8, // 与桌面端统一：0.8 更自然
             max_tokens: 2048,
             stream: false
           }),
