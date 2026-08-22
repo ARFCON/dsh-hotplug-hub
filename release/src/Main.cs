@@ -463,7 +463,7 @@ namespace DSHHotplugHub
         // 生成注入到页面里的真实自检数据脚本（Node/pnpm/官方 Harness/WebView2/profile 探测）
         private static string BuildNativeSelfCheckScript()
         {
-            string node = RunCli("node", "--version");
+            string node = RunCli(GetNodeExe(), "--version");
             string pnpm = GetPnpmVersion();
             string dshDesktop = FindOfficialHarness();
             string dshVersion = GetDshCoreVersion();
@@ -1294,6 +1294,112 @@ namespace DSHHotplugHub
             return ReadPackageJsonVersion(appPkg);
         }
 
+        private static bool TryDownloadFile(string url, string local, string authToken, int timeoutMs)
+        {
+            try
+            {
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+                request.Method = "GET";
+                request.UserAgent = "DSH-Hotplug-Hub";
+                request.Timeout = timeoutMs;
+                request.ReadWriteTimeout = timeoutMs;
+                if (!string.IsNullOrEmpty(authToken) && url.StartsWith("https://github.com/"))
+                {
+                    request.Headers.Add("Authorization", "Bearer " + authToken);
+                }
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                using (Stream inStream = response.GetResponseStream())
+                using (FileStream outStream = File.Create(local))
+                {
+                    byte[] buffer = new byte[81920];
+                    int read;
+                    while ((read = inStream.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        outStream.Write(buffer, 0, read);
+                    }
+                }
+                return File.Exists(local) && new FileInfo(local).Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string[] GetGitHubMirrorUrls(string url)
+        {
+            List<string> list = new List<string>();
+            if (url.StartsWith("https://github.com/"))
+            {
+                list.Add("https://ghfast.top/" + url);
+                list.Add("https://gh-proxy.com/" + url);
+                list.Add("https://ghproxy.net/" + url);
+            }
+            list.Add(url);
+            return list.ToArray();
+        }
+
+        private static bool DownloadWithMirrors(string url, string local, string authToken)
+        {
+            string[] urls = GetGitHubMirrorUrls(url);
+            foreach (string u in urls)
+            {
+                bool isOriginal = u == url;
+                string token = isOriginal ? authToken : null;
+                if (TryDownloadFile(u, local, token, 120000)) return true;
+            }
+            return false;
+        }
+
+        private static bool DownloadNodeZip(string version, string local)
+        {
+            string[] urls = new string[]
+            {
+                "https://npmmirror.com/mirrors/node/" + version + "/node-" + version + "-win-x64.zip",
+                "https://nodejs.org/dist/" + version + "/node-" + version + "-win-x64.zip"
+            };
+            foreach (string u in urls)
+            {
+                if (TryDownloadFile(u, local, null, 180000)) return true;
+            }
+            return false;
+        }
+
+        private static string FetchNodeLtsFrom(string url)
+        {
+            try
+            {
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+                request.Method = "GET";
+                request.UserAgent = "DSH-Hotplug-Hub";
+                request.Timeout = 15000;
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                {
+                    object[] arr = new JavaScriptSerializer().Deserialize<object[]>(reader.ReadToEnd());
+                    string fallback = null;
+                    foreach (object itemObj in arr)
+                    {
+                        Dictionary<string, object> item = itemObj as Dictionary<string, object>;
+                        if (item == null) continue;
+                        string v = Convert.ToString(item.ContainsKey("version") ? item["version"] : "");
+                        if (string.IsNullOrEmpty(v)) continue;
+                        if (fallback == null) fallback = v;
+                        if (item.ContainsKey("lts") && item["lts"] != null
+                            && !string.IsNullOrEmpty(Convert.ToString(item["lts"])))
+                        {
+                            return v;
+                        }
+                    }
+                    return fallback;
+                }
+            }
+            catch
+            {
+            }
+            return null;
+        }
+
         private static string InstallOrUpdateHarness()
         {
             try
@@ -1314,19 +1420,10 @@ namespace DSHHotplugHub
                 Directory.CreateDirectory(dir);
                 string assetName = info.ContainsKey("asset") ? info["asset"] : "DSH-Desktop-Setup-" + latest + "-win-x64.exe";
                 string local = Path.Combine(dir, assetName);
-                try
+                string githubToken = GetGithubToken();
+                if (!DownloadWithMirrors(url, local, githubToken))
                 {
-                    using (WebClient wc = new WebClient())
-                    {
-                        wc.Headers.Add("User-Agent", "DSH-Hotplug-Hub");
-                        string githubToken = GetGithubToken();
-                        if (!string.IsNullOrEmpty(githubToken)) wc.Headers.Add("Authorization", "Bearer " + githubToken);
-                        wc.DownloadFile(url, local);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    return "下载官方 DSH Desktop v" + latest + " 失败：" + ex.Message;
+                    return "下载官方 DSH Desktop v" + latest + " 失败（GitHub 直连与国内镜像均不可用），请稍后重试";
                 }
                 if (info.ContainsKey("kind") && info["kind"] == "portable")
                 {
@@ -1379,34 +1476,16 @@ namespace DSHHotplugHub
 
         private static string GetLatestNodeLtsVersion()
         {
-            try
+            string[] urls = new string[]
             {
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://nodejs.org/dist/index.json");
-                request.Method = "GET";
-                request.UserAgent = "DSH-Hotplug-Hub";
-                request.Timeout = 15000;
-                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
-                {
-                    object[] arr = new JavaScriptSerializer().Deserialize<object[]>(reader.ReadToEnd());
-                    string fallback = null;
-                    foreach (object itemObj in arr)
-                    {
-                        Dictionary<string, object> item = itemObj as Dictionary<string, object>;
-                        if (item == null) continue;
-                        string v = Convert.ToString(item.ContainsKey("version") ? item["version"] : "");
-                        if (string.IsNullOrEmpty(v)) continue;
-                        if (fallback == null) fallback = v;
-                        if (item.ContainsKey("lts") && item["lts"] != null
-                            && !string.IsNullOrEmpty(Convert.ToString(item["lts"])))
-                        {
-                            return v;
-                        }
-                    }
-                    return fallback;
-                }
+                "https://npmmirror.com/mirrors/node/index.json",
+                "https://nodejs.org/dist/index.json"
+            };
+            foreach (string u in urls)
+            {
+                string v = FetchNodeLtsFrom(u);
+                if (!string.IsNullOrEmpty(v)) return v;
             }
-            catch { /* 有意吞掉：网络失败返回 null */ }
             return null;
         }
 
@@ -1422,12 +1501,10 @@ namespace DSHHotplugHub
                 }
                 string version = GetLatestNodeLtsVersion();
                 if (string.IsNullOrEmpty(version)) return "无法获取 Node.js 版本列表，请检查网络";
-                string zipUrl = "https://nodejs.org/dist/" + version + "/node-" + version + "-win-x64.zip";
                 string zip = Path.Combine(Path.GetTempPath(), "node-" + version + "-win-x64.zip");
-                using (WebClient wc = new WebClient())
+                if (!DownloadNodeZip(version, zip))
                 {
-                    wc.Headers.Add("User-Agent", "DSH-Hotplug-Hub");
-                    wc.DownloadFile(zipUrl, zip);
+                    return "Node.js " + version + " 下载失败（npmmirror 与 nodejs.org 均不可用），请检查网络";
                 }
                 string extractRoot = Path.Combine(Path.GetTempPath(), "dsh-node-extract");
                 if (Directory.Exists(extractRoot))
@@ -1488,7 +1565,7 @@ namespace DSHHotplugHub
         private static string EnsureHarnessEnvironment()
         {
             string step1 = null, step2 = null, step3 = null;
-            string node = RunCli("node", "--version");
+            string node = RunCli(GetNodeExe(), "--version");
             if (string.IsNullOrEmpty(node)) step1 = EnsureNodeEnvironment();
             string pnpm = GetPnpmVersion();
             if (string.IsNullOrEmpty(pnpm)) step2 = EnsurePnpmEnvironment();
@@ -3207,7 +3284,7 @@ namespace DSHHotplugHub
                     if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) continue;
                     if (cli != null)
                     {
-                        RunCli("node", "\"" + cli + "\" skill add \"" + path.Replace("\"", "\\\"") + "\"");
+                        RunCli(GetNodeExe(), "\"" + cli + "\" skill add \"" + path.Replace("\"", "\\\"") + "\"");
                     }
                     else
                     {
@@ -3333,6 +3410,8 @@ namespace DSHHotplugHub
                 }
                 string file = Path.Combine(SkillsDir(), id + ".md");
                 if (File.Exists(file)) File.Delete(file);
+                string disabledFile = Path.Combine(SkillsDir(), id + ".md.disabled");
+                if (File.Exists(disabledFile)) File.Delete(disabledFile);
             }
             catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
@@ -3358,7 +3437,7 @@ namespace DSHHotplugHub
         {
             string cli = PanelCliPath();
             if (cli == null) return null;
-            return RunCli("node", "\"" + cli + "\" " + arguments);
+            return RunCli(GetNodeExe(), "\"" + cli + "\" " + arguments);
         }
 
         private static string ExtractYamlValue(string text, string key)
