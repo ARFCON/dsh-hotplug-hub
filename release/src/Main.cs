@@ -163,6 +163,7 @@ namespace DSHHotplugHub
                         }
                         else if (message == "recheck")
                         {
+                            ClearGitHubCache();
                             await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                         }
                         else if (message == "openApiConfig")
@@ -183,6 +184,7 @@ namespace DSHHotplugHub
                         }
                         else if (message == "checkUpdate")
                         {
+                            ClearGitHubCache();
                             await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                         }
                         else if (message == "downloadProject")
@@ -483,10 +485,7 @@ namespace DSHHotplugHub
                 "if(window.__nativeSelfCheck.latestVersion){var nCmp=nv(window.__nativeSelfCheck.latestVersion,window.__nativeSelfCheck.appVersion);r.push({name:'最新版本',desc:'GitHub 最新发布',val:window.__nativeSelfCheck.latestVersion,status:nCmp>0?'warn':'ok',text:nCmp>0?'可更新':'已最新'});}" +
                 "return r;};" +
                 "if(typeof renderCheck==='function'){renderCheck();}" +
-                "var drs=document.querySelectorAll('.check-row');for(var i=0;i<drs.length;i++){var dn=drs[i].querySelector('.name');if(dn&&dn.textContent==='DSH 版本'){var db=document.createElement('button');db.className='btn sm primary';db.style.marginLeft='8px';db.textContent='⬇ 下载官方客户端';db.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('downloadHarness');}};drs[i].appendChild(db);}}" +
-                "var urs=document.querySelectorAll('.check-row');for(var i=0;i<urs.length;i++){var un=urs[i].querySelector('.name');if(un&&un.textContent==='本程序版本'){var b1=document.createElement('button');b1.className='btn sm primary';b1.style.marginLeft='8px';b1.textContent='检查更新';b1.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('checkUpdate');}};var b2=document.createElement('button');b2.className='btn sm';b2.style.marginLeft='8px';b2.textContent='下载新版本';b2.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('downloadProject');}};urs[i].appendChild(b1);urs[i].appendChild(b2);}}" +
-                "var prs=document.querySelectorAll('.check-row');for(var i=0;i<prs.length;i++){var pn=prs[i].querySelector('.name');if(pn&&pn.textContent==='官方 Skill/MCP 面板'){var pv=window.__nativeSelfCheck.panelInstalled;var plv=window.__nativeSelfCheck.panelLatest;var pb=document.createElement('button');pb.className='btn sm primary';pb.style.marginLeft='8px';if(!pv){pb.textContent='安装插件';pb.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('installPanel');}};}else if(plv&&pv!==plv){pb.textContent='更新到 v'+plv;pb.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('updatePanel');}};}else{pb.textContent='重新安装';pb.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('installPanel');}};}prs[i].appendChild(pb);var ob=document.createElement('button');ob.className='btn sm';ob.style.marginLeft='8px';ob.textContent='打开页面';ob.onclick=function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('openPanelPage');}};prs[i].appendChild(ob);}}" +
-                "var rc=document.getElementById('recheck');if(rc){rc.addEventListener('click',function(){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('recheck');}});}" +
+
                 "})();";
             return js;
         }

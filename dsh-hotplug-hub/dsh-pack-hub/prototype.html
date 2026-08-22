@@ -2786,7 +2786,7 @@ function renderCheck() {
       <div><h2>系统自检</h2><div class="sub">运行时 · profile · 插件 · 更新</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn" id="recheck">${ICONS.refresh} 重新自检</button>
-        <button class="btn primary" id="updateDsh" ${state.dshVersion === state.latestVersion ? 'disabled' : ''}>${ICONS.download} 更新 DSH</button>
+        <button class="btn primary" id="updateDsh">${ICONS.download} 官方客户端</button>
       </div>
     </div>
     <div class="check-list">
@@ -2828,7 +2828,7 @@ function renderCheck() {
         <button class="btn primary" id="importBtn3" style="margin-left:auto">${ICONS.upload} 选择文件</button>
       </div>
     </div>`;
-  $('recheck').addEventListener('click', () => { toast('自检完成，状态已更新'); renderCheck(); });
+  $('recheck').addEventListener('click', () => { if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('recheck'); return; } toast('自检完成，状态已更新'); renderCheck(); });
   const panelInstall = $('panelInstallBtn');
   if (panelInstall) panelInstall.addEventListener('click', () => {
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage(state.panelInstalled ? 'updatePanel' : 'installPanel'); return; }
@@ -2841,14 +2841,28 @@ function renderCheck() {
   });
   const up = $('updateDsh');
   if (up) up.addEventListener('click', () => {
-    showDialog('更新 DSH', `<div class="body">将从 ${esc(state.dshVersion)} 更新到 ${esc(state.latestVersion)}。更新完成后需要重启一次。</div>`, () => {
-      state.dshVersion = state.latestVersion;
-      state.pendingRestart += 1;
-      save(); renderAll();
-      toast('DSH 更新包已就绪，重启后生效');
-    }, '下载并更新');
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('downloadHarness'); return; }
+    window.open('https://github.com/deepseek-ai/deepseek-harness/releases/latest', '_blank');
   });
   $('importBtn3').addEventListener('click', () => $('importFile').click());
+  document.querySelectorAll('#view-check .check-row').forEach((row) => {
+    const nameEl = row.querySelector('.name');
+    if (!nameEl) return;
+    const name = nameEl.textContent;
+    const mk = (label, cls, msg) => {
+      const b = document.createElement('button');
+      b.className = 'btn sm ' + (cls || '');
+      b.style.marginLeft = '8px';
+      b.textContent = label;
+      b.addEventListener('click', () => {
+        if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage(msg); return; }
+        toast('请在 Dseam世界 桌面端执行');
+      });
+      row.appendChild(b);
+    };
+    if (name === 'DSH 版本') mk('⬇ 下载官方客户端', 'primary', 'downloadHarness');
+    if (name === '本程序版本') { mk('检查更新', 'primary', 'checkUpdate'); mk('下载新版本', '', 'downloadProject'); }
+  });
 }
 
 function simulateConflicts(rows) {
