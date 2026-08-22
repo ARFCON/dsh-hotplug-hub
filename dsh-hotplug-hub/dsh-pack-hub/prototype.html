@@ -2786,7 +2786,8 @@ function renderCheck() {
       <div><h2>系统自检</h2><div class="sub">运行时 · profile · 插件 · 更新</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn" id="recheck">${ICONS.refresh} 重新自检</button>
-        <button class="btn primary" id="updateDsh">${ICONS.download} 官方客户端</button>
+        <button class="btn" id="fixEnv">${ICONS.restart} 一键修复环境</button>
+        <button class="btn primary" id="installHarness">${ICONS.download} 自动安装/更新官方客户端</button>
       </div>
     </div>
     <div class="check-list">
@@ -2839,10 +2840,15 @@ function renderCheck() {
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('openPanelPage'); return; }
     window.open('https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v0.9.8', '_blank');
   });
-  const up = $('updateDsh');
-  if (up) up.addEventListener('click', () => {
-    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('downloadHarness'); return; }
-    window.open('https://github.com/deepseek-ai/deepseek-harness/releases/latest', '_blank');
+  const ih = $('installHarness');
+  if (ih) ih.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) { toast('正在获取官方 DSH Desktop 安装包（约 70MB），请稍候…'); window.chrome.webview.postMessage('installHarness'); return; }
+    window.open('https://github.com/myYangyunfan/dsh_desktop/releases/latest', '_blank');
+  });
+  const fe = $('fixEnv');
+  if (fe) fe.addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) { toast('正在检查并修复 Node/pnpm/官方客户端环境，可能需要几分钟…'); window.chrome.webview.postMessage('autoInstallEnv'); return; }
+    toast('请在 Dseam世界 桌面端执行');
   });
   $('importBtn3').addEventListener('click', () => $('importFile').click());
   document.querySelectorAll('#view-check .check-row').forEach((row) => {
@@ -2860,7 +2866,7 @@ function renderCheck() {
       });
       row.appendChild(b);
     };
-    if (name === 'DSH 版本') mk('⬇ 下载官方客户端', 'primary', 'downloadHarness');
+    if (name === 'DSH 版本') mk('⬇ 自动安装/更新', 'primary', 'installHarness');
     if (name === '本程序版本') { mk('检查更新', 'primary', 'checkUpdate'); mk('下载新版本', '', 'downloadProject'); }
   });
 }

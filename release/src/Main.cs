@@ -49,6 +49,8 @@ namespace DSHHotplugHub
         private const string PANEL_VERSION = "0.8.1-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
         private const string MEMORY_HUB_VERSION = "0.8.0-pre"; // 内置全局记忆插件（dsh-memory-hub）当前版本
         private const string DSH_HUB_VERSION = "1.1.6"; // 内置插件中枢（dsh-hub）当前版本
+
+        private const string HARNESS_REPO = "myYangyunfan/dsh_desktop"; // 官方 DSH Desktop 发布源（GitHub）
         // GitHub API 结果的会话级缓存：避免每次插件列表刷新都同步打 API、离线时反复等 15s 超时
         private static readonly Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>> _githubCache =
             new Dictionary<string, KeyValuePair<DateTime, Dictionary<string, object>>>();
@@ -183,6 +185,22 @@ namespace DSHHotplugHub
                         else if (message == "downloadHarness")
                         {
                             OpenOfficialDownloadPage();
+                        }
+                        else if (message == "installHarness")
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在获取官方 DSH Desktop 安装包（约 70MB），请稍候…');");
+                            string harnessResult = await Task.Run(() => InstallOrUpdateHarness());
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(harnessResult) + ");");
+                            ClearGitHubCache();
+                            await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
+                        }
+                        else if (message == "autoInstallEnv")
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在检查并修复 Node/pnpm/官方客户端环境，可能需要几分钟…');");
+                            string envResult = await Task.Run(() => EnsureHarnessEnvironment());
+                            await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(envResult) + ");");
+                            ClearGitHubCache();
+                            await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                         }
                         else if (message == "checkUpdate")
                         {
@@ -456,6 +474,9 @@ namespace DSHHotplugHub
             string panelInstalled = GetInstalledPanelVersion();
             string panelLatest = PANEL_VERSION;
 
+            Dictionary<string, string> harnessInfo = GetHarnessReleaseInfo();
+            string harnessLatest = harnessInfo != null && harnessInfo.ContainsKey("latest") ? harnessInfo["latest"] : null;
+            string harnessInstalled = GetInstalledHarnessVersion();
             string js =
                 "window.__nativeSelfCheck={" +
                 "node:" + JsString(node) + "," +
@@ -467,7 +488,9 @@ namespace DSHHotplugHub
                 "appVersion:" + JsString(APP_VERSION) + "," +
                 "latestVersion:" + JsString(latest) + "," +
                 "panelInstalled:" + JsString(panelInstalled) + "," +
-                "panelLatest:" + JsString(panelLatest) +
+                "panelLatest:" + JsString(panelLatest) + "," +
+                "harnessLatest:" + JsString(harnessLatest) + "," +
+                "harnessInstalled:" + JsString(harnessInstalled) +
                 "};" +
                 "if(window.__nativeSelfCheck.dshVersion){state.dshVersion=window.__nativeSelfCheck.dshVersion;if(window.__nativeSelfCheck.latestVersion){state.latestVersion=window.__nativeSelfCheck.latestVersion;}if(typeof renderShell==='function')renderShell();}" +
                 "if(window.__nativeSelfCheck.panelInstalled||window.__nativeSelfCheck.panelLatest){state.panelInstalled=window.__nativeSelfCheck.panelInstalled||state.panelInstalled||null;state.panelLatest=window.__nativeSelfCheck.panelLatest||state.panelLatest||null;}" +
@@ -477,7 +500,7 @@ namespace DSHHotplugHub
                 "for(var i=0;i<r.length;i++){" +
                 "if(r[i].name==='Node.js'){r[i].val=window.__nativeSelfCheck.node||'未检测到';r[i].text=window.__nativeSelfCheck.node?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.node?'ok':'err';}" +
                 "if(r[i].name==='pnpm'){r[i].val=window.__nativeSelfCheck.pnpm||'未检测到';r[i].text=window.__nativeSelfCheck.pnpm?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.pnpm?'ok':'err';}" +
-                "if(r[i].name==='DSH 版本'){var dv=window.__nativeSelfCheck.dshVersion||'';r[i].val=dv||r[i].val;if(window.__nativeSelfCheck.dshDesktop){r[i].text='官方 Harness 已安装';r[i].status='ok';}else if(dv){r[i].text='本地 DSH（CLI/全局安装）';r[i].status='ok';}else{r[i].text='未检测到 DSH';r[i].status='warn';}}" +
+                "if(r[i].name==='DSH 版本'){var dv=window.__nativeSelfCheck.dshVersion||'';var hv=window.__nativeSelfCheck.harnessInstalled||'';var hl=window.__nativeSelfCheck.harnessLatest||'';r[i].val=dv||r[i].val;if(window.__nativeSelfCheck.dshDesktop){if(hl&&hv&&nv(hl,hv)>0){r[i].text='官方 Harness 可更新至 v'+hl;r[i].status='update';}else{r[i].text='官方 Harness 已安装'+(hv?' v'+hv:'');r[i].status='ok';}}else if(dv){r[i].text='本地 DSH（CLI/全局安装）';r[i].status='ok';}else{r[i].text='未检测到 DSH（可自动安装官方客户端）';r[i].status='warn';}}" +
                 "if(r[i].name==='官方 Skill/MCP 面板'){var pi=window.__nativeSelfCheck.panelInstalled;var pl=window.__nativeSelfCheck.panelLatest;r[i].val=pi||'未安装';if(!pi){r[i].status='warn';r[i].text='可安装 v'+(pl||'?');}else if(pl&&pi!==pl){r[i].status='update';r[i].text='可更新至 v'+pl;}else{r[i].status='ok';r[i].text='已最新';}}" +
                 "}" +
                 "if(window.__nativeSelfCheck.webview2){r.push({name:'WebView2',desc:'桌面渲染内核',val:window.__nativeSelfCheck.webview2,status:'ok',text:'可用'});}" +
@@ -575,6 +598,14 @@ namespace DSHHotplugHub
                 if (!string.IsNullOrEmpty(v)) return v;
             }
 
+            // 4) 便携版 Node 目录（自动安装 Node 后 pnpm 会安装到这里）
+            string portablePnpm = Path.Combine(GetNodeInstallDir(), "pnpm.cmd");
+            if (File.Exists(portablePnpm))
+            {
+                v = RunCli("cmd.exe", "/c \"" + portablePnpm + "\" --version");
+                if (!string.IsNullOrEmpty(v)) return v;
+            }
+
             return null;
         }
 
@@ -666,7 +697,7 @@ namespace DSHHotplugHub
         {
             try
             {
-                Process.Start("https://github.com/deepseek-ai/deepseek-harness/releases/latest");
+                Process.Start("https://github.com/" + HARNESS_REPO + "/releases/latest");
             }
             catch (Exception ex)
             {
@@ -859,7 +890,7 @@ namespace DSHHotplugHub
                     string binJs = Path.Combine(appDir, "resources", "app", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
                     if (File.Exists(binJs))
                     {
-                        return new string[] { "node", "\"" + binJs + "\"" };
+                        return new string[] { GetNodeExe(), "\"" + binJs + "\"" };
                     }
                 }
             }
@@ -879,7 +910,7 @@ namespace DSHHotplugHub
             string altBin = Path.Combine(home, ".dsh", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
             if (File.Exists(altBin))
             {
-                return new string[] { "node", "\"" + altBin + "\"" };
+                return new string[] { GetNodeExe(), "\"" + altBin + "\"" };
             }
 
             return null;
@@ -1210,6 +1241,265 @@ namespace DSHHotplugHub
             catch
             {
             }
+        }
+
+
+        // ---------- 官方 DSH Desktop 自动安装/更新 + Node/pnpm 环境自愈 ----------
+        private static Dictionary<string, string> GetHarnessReleaseInfo()
+        {
+            Dictionary<string, object> root = GitHubGetJsonCached("https://api.github.com/repos/" + HARNESS_REPO + "/releases/latest", 10);
+            if (root == null || !root.ContainsKey("assets")) return null;
+            object[] assets = root["assets"] as object[];
+            if (assets == null) return null;
+            Dictionary<string, string> setup = null;
+            Dictionary<string, string> portable = null;
+            foreach (object assetObj in assets)
+            {
+                Dictionary<string, object> asset = assetObj as Dictionary<string, object>;
+                if (asset == null) continue;
+                string name = Convert.ToString(asset.ContainsKey("name") ? asset["name"] : "");
+                if (string.IsNullOrEmpty(name) || !asset.ContainsKey("browser_download_url")) continue;
+                string url = Convert.ToString(asset["browser_download_url"]);
+                if (name.StartsWith("DSH-Desktop-Setup-") && name.EndsWith("-win-x64.exe"))
+                {
+                    setup = new Dictionary<string, string>();
+                    setup["url"] = url;
+                    setup["asset"] = name;
+                    setup["kind"] = "setup";
+                    break;
+                }
+                if (portable == null && name.StartsWith("DSH-Desktop-Portable-") && name.EndsWith("-win-x64.zip"))
+                {
+                    portable = new Dictionary<string, string>();
+                    portable["url"] = url;
+                    portable["asset"] = name;
+                    portable["kind"] = "portable";
+                }
+            }
+            Dictionary<string, string> info = setup != null ? setup : portable;
+            if (info == null) return null;
+            if (root.ContainsKey("tag_name"))
+            {
+                info["latest"] = Convert.ToString(root["tag_name"]).TrimStart('v');
+            }
+            return info;
+        }
+
+        // DSH Desktop 应用版本（不是 @deepseek-ai/dsh 内核版本）：读 resources/app/package.json 的 version 字段
+        private static string GetInstalledHarnessVersion()
+        {
+            string exe = FindOfficialHarness();
+            if (exe == null) return null;
+            string appPkg = Path.Combine(Path.GetDirectoryName(exe), "resources", "app", "package.json");
+            return ReadPackageJsonVersion(appPkg);
+        }
+
+        private static string InstallOrUpdateHarness()
+        {
+            try
+            {
+                Dictionary<string, string> info = GetHarnessReleaseInfo();
+                if (info == null || !info.ContainsKey("latest") || !info.ContainsKey("url"))
+                {
+                    return "无法获取官方 DSH Desktop 最新版本（网络不可用或 GitHub 限流），请稍后重试";
+                }
+                string latest = info["latest"];
+                string url = info["url"];
+                string installed = GetInstalledHarnessVersion();
+                if (!string.IsNullOrEmpty(installed) && !IsNewerVersion(latest, installed))
+                {
+                    return "官方 DSH Desktop 已是最新 v" + installed;
+                }
+                string dir = Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-harness");
+                Directory.CreateDirectory(dir);
+                string assetName = info.ContainsKey("asset") ? info["asset"] : "DSH-Desktop-Setup-" + latest + "-win-x64.exe";
+                string local = Path.Combine(dir, assetName);
+                try
+                {
+                    using (WebClient wc = new WebClient())
+                    {
+                        wc.Headers.Add("User-Agent", "DSH-Hotplug-Hub");
+                        string githubToken = GetGithubToken();
+                        if (!string.IsNullOrEmpty(githubToken)) wc.Headers.Add("Authorization", "Bearer " + githubToken);
+                        wc.DownloadFile(url, local);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    return "下载官方 DSH Desktop v" + latest + " 失败：" + ex.Message;
+                }
+                if (info.ContainsKey("kind") && info["kind"] == "portable")
+                {
+                    string dest = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "Programs", "DSH Desktop");
+                    Directory.CreateDirectory(dest);
+                    string extractOut = RunCliLong("tar.exe", "-xf \"" + local + "\" -C \"" + dest + "\"", 600000, null);
+                    if (extractOut != null && extractOut.Contains("error"))
+                    {
+                        return "便携版解压失败：" + extractOut;
+                    }
+                    return "官方 DSH Desktop 便携版 v" + latest + " 已解压到 " + dest + "，请重新自检或启动";
+                }
+                try
+                {
+                    ProcessStartInfo psi = new ProcessStartInfo(local);
+                    psi.UseShellExecute = true;
+                    psi.Arguments = "/S";
+                    Process p = Process.Start(psi);
+                    if (p != null)
+                    {
+                        try { p.WaitForExit(600000); } catch { /* 有意吞掉：安装程序可能已被 UAC 托管 */ }
+                    }
+                    return "官方 DSH Desktop v" + latest + " 安装程序已执行，完成后请点击“重新自检”";
+                }
+                catch (Exception ex)
+                {
+                    return "官方 DSH Desktop 安装程序启动失败：" + ex.Message + "，请手动运行 " + local;
+                }
+            }
+            catch (Exception ex)
+            {
+                return "自动安装/更新官方客户端异常：" + ex.Message;
+            }
+        }
+
+        private static string GetNodeInstallDir()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "DseamWorld", "node");
+        }
+
+        private static string GetNodeExe()
+        {
+            string portable = Path.Combine(GetNodeInstallDir(), "node.exe");
+            return File.Exists(portable) ? portable : "node";
+        }
+
+        private static string GetLatestNodeLtsVersion()
+        {
+            try
+            {
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://nodejs.org/dist/index.json");
+                request.Method = "GET";
+                request.UserAgent = "DSH-Hotplug-Hub";
+                request.Timeout = 15000;
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                {
+                    object[] arr = new JavaScriptSerializer().Deserialize<object[]>(reader.ReadToEnd());
+                    string fallback = null;
+                    foreach (object itemObj in arr)
+                    {
+                        Dictionary<string, object> item = itemObj as Dictionary<string, object>;
+                        if (item == null) continue;
+                        string v = Convert.ToString(item.ContainsKey("version") ? item["version"] : "");
+                        if (string.IsNullOrEmpty(v)) continue;
+                        if (fallback == null) fallback = v;
+                        if (item.ContainsKey("lts") && item["lts"] != null
+                            && !string.IsNullOrEmpty(Convert.ToString(item["lts"])))
+                        {
+                            return v;
+                        }
+                    }
+                    return fallback;
+                }
+            }
+            catch { /* 有意吞掉：网络失败返回 null */ }
+            return null;
+        }
+
+        private static string EnsureNodeEnvironment()
+        {
+            try
+            {
+                string nodeDir = GetNodeInstallDir();
+                string nodeExe = Path.Combine(nodeDir, "node.exe");
+                if (File.Exists(nodeExe))
+                {
+                    return "Node.js 便携版已就绪（" + nodeDir + "）";
+                }
+                string version = GetLatestNodeLtsVersion();
+                if (string.IsNullOrEmpty(version)) return "无法获取 Node.js 版本列表，请检查网络";
+                string zipUrl = "https://nodejs.org/dist/" + version + "/node-" + version + "-win-x64.zip";
+                string zip = Path.Combine(Path.GetTempPath(), "node-" + version + "-win-x64.zip");
+                using (WebClient wc = new WebClient())
+                {
+                    wc.Headers.Add("User-Agent", "DSH-Hotplug-Hub");
+                    wc.DownloadFile(zipUrl, zip);
+                }
+                string extractRoot = Path.Combine(Path.GetTempPath(), "dsh-node-extract");
+                if (Directory.Exists(extractRoot))
+                {
+                    try { Directory.Delete(extractRoot, true); } catch { /* 有意吞掉：清理失败继续 */ }
+                }
+                Directory.CreateDirectory(extractRoot);
+                string tarOut = RunCliLong("tar.exe", "-xf \"" + zip + "\" -C \"" + extractRoot + "\"", 600000, null);
+                string inner = Path.Combine(extractRoot, "node-" + version + "-win-x64");
+                if (!Directory.Exists(inner))
+                {
+                    if (tarOut != null && (tarOut.Contains("error") || tarOut.Contains("Cannot"))) return "Node.js 解压失败：" + tarOut;
+                    return "Node.js 解压失败：未找到 " + inner;
+                }
+                Directory.CreateDirectory(nodeDir);
+                foreach (string item in Directory.GetFileSystemEntries(inner))
+                {
+                    string dest = Path.Combine(nodeDir, Path.GetFileName(item));
+                    if (Directory.Exists(item)) Directory.Move(item, dest);
+                    else File.Move(item, dest);
+                }
+                try { Directory.Delete(extractRoot, true); } catch { /* 有意吞掉 */ }
+                try { File.Delete(zip); } catch { /* 有意吞掉 */ }
+                return "Node.js " + version + " 便携版已安装到 " + nodeDir;
+            }
+            catch (Exception ex)
+            {
+                return "自动安装 Node.js 失败：" + ex.Message;
+            }
+        }
+
+        private static string EnsurePnpmEnvironment()
+        {
+            try
+            {
+                string existing = GetPnpmVersion();
+                if (!string.IsNullOrEmpty(existing)) return "pnpm 已就绪 v" + existing;
+                string nodeDir = GetNodeInstallDir();
+                string nodeExe = Path.Combine(nodeDir, "node.exe");
+                if (!File.Exists(nodeExe))
+                {
+                    string nodeResult = EnsureNodeEnvironment();
+                    if (!File.Exists(nodeExe)) return nodeResult;
+                }
+                string npmCli = Path.Combine(nodeDir, "node_modules", "npm", "bin", "npm-cli.js");
+                if (!File.Exists(npmCli)) return "便携版 Node 缺少 npm，请删除 " + nodeDir + " 后重试";
+                RunCliLong(nodeExe, "\"" + npmCli + "\" install -g pnpm", 600000, null);
+                string after = GetPnpmVersion();
+                if (!string.IsNullOrEmpty(after)) return "pnpm v" + after + " 已安装到便携 Node";
+                return "pnpm 安装已提交，请点击“重新自检”确认";
+            }
+            catch (Exception ex)
+            {
+                return "自动安装 pnpm 失败：" + ex.Message;
+            }
+        }
+
+        private static string EnsureHarnessEnvironment()
+        {
+            string step1 = null, step2 = null, step3 = null;
+            string node = RunCli("node", "--version");
+            if (string.IsNullOrEmpty(node)) step1 = EnsureNodeEnvironment();
+            string pnpm = GetPnpmVersion();
+            if (string.IsNullOrEmpty(pnpm)) step2 = EnsurePnpmEnvironment();
+            string harness = FindOfficialHarness();
+            if (harness == null) step3 = InstallOrUpdateHarness();
+            List<string> steps = new List<string>();
+            if (step1 != null) steps.Add(step1);
+            if (step2 != null) steps.Add(step2);
+            if (step3 != null) steps.Add(step3);
+            if (steps.Count == 0) return "Harness 环境已就绪";
+            return string.Join("；", steps.ToArray());
         }
 
         // ---------- API 模型配置 ----------
