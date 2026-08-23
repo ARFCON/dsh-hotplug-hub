@@ -6,7 +6,7 @@ const os = require('os');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 const {
-  acquireLock, releaseLock, readToken, parseToken, formatToken, isStale, probePid, isDirectoryLock
+  acquireLock, releaseLock, readToken, parseToken, formatToken, rewriteToken, isStale, probePid, isDirectoryLock
 } = require('../fs/lock');
 
 const nodeFs = {
@@ -49,6 +49,32 @@ describe('token 协议', () => {
     expect(parseToken('123\nabc\n')).toBe(null);
     expect(parseToken('')).toBe(null);
     expect(parseToken('0\n1\n')).toBe(null);
+  });
+
+  it('rewriteToken：先整体覆盖、后截断（杜绝"truncate→write"空文件窗口）', () => {
+    const calls = [];
+    const fakeFs = {
+      writeSync: () => { calls.push('write'); return 8; },
+      ftruncateSync: () => { calls.push('truncate'); }
+    };
+    rewriteToken(999, 42, { fsImpl: fakeFs, at: 123456 });
+    // 关键断言：先 write 后 truncate。旧实现先 truncate 会在两步之间留出空 token 窗口，
+    // 并发 readToken 读到空文件判损坏（flaky 根因）。
+    expect(calls).toEqual(['write', 'truncate']);
+  });
+
+  it('rewriteToken：token 变短后无残留字节（精确截断）', () => {
+    const dir = tempDir();
+    const file = path.join(dir, 'token');
+    const fd = fs.openSync(file, 'w');
+    // 旧 token 更长（pid 位数更多）
+    const longBuf = Buffer.from(formatToken(999999, 1700000000000), 'utf8');
+    fs.writeSync(fd, longBuf, 0, longBuf.length, 0);
+    // 用更短的新 token 重写
+    const written = rewriteToken(fd, 1, { fsImpl: fs, at: 1700000000001 });
+    expect(written).toBe('1\n1700000000001\n');
+    fs.closeSync(fd);
+    expect(fs.readFileSync(file, 'utf8')).toBe('1\n1700000000001\n');
   });
 });
 
