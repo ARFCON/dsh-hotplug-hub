@@ -272,7 +272,8 @@ export class MemoryStore {
     try {
       return fn()
     } finally {
-      releaseLock(nodeFsPort, lockPath, { pid: process.pid, fd: a.fd })
+      // 审计修复：传入 refresh 句柄清理心跳（Worker 线程），否则释放后仍持续写锁文件。
+      releaseLock(nodeFsPort, lockPath, { pid: process.pid, fd: a.fd, refresh: a.refresh })
     }
   }
 

@@ -10,9 +10,18 @@
  *   - 消息内容为 LLM 原文（产物 JSON/闲聊文本），不含凭据。
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync,
+  renameSync, rmSync, unlinkSync, writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
+import { writeFileAtomic } from '../../vendor-shared/index.mjs'
 import { hotplugRoot } from './paths.js'
+
+// node:fs 直连端口（shared writeFileAtomic 契约所需方法；与 patch.js 的 nodeFsPort 一致）
+const atomicFsPort = {
+  mkdirSync, openSync, writeFileSync, fsyncSync, closeSync, renameSync, existsSync, unlinkSync,
+}
 
 /** 会话消息保留上限（超出裁掉最旧的；防 token 爆炸）。 */
 export const SESSION_MAX_MESSAGES = 16
@@ -79,16 +88,16 @@ export function loadSession(id) {
 }
 
 /**
- * 保存会话（原子写：临时文件 + rename 替换，避免半写）。
+ * 保存会话（统一走 shared writeFileAtomic：随机 tmp + O_EXCL + fsync + rename）。
+ * 审计修复：此前自写"伪原子"——writeFileSync(tmp)→rmSync(file)→writeFileSync(file)
+ * →rmSync(tmp)，.tmp 是死代码、先删原文件再直写存在丢文件窗口且无 rename 语义。
+ * 现收敛到单一真源 writeFileAtomic，失败不留下半写文件、原文件在 rename 成功前始终完好。
  * @param {object} session {id, persona, messages, pack, turn, createdAt, updatedAt}
  * @returns {boolean} 是否成功
  */
 export function saveSession(session) {
   if (!session || typeof session.id !== 'string' || session.id.trim() === '') return false
   try {
-    mkdirSync(sessionsDir(), { recursive: true })
-    const file = sessionPath(session.id)
-    const tmp = file + '.tmp'
     const payload = JSON.stringify({
       id: session.id,
       persona: session.persona,
@@ -98,11 +107,8 @@ export function saveSession(session) {
       createdAt: session.createdAt,
       updatedAt: session.updatedAt || new Date().toISOString(),
     })
-    writeFileSync(tmp, payload, 'utf8')
-    rmSync(file, { force: true })
-    writeFileSync(file, payload, 'utf8')
-    rmSync(tmp, { force: true })
-    return true
+    const r = writeFileAtomic(atomicFsPort, sessionPath(session.id), payload, { errorCode: 'ERR_LOG_WRITE' })
+    return r.ok
   } catch {
     return false
   }

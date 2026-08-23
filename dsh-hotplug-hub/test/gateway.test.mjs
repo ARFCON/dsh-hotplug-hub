@@ -16,9 +16,13 @@ beforeEach(() => {
 afterEach(() => { if (restoreEnv) restoreEnv(); if (iso) iso.cleanup() })
 
 describe('normalizeRpc（R-v5-10）', () => {
-  it('成功结果原样透传', () => {
-    const ok = { ok: true, data: 1 }
-    expect(normalizeRpc(ok)).toBe(ok)
+  it('成功结果统一补 code:"OK"/exitCode:0（审计修复：RPC 信封统一）', () => {
+    const r = normalizeRpc({ ok: true, data: 1 })
+    expect(r.code).toBe('OK')
+    expect(r.exitCode).toBe(0)
+    expect(r.data).toBe(1)
+    // 已带 code/exitCode 的成功结果保留原值
+    expect(normalizeRpc({ ok: true, code: 'OK', data: 2, exitCode: 0 }).code).toBe('OK')
   })
 
   it('失败统一 {ok, code, message, exitCode}；error 兼容保留', () => {

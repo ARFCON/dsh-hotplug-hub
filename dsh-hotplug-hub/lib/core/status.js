@@ -8,7 +8,7 @@ import { readJson, readPackManifest, listPackIds, readState, writeJsonSafe } fro
 import { runCli } from './run-cli.js'
 import { parseHotpack } from './hotpack.js'
 import { installedVersion, npmModuleDir, storeDirOf } from './ensure.js'
-import { patchMarker } from './patch.js'
+import { findPatchBlock } from '../../vendor-shared/index.mjs'
 
 export function statusSync() {
   const state = readState()
@@ -52,7 +52,9 @@ export function statusSync() {
     home: homeDir(),
     profile: { name: profileName(), dir: profileDir() },
     activePack: state.activePack ?? null,
-    activePatchOk: state.activePack ? patchText.includes(patchMarker(state.activePack)) : true,
+    // 审计修复：改用 shared findPatchBlock（识别 `#`/`##` 两种 marker 形态）——
+    // 此前 includes('## hotplug:<id>') 对旧单 # marker 误报 activePatchOk=false。
+    activePatchOk: state.activePack ? findPatchBlock(patchText, 'hotplug', state.activePack).found : true,
     packs,
     store: { dir: storeRoot(), entries: storeEntries },
   }

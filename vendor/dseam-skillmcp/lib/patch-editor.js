@@ -8,11 +8,11 @@
  *     `<profile>/.dsh-patch.lock`（与 launcher/hotplug/C# 同一把锁）；
  *   - 标记之外的内容逐字节保留，永不整文件覆盖。
  */
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { existsSync, openSync, writeFileSync, readFileSync, renameSync, unlinkSync, mkdirSync, statSync, lstatSync, readdirSync, closeSync, fsyncSync, copyFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseDocument, stringify } from "yaml";
-import { findPatchBlock, patchMarker, acquireLock, releaseLock } from "../vendor-shared/index.mjs";
+import { findPatchBlock, patchMarker, acquireLock, releaseLock, writeFileAtomic as sharedWriteFileAtomic } from "../vendor-shared/index.mjs";
 export const PANEL_MCP_BLOCK_BEGIN = "# >>> dseam-skillmcp:mcp:begin";
 export const PANEL_MCP_BLOCK_END = "# <<< dseam-skillmcp:mcp:end";
 /** 契约单行 marker（CONTRACT.md §4；owner=dseam-skillmcp, id=mcp）。 */
@@ -190,24 +190,16 @@ const nodeFsPort = {
     readFileSync, writeFileSync, existsSync, mkdirSync, statSync, lstatSync,
     openSync, closeSync, fsyncSync, renameSync, unlinkSync, rmSync, readdirSync, copyFileSync,
 };
-/** 同目录临时文件 + rename 原子写；Windows 上 rename 覆盖失败时退化为 rm+rename。 */
+/**
+ * 原子写（审计修复：收敛到 vendor-shared 单一真源 writeFileAtomic）。
+ * 此前本地重实现一份：用 Math.random() 生成可预测临时名、无 O_EXCL 独占创建
+ * （缺 A2 防符号链接预置劫持）、且与共享实现分叉维护。现以共享实现为唯一实现，
+ * 仅保留本模块的 async 签名（node:fs 直连端口 nodeFsPort 由下方提供）。
+ */
 export async function writeFileAtomic(path, content) {
-    const temp = join(dirname(path), ".dseam-skillmcp-tmp-" + process.pid + "-" + Math.random().toString(36).slice(2, 8));
-    try {
-        await writeFile(temp, content, "utf8");
-        try {
-            await rename(temp, path);
-        }
-        catch (error) {
-            if (error === null || typeof error !== "object" || !["EPERM", "EEXIST", "EACCES"].includes(error.code ?? ""))
-                throw error;
-            await rm(path, { force: true });
-            await rename(temp, path);
-        }
-    }
-    finally {
-        await rm(temp, { force: true }).catch(() => { });
-    }
+    const w = sharedWriteFileAtomic(nodeFsPort, path, content, { errorCode: "ERR_INSTALL_FAILED" });
+    if (!w.ok)
+        throw w.error;
 }
 /**
  * 以共享文件锁 `<profile>/.dsh-patch.lock` 执行 fn（CONTRACT.md §5 四写者协议；
@@ -222,7 +214,9 @@ export async function withPatchLock(path, fn) {
         return await fn();
     }
     finally {
-        releaseLock(nodeFsPort, lockPath, { pid: process.pid, fd: a.fd });
+        // 审计修复：必须传入 refresh 句柄——锁心跳（Worker 线程）否则在释放后泄漏，
+        // 持续对已删除/已关闭的锁文件写 token（与 launcher pipeline/index 同款修复）。
+        releaseLock(nodeFsPort, lockPath, { pid: process.pid, fd: a.fd, refresh: a.refresh });
     }
 }
 /**

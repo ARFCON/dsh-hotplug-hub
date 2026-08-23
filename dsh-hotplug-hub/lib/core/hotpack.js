@@ -24,13 +24,15 @@ function adapt(pack) {
 
 export function parseHotpack(input) {
   const r = sharedParseHotpack(input, SHARED_OPTS)
-  if (!r.ok) return { ok: false, error: r.message }
+  // 审计修复：保留 shared 的 CLI 域错误码（code）——此前只透传 message，错误码被
+  // 网关归一为 ERR_HOTPLUG_FAILED/exit 1，32 码契约从不透传（ERR_ASSEMBLY_* 应 exit 3）。
+  if (!r.ok) return { ok: false, code: r.code, error: r.message }
   return { ok: true, pack: adapt(r.pack) }
 }
 
 /** .dshpack.json（规划格式）→ hotpack v1 转换（vendor-shared 单一桥接 + 展示适配）。 */
 export function dshpackToHotpack(text) {
   const r = sharedDshpackToHotpack(text, SHARED_OPTS)
-  if (!r.ok) return { ok: false, error: r.message }
+  if (!r.ok) return { ok: false, code: r.code, error: r.message }
   return { ok: true, pack: adapt(r.pack) }
 }

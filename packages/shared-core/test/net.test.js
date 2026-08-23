@@ -79,16 +79,25 @@ describe('httpsGetText（本地 TLS 服务）', () => {
       hasOpenssl = true;
     } catch { hasOpenssl = false; }
     if (!hasOpenssl) return;
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-tls-'));
-    cert = path.join(dir, 'cert.pem');
-    key = path.join(dir, 'key.pem');
-    // CN=127.0.0.1 + SAN IP（Node 对 IP 校验 SAN；CN 回退已废弃）
     try {
-      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', key, '-out', cert,
-        '-days', '1', '-nodes', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1'], { stdio: 'ignore' });
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-tls-'));
+      cert = path.join(dir, 'cert.pem');
+      key = path.join(dir, 'key.pem');
+      // 审计修复：`openssl req` 依赖系统 openssl.cnf（Windows 默认指向
+      // C:\Program Files\Common Files\ssl\openssl.cnf，Anaconda 等环境该文件缺失会
+      // 令证书生成失败且未被兜底 catch 捕获 → 整组崩溃）。现内嵌最小 openssl.cnf 并用
+      // -config 显式指定（不依赖系统配置），含 SAN IP（Node 对 IP 校验 SAN；CN 回退已废弃）。
+      const cnf = path.join(dir, 'openssl.cnf');
+      fs.writeFileSync(cnf, [
+        '[req]', 'distinguished_name = dn', 'x509_extensions = v3', 'prompt = no', '',
+        '[dn]', 'CN = 127.0.0.1', '',
+        '[v3]', 'subjectAltName = IP:127.0.0.1', ''
+      ].join('\n'));
+      execFileSync('openssl', ['req', '-x509', '-config', cnf, '-newkey', 'rsa:2048',
+        '-keyout', key, '-out', cert, '-days', '1', '-nodes'], { stdio: 'ignore' });
     } catch {
-      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', key, '-out', cert,
-        '-days', '1', '-nodes', '-subj', '/CN=127.0.0.1'], { stdio: 'ignore' });
+      // 证书生成失败（openssl 缺失/损坏/无可用配置）→ 整组优雅跳过，不再崩溃套件
+      hasOpenssl = false;
     }
   });
 

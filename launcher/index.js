@@ -43,7 +43,8 @@ async function main() {
         core.infra.lock.releaseLock(core.ports.fs, core._activeLock.lockPath, {
           owner: core._activeLock.owner,
           pid: process.pid,
-          fd: core._activeLock.fd
+          fd: core._activeLock.fd,
+          refresh: core._activeLock.refresh
         });
       }
     } catch (_) { /* 释放失败不影响退出 */ }

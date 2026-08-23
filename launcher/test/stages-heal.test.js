@@ -64,6 +64,10 @@ describe('app/stages-heal.js stageHeal', () => {
     // 预览零持久副作用：phase/history/dirty 均未变
     expect(JSON.stringify(state)).toBe(before);
     expect(state.phase).toBe('LAUNCHED');
+    // 审计修复回归：预览（无 --yes）不得创建 profile 目录（mkdirSync 副作用守卫）。
+    // 此前无条件 mkdirSync 违反"预览零持久副作用"契约——现用磁盘断言钉死。
+    const profileDir = path.join(core.config.roots.profilesRoot, 'demo');
+    expect(fs.existsSync(profileDir)).toBe(false);
   });
 
   it('有信号 + --yes + 快照 → ok，phase=HEALING，history 追加（C7）', async () => {

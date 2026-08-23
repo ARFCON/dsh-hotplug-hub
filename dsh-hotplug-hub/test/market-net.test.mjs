@@ -99,6 +99,19 @@ describe('searchMarketRepos', () => {
     const r = await searchMarketRepos('dsh-plugin', '', 1, ['github'])
     expect(r.ok).toBe(false)
   })
+
+  it('searchMarketRepos：HTTP 错误 → "HTTP <status>"；网络失败(status=0) → "网络请求失败"（审计修复：运算符优先级死代码）', async () => {
+    // status=404：确定性结算 → 错误消息应为 HTTP 404
+    stubFetch([{ match: () => true, status: 404, text: '' }])
+    const r404 = await searchMarketRepos('dsh-plugin', '', 1, ['github'])
+    expect(r404.ok).toBe(false)
+    expect(r404.error).toBe('HTTP 404')
+    // status=0：网络层失败（curl 兜底也失败）→ 错误消息应为「网络请求失败」而非「HTTP 0」
+    stubFetch([{ match: () => true, status: 0, text: '' }])
+    const r0 = await searchMarketRepos('dsh-plugin', '', 1, ['github'])
+    expect(r0.ok).toBe(false)
+    expect(r0.error).toBe('网络请求失败')
+  })
 })
 
 describe('fetchRepoDetail / marketListAsync（全链路桩）', () => {

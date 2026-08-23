@@ -10,6 +10,7 @@ const {
   PACK_ID_RE,
   PLUGIN_NAME_RE,
   EXACT_VERSION_RE,
+  REPO_RE,
   RESERVED_WIN_NAMES,
   MAX_ID_LENGTH,
   MAX_SOURCE_PATH_LENGTH
@@ -213,6 +214,12 @@ function validateSourceRepo(repo) {
   }
   if (CONTROL_CHAR_RE.test(repo)) {
     return { ok: false, error: makeError('ERR_ASSEMBLY_FIELD', 'source.repo 不得包含控制字符') };
+  }
+  // 审计修复：repo 必须是 owner/repo 格式（两段、字母数字开头、拒绝 .. 段/空白/元字符）。
+  // 此前仅查长度+控制字符，`../../etc/passwd`、含空格或 `?query` 的串会进入
+  // codeload/git clone URL 拼装，产生畸形 URL 或路径穿越风险。
+  if (!REPO_RE.test(repo)) {
+    return { ok: false, error: makeError('ERR_ASSEMBLY_FIELD', `source.repo 必须是 owner/repo 格式：${JSON.stringify(repo)}`) };
   }
   return { ok: true };
 }

@@ -57,7 +57,10 @@ function buildManifest(pack, plugins, storeRoot) {
  */
 function versionSpec(ver) {
   if (typeof ver !== 'string' || ver.length === 0) return 'latest';
-  if (semver.valid(ver)) return `^${ver}`;          // 精确版 → 兼容范围
+  const valid = semver.valid(ver);
+  // 审计修复：用归一化后的 semver.valid(ver) 加 ^——此前 `^${ver}` 对 'v1.2.3'
+  // 产出非规范 `^v1.2.3`（semver.valid 容忍 v 前缀但原样拼接未归一化）。
+  if (valid) return `^${valid}`;                     // 精确版（含 v 前缀）→ 归一化 + ^
   if (semver.validRange(ver)) return ver;           // 已是范围（^1.0.0/>=1.0.0/1.x）
   if (/^(latest|next|beta|alpha|rc)$/.test(ver)) return ver; // 已知 tag 原样
   return 'latest';                                   // 非法串 → 兜底 latest

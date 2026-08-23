@@ -161,6 +161,18 @@ namespace DSHHotplugHub
             Check(heldBlocked, "v1 目录锁（存活持有者）不迁移，等待至超时");
             Directory.Delete(v1Dir, true);
 
+            // m7（安全审计）：ReleasePatchLock 不得删除他人锁（token pid != 自己）
+            // 此前 finally 无条件 File.Delete，跨进程互斥可被误删打破
+            Console.WriteLine("-- ⑥ ReleasePatchLock 拒绝释放他人锁（m7） --");
+            string foreignDir = TmpDir("pc-release-foreign-");
+            Directory.CreateDirectory(foreignDir);
+            File.WriteAllText(Path.Combine(foreignDir, ".dsh-patch.lock"),
+                (Process.GetCurrentProcess().Id + 1) + "\n" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + "\n");
+            PatchContract.ReleasePatchLock(null, foreignDir);
+            Check(File.Exists(Path.Combine(foreignDir, ".dsh-patch.lock")),
+                "ReleasePatchLock 拒绝释放他人锁（token pid != 自己 → 锁文件保留）");
+            Directory.Delete(foreignDir, true);
+
             // m6（安全审计）：AssertShellSafeArg 字符集与 JS assertShellSafe 对齐
             Console.WriteLine("-- ⑤ 参数安全字符集（m6：≡ JS assertShellSafe） --");
             Check(SafeArg("my-tag_1", "tag"), "接受 my-tag_1");
