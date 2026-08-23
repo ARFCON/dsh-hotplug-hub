@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 /**
- * scripts/qa11-v11-layout.mjs — 布局几何与 v1.2 主页重设计验收（puppeteer-core + 本机 Edge）
+ * scripts/qa11-v11-layout.mjs — 布局几何与 v1.3 主页中控台重设计验收（puppeteer-core + 本机 Edge）
  *
- * 布局契约（v1.2）：
+ * 布局契约（v1.3）：
  *   · 女仆坞 = 覆盖式玻璃标签（fixed），仅主页显示：默认 34px 细条（无文字）→ 悬停延伸 ~78px
  *     （peek，仍无文字）→ 点击弹出 400px AI 装配间；切走主页整体隐藏，回主页恢复；
  *   · 主区始终全宽（坞为覆盖层，不再挤占布局）；主页内容左缘让位 64px 给玻璃标签；
- *   · 主页 = 一体化 bento 大面板（发丝线分割）+ 右下悬浮簇（版本号在上 / 启动主键 /
- *     左侧向上折叠箭头 → 向左弹出 修改配置·选择客户端）。
+ *   · 主页 = 工业中控台（.console：台头铭牌 + 物理电源键 + 自检 LED 灯组 + 四插槽 +
+ *     台尾服务排）+ 顶栏四分组导航（管理/总览/插件/系统）。
  *
  * 断言分组：
- *   1) 1280 宽主页：坞标签 / 主区全宽 / 左缘让位 / bento 发丝线 / 无溢出
+ *   1) 1280 宽主页：坞标签 / 主区全宽 / 左缘让位 / 中控台结构 / 无溢出 / 面板锚定
  *   2) 悬停 peek：延伸且无文字界面
  *   3) 弹出 open：400px 玻璃面板 / AI 占满 / 主区仍全宽 / 设置按钮可命中
  *   4) 滚动锚定：滚动后坞不动、按钮仍可命中
- *   5) 右下悬浮簇：版本号在启动上方 / 折叠默认收起 / 箭头展开向左弹出
+ *   5) 中控台：物理电源键（圆形大键）+ 台尾服务排（API/客户端中心/修改配置/选择客户端）
  *   6) 其他视图：坞隐藏、主区全宽、无溢出
  *   7) 900 / 720 / 500 宽：收起与展开两态均无横向溢出
  *
@@ -69,23 +69,26 @@ try {
     }
   })
 
-  console.log('== 1. 1280 宽 · 主页（坞标签 + bento 大面板） ==')
+  console.log('== 1. 1280 宽 · 主页（坞标签 + 中控台） ==')
   let g = await geom()
   check('女仆坞标签可见：左缘 34px 细条', !g.dockHidden && g.dock.x === 0 && g.dock.w >= 30 && g.dock.w <= 36, JSON.stringify(g.dock))
   check('主区全宽（覆盖式坞不挤占布局）', g.main.x === 0 && g.main.w >= 1276, `x=${g.main.x} w=${g.main.w}`)
   check('主页内容左缘让位 ≥56px（玻璃标签空间）', g.shellPadL >= 56, `padL=${g.shellPadL}`)
   check('无横向溢出', g.docScrollW <= 1280, `scrollW=${g.docScrollW}`)
-  const bento = await page.evaluate(() => {
-    const b = document.querySelector('.bento')
-    return { exists: !!b, gap: b ? getComputedStyle(b).gap : '', cells: document.querySelectorAll('.bento-cell').length }
+  const consoleInfo = await page.evaluate(() => {
+    const c = document.getElementById('homeConsole')
+    return {
+      exists: !!c,
+      power: !!document.getElementById('homeLaunchBtn'),
+      leds: c ? c.querySelectorAll('.led-item').length : 0,
+      slots: c ? c.querySelectorAll('.slot').length : 0,
+      screws: c ? c.querySelectorAll('.console-screw').length : 0,
+      navGroups: document.querySelectorAll('.navgroup-btn').length
+    }
   })
-  check('bento 大面板：发丝线网格（gap 1px）', bento.exists && bento.gap === '1px', `gap=${bento.gap}`)
-  check('bento 模块 ≥6 格', bento.cells >= 6, `cells=${bento.cells}`)
-  check('顶部菜单按钮带当前视图图标', await page.evaluate(() => {
-    const ic = document.getElementById('navMenuIcon')
-    return ic && ic.innerHTML.trim().length > 10
-  }))
-  // 主页标题条为女仆坞让位：「主页」标题不被 34px 玻璃标签遮挡，且与 bento 左缘对齐
+  check('中控台渲染（电源键 + 3 自检灯 + 4 插槽 + 4 螺丝）', consoleInfo.exists && consoleInfo.power && consoleInfo.leds === 3 && consoleInfo.slots === 4 && consoleInfo.screws === 4, JSON.stringify(consoleInfo))
+  check('顶栏四分组导航按钮', consoleInfo.navGroups === 4, `n=${consoleInfo.navGroups}`)
+  // 主页标题条为女仆坞让位：「主页」标题不被 34px 玻璃标签遮挡，且与中控台左缘对齐
   const title = await page.evaluate(() => {
     const h = document.querySelector('.topbar h1')
     const dock = document.getElementById('maidDock')
@@ -99,20 +102,20 @@ try {
     }
   })
   check('主页标题不被女仆坞遮挡（起点在坞右侧）', title.onHome && title.x > title.dockR, `title.x=${title.x} dockR=${title.dockR}`)
-  check('主页标题与 bento 内容左缘对齐', title.x === title.shellContentL, `title.x=${title.x} shellContentL=${title.shellContentL}`)
+  check('主页标题与中控台内容左缘对齐', title.x === title.shellContentL, `title.x=${title.x} shellContentL=${title.shellContentL}`)
 
-  // 菜单面板锚定：从「菜单」按钮正下方垂出，不遮左缘女仆坞玻璃标签
-  await page.click('#navMenuBtn')
+  // 折叠面板锚定：从「总览」按钮正下方垂出，不遮左缘女仆坞玻璃标签
+  await page.click('.navgroup-btn[data-group="总览"]')
   await new Promise((r) => setTimeout(r, 340))
   const menuGeo = await page.evaluate(() => {
     const p = document.getElementById('navMenuPanel').getBoundingClientRect()
-    const btn = document.getElementById('navMenuBtn').getBoundingClientRect()
+    const btn = document.querySelector('.navgroup-btn[data-group="总览"]').getBoundingClientRect()
     const dock = document.getElementById('maidDock').getBoundingClientRect()
     return { panelL: Math.round(p.left), panelR: Math.round(p.right), btnL: Math.round(btn.left), dockR: Math.round(dock.right), vw: window.innerWidth }
   })
-  check('菜单面板贴按钮左缘垂出', Math.abs(menuGeo.panelL - menuGeo.btnL) <= 2, `panel=${menuGeo.panelL} btn=${menuGeo.btnL}`)
-  check('菜单面板不遮女仆坞标签（左缘在坞右侧）', menuGeo.panelL > menuGeo.dockR, `panel=${menuGeo.panelL} dockR=${menuGeo.dockR}`)
-  check('菜单面板不出右视口', menuGeo.panelR <= menuGeo.vw - 10, `panelR=${menuGeo.panelR} vw=${menuGeo.vw}`)
+  check('折叠面板贴按钮左缘垂出', Math.abs(menuGeo.panelL - menuGeo.btnL) <= 2, `panel=${menuGeo.panelL} btn=${menuGeo.btnL}`)
+  check('折叠面板不遮女仆坞标签（左缘在坞右侧）', menuGeo.panelL > menuGeo.dockR, `panel=${menuGeo.panelL} dockR=${menuGeo.dockR}`)
+  check('折叠面板不出右视口', menuGeo.panelR <= menuGeo.vw - 10, `panelR=${menuGeo.panelR} vw=${menuGeo.vw}`)
   await page.keyboard.press('Escape')
   await new Promise((r) => setTimeout(r, 250))
 
@@ -167,36 +170,23 @@ try {
   check('滚动 300px 后坞不动（y≈56）且按钮仍可命中', anchored.y >= 54 && anchored.y <= 58 && anchored.hitOk, JSON.stringify(anchored))
   await page.evaluate(() => { window.scrollTo(0, 0); switchView('home'); openMaidDock(false); })
 
-  console.log('== 5. 右下悬浮操作簇 ==')
-  const fab = await page.evaluate(() => {
-    const c = document.querySelector('.fab-cluster')
+  console.log('== 5. 中控台：物理电源键与台尾服务排 ==')
+  const pwr = await page.evaluate(() => {
     const launch = document.getElementById('homeLaunchBtn')
-    const ver = document.querySelector('.fab-ver')
-    const pop = document.getElementById('fabPop')
-    if (!c || !launch || !ver || !pop) return null
-    const cb = c.getBoundingClientRect(); const lb = launch.getBoundingClientRect(); const vb = ver.getBoundingClientRect()
+    const api = document.getElementById('homeApiBtn')
+    const client = document.getElementById('homeClientBtn')
+    const repair = document.getElementById('homeRepairBtn')
+    const choose = document.getElementById('homeChooseBtn')
+    if (!launch || !api || !client || !repair || !choose) return null
+    const lb = launch.getBoundingClientRect()
     return {
-      clusterRight: Math.round(cb.right), clusterBottom: Math.round(cb.bottom), vw: window.innerWidth, vh: window.innerHeight,
-      verAbove: vb.bottom <= lb.top + 2,
-      popClosed: getComputedStyle(pop).opacity === '0' && getComputedStyle(pop).pointerEvents === 'none'
+      round: Math.abs(lb.width - 112) <= 2 && Math.abs(lb.height - 112) <= 2,
+      labels: api.textContent.trim() + '/' + client.textContent.trim() + '/' + repair.textContent.trim() + '/' + choose.textContent.trim(),
+      w: Math.round(lb.width)
     }
   })
-  check('悬浮簇存在且位于右下角', !!fab && fab.clusterRight >= fab.vw - 40 && fab.clusterBottom >= fab.vh - 40, JSON.stringify(fab))
-  check('版本号在启动按钮上方', !!fab && fab.verAbove)
-  check('折叠弹层默认收起（向左弹出前不可交互）', !!fab && fab.popClosed)
-  await page.click('#fabArrow')
-  await new Promise((r) => setTimeout(r, 320))
-  const popOpen = await page.evaluate(() => {
-    const pop = document.getElementById('fabPop')
-    const st = getComputedStyle(pop)
-    const repair = document.getElementById('fabRepairBtn')
-    const choose = document.getElementById('fabChooseBtn')
-    return { opacity: st.opacity, pe: st.pointerEvents, labels: repair && choose ? repair.textContent + '/' + choose.textContent : '' }
-  })
-  check('箭头展开 → 弹层向左弹出可交互', popOpen.opacity === '1' && popOpen.pe === 'auto', JSON.stringify(popOpen))
-  check('弹层含 修改配置 / 选择客户端', popOpen.labels.includes('修改配置') && popOpen.labels.includes('选择客户端'), popOpen.labels)
-  await page.click('#fabArrow')
-  await new Promise((r) => setTimeout(r, 300))
+  check('物理电源键存在且为圆形大键', !!pwr && pwr.round, JSON.stringify(pwr))
+  check('台尾服务排含 API 配置/客户端中心/修改配置/选择客户端', !!pwr && pwr.labels.includes('API 配置') && pwr.labels.includes('客户端中心') && pwr.labels.includes('修改配置') && pwr.labels.includes('选择客户端'), pwr ? pwr.labels : '')
 
   console.log('== 6. 其他视图：坞隐藏、主区全宽 ==')
   for (const v of ['skills', 'market', 'plugins']) {

@@ -135,7 +135,7 @@ button { font: inherit; color: inherit; }
   position: sticky; top: var(--nav-h); z-index: 10;
   transition: padding-left .26s var(--ease);
 }
-/* 主页态：给左侧女仆坞玻璃标签让位（34px），标题与 bento 面板左缘对齐成一条竖线
+/* 主页态：给左侧女仆坞玻璃标签让位（34px），标题与中控台面板左缘对齐成一条竖线
    （86 = wrap 22 + home-shell 左让位 64；其他视图标题 22 同样与其内容对齐，惯例一致） */
 body.on-home .topbar { padding-left: 86px; }
 .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; line-height: 1.3; letter-spacing: .01em; }
@@ -544,18 +544,18 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 @media (max-width: 1000px) {
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pack-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } /* 插槽两列 */
 }
 @media (max-width: 720px) {
-  .topnav { padding: 0 12px; gap: 12px; }
+  .topnav { padding: 0 12px; gap: 10px; }
   .brand-name, .side-foot { display: none; }
-  .navmenu-btn { padding: 0 10px; }
+  .navgroup-btn { padding: 0 8px; }
   .grid-4, .pack-grid, .mem-list { grid-template-columns: 1fr; }
-  .bento { grid-template-columns: 1fr; grid-template-rows: none; } /* 单列后各行回归内容高度（覆盖桌面端的显式分行） */
-  .home-update, .bento-cell.cell-wide { grid-column: auto; }
-  .home-shell { padding: 14px 14px 150px 52px; }
+  .home-shell { padding: 8px 14px 32px 52px; }
+  .slot-grid { grid-template-columns: 1fr; } /* 窄屏插槽单列平铺 */
+  .console-main { grid-template-columns: 1fr; justify-items: start; } /* 电源键与灯组纵向排布 */
+  .console-plate { margin-left: 0; }
   body.on-home .topbar { padding-left: 66px; } /* 与 52px 面板左缘对齐（wrap 14 + 52） */
-  .fab-cluster { right: 14px; bottom: 14px; gap: 8px; }
-  .fab-launch { height: 44px; padding: 0 18px; font-size: 14px; }
   .wrap { padding: 14px; }
   .topbar { padding: 12px 14px; }
 }
@@ -685,120 +685,167 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
   .cat-item { width: auto; }
 }
 
-/* ===== 主页（v1.2）：发丝线一体化大面板（仪器面板风，非卡片堆叠）+ 右下悬浮操作簇 ===== */
+/* ===== 主页（v1.3）：DSH 插座坞·工业中控台 =====
+ * 设计契约：产品信号 = 一台真实的热插拔插座坞仪器（电源主键 + LED 自检灯 + 插孔插槽 + 铭牌）；
+ * 视觉前提 = 使用者是面对仪器面板的技术员，一切控件"可按、可看、可信"；
+ * 签名决定 = 启动键为物理电源旋钮手感（按压下沉 + LED 环），自检为发光 LED 灯组，
+ *           四个模块为可插入的插孔插槽，小织以角色色（粉）点缀在她的插槽上。
+ * 颜色全部走既有 token（--panel/--line/--accent/green/amber/red），主题切换不破。 */
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: .08em; }
 .home-shell {
-  /* 左侧 64px 让位给女仆坞玻璃标签（悬浮玻璃覆盖时内容从其下滑过）；底部让位悬浮簇 */
-  box-sizing: border-box; /* 连同上下内边距一起计入，杜绝把页面撑出滚动条 */
-  padding: 16px 22px 130px 64px;
-  /* 视口高度 − 页面固定 chrome：56 顶栏 + 71 视图标题条（字体精修行高 1.3 后）+ 22×2 wrap 内边距 + 1px 余量；
-     ≤720px 断点 wrap 内边距 14 → 面板矮 16px（被底部 130px 让位吸收，视觉无感） */
+  /* 左 64px 让位女仆坞玻璃标签；底部小留白（无悬浮簇后不再需要 130px 让位） */
+  box-sizing: border-box;
+  padding: 14px 22px 40px 64px;
   min-height: calc(100vh - 172px);
-  display: flex;           /* bento 纵向占满主页：面板随视口拉伸，模块行均分剩余高度 */
 }
-.bento {
-  flex: 1 1 auto;
-  min-height: 460px;       /* 视口过矮时保底，避免模块内容被压扁 */
+.console {
+  position: relative;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--rad-lg);
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  /* 首行头 + 更新/AI 行（主视觉稍高）+ 三模块行 + 快捷条；随视口占满高度 */
-  grid-template-rows: auto minmax(150px, 1.2fr) minmax(140px, 1fr) auto;
-  gap: 1px;               /* 发丝线：格间距透出底色成 1px 分割线，整体一块面板而非浮动卡片 */
-  background: var(--line);
+  /* 仪器面板的机加工感：顶部一道高光 + 底部一道阴影线，而非大投影（高光随主题色自适应） */
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--panel) 82%, #fff), 0 2px 10px rgba(17,24,39,.06);
+  padding: 18px 22px 16px;
+  display: grid; gap: 16px;
 }
-.bento-head {
-  grid-column: 1 / -1;
-  display: flex; align-items: baseline; gap: 12px;
-  padding: 14px 18px;
-  background: var(--panel);
+/* 面板四角螺丝：纯 CSS 圆点 + 十字槽，仪器固有元素（非图片资源） */
+.console-screw {
+  position: absolute; width: 9px; height: 9px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--muted) 45%, transparent), color-mix(in srgb, var(--muted) 22%, transparent) 70%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 40%, transparent);
 }
-.bento-head .bh-title { font-size: 15px; font-weight: 700; letter-spacing: .01em; display: flex; align-items: center; gap: 9px; }
-.bento-head .bh-dot { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); flex: 0 0 8px; transform: rotate(45deg); }
-.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: .08em; }
-.bento-head .bh-sub { font-size: 10.5px; color: var(--muted); }
-.bento-head .bh-hint { margin-left: auto; font-size: 11.5px; color: var(--muted); }
-.bento-cell {
-  background: var(--panel);
-  padding: 16px 18px;
-  display: flex; flex-direction: column; gap: 9px;
-  cursor: pointer; position: relative;
-  transition: background var(--dur) var(--ease);
-}
-.bento-cell:not(.bento-head):hover { background: var(--neutral-soft); }
-/* 悬停左侧刻度线（仪器面板的档位感，替代浮卡阴影） */
-.bento-cell::before {
-  content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 2px;
-  background: var(--accent); opacity: 0; transition: opacity var(--dur) var(--ease);
-}
-.bento-cell:hover::before { opacity: 1; }
-.bento-cell .bc-label { font-size: 10.5px; color: var(--muted); display: flex; align-items: center; gap: 8px; letter-spacing: .02em; }
-.bento-cell .bc-label .mono { font-size: 9.5px; opacity: .65; letter-spacing: .1em; }
-.bento-cell h3 { margin: 0; font-size: 14.5px; font-weight: 700; }
-.bento-cell .bc-num { font-size: 26px; font-weight: 600; line-height: 1.15; margin-top: 2px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.bento-cell .bc-num small { font-size: 11.5px; color: var(--muted); font-family: var(--font-sans); font-weight: 500; margin-left: 4px; }
-.bento-cell .bc-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
-.bento-cell .bc-row.mt { margin-top: 4px; }
-.bento-cell .bc-note { margin-top: auto; font-size: 11.5px; }
-.bento-cell .bc-act { margin-top: auto; display: flex; gap: 8px; align-items: center; }
-.bento-cell.cell-wide { grid-column: 1 / -1; } /* 整行通栏（与面板头呼应，避免行尾留空格） */
-.cell-maid-mark {
-  width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center;
-  margin: 8px 0 2px;
-  background: linear-gradient(135deg, #db2777, #f472b6); color: #fff;
-  font-weight: 800; font-size: 15px; box-shadow: 0 4px 12px rgba(219,39,119,.26);
-}
-.cell-maid-go { color: #db2777; font-weight: 600; font-size: 12.5px; margin-top: auto; }
+.console-screw::after { content: ""; position: absolute; left: 1px; right: 1px; top: 50%; height: 1px; background: color-mix(in srgb, var(--panel) 75%, transparent); transform: rotate(45deg); }
+.console-screw.tl { top: 8px; left: 8px; } .console-screw.tr { top: 8px; right: 8px; }
+.console-screw.bl { bottom: 8px; left: 8px; } .console-screw.br { bottom: 8px; right: 8px; }
 
-/* ===== 右下悬浮操作簇（v1.2）：版本号在上 · 启动主键 · 左侧向上折叠箭头（弹出客户端选项） ===== */
-.fab-cluster {
-  position: fixed; right: 26px; bottom: 26px; z-index: 15;
-  display: flex; align-items: flex-end; gap: 14px;
-  user-select: none;
+/* —— 台头：待机指示灯 + 产品名 + 冲压铭牌（真实版本号，不造假数据） —— */
+.console-head { display: flex; align-items: center; gap: 12px; padding: 0 4px; }
+.console-standby { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; background: var(--green); box-shadow: 0 0 6px color-mix(in srgb, var(--green) 70%, transparent); }
+.console-standby.err { background: var(--amber); box-shadow: 0 0 6px color-mix(in srgb, var(--amber) 70%, transparent); }
+.console-name { font-size: 15px; font-weight: 700; letter-spacing: .02em; }
+.console-name small { font-size: 10.5px; font-weight: 500; color: var(--muted); margin-left: 8px; letter-spacing: .06em; }
+.console-plate {
+  margin-left: auto; display: flex; align-items: center; gap: 10px;
+  font-size: 10.5px; color: var(--muted); letter-spacing: .04em;
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--neutral-soft) 70%, transparent), transparent);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-.fab-main { display: flex; flex-direction: column; align-items: center; gap: 7px; }
-.fab-ver { font-size: 10.5px; color: var(--muted); background: color-mix(in srgb, var(--panel) 78%, transparent); border: 1px solid var(--line); border-radius: var(--rad-full); padding: 2px 10px; backdrop-filter: blur(8px); }
-.fab-launch {
-  display: inline-flex; align-items: center; gap: 10px;
-  height: 50px; padding: 0 26px; border: 0; border-radius: 16px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  color: #fff; font-size: 15px; font-weight: 700; letter-spacing: .02em; cursor: pointer;
-  box-shadow: 0 10px 26px rgba(37, 99, 235, .32);
-  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+.console-plate b { font-weight: 600; color: var(--ink); font-family: var(--font-mono); letter-spacing: .02em; }
+.console-plate .sep { opacity: .5; }
+
+/* —— 主区：左电源键（签名控件）+ 右自检灯组 —— */
+.console-main {
+  display: grid; grid-template-columns: auto 1fr; gap: 26px; align-items: center;
+  padding: 10px 4px 14px;
 }
-.fab-launch:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgba(37, 99, 235, .4); }
-.fab-launch:active { transform: translateY(0); }
-.fab-launch .fl-play { width: 18px; height: 18px; border-radius: 50%; background: rgba(255,255,255,.22); display: grid; place-items: center; font-size: 10px; }
-.fab-side { display: flex; align-items: flex-end; gap: 10px; padding-bottom: 0; }
-.fab-arrow {
-  width: 44px; height: 44px; border-radius: 14px;
-  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
-  display: grid; place-items: center; cursor: pointer;
-  transition: all var(--dur) var(--ease);
+.pwr-zone { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+/* 物理电源键：外圈刻槽 + 内键凸起；按下 = 内键下沉 + 高光消失；就绪 = 电源符点亮呼吸 */
+.pwr-btn {
+  width: 112px; height: 112px; border-radius: 50%; cursor: pointer; border: 0;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--panel) 92%, var(--ink) 8%), color-mix(in srgb, var(--panel) 82%, var(--ink) 18%));
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #fff 60%, transparent) inset,
+    0 6px 14px rgba(17,24,39,.16),
+    0 0 0 6px color-mix(in srgb, var(--line) 80%, transparent),
+    0 0 0 7px color-mix(in srgb, var(--muted) 26%, transparent);
+  display: grid; place-items: center; color: var(--muted);
+  transition: transform .12s var(--ease), box-shadow .12s var(--ease), color .3s var(--ease);
 }
-.fab-arrow:hover { border-color: var(--accent); color: var(--accent); }
-.fab-arrow svg { width: 16px; height: 16px; transition: transform var(--dur) var(--ease); }
-.fab-cluster.fab-open .fab-arrow { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-.fab-cluster.fab-open .fab-arrow svg { transform: rotate(180deg); }
-/* 折叠弹层：向左弹出（默认收起），条目错落入场；visibility 确保收起时不可 Tab 聚焦 */
-.fab-pop {
-  display: flex; gap: 8px; align-items: center;
-  opacity: 0; pointer-events: none; visibility: hidden; transform: translateX(12px);
-  transition: opacity .22s var(--ease), transform .22s var(--ease), visibility 0s .22s;
+.pwr-btn svg { width: 40px; height: 40px; stroke-width: 2.4; }
+.pwr-btn:hover { color: var(--accent); }
+.pwr-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 color-mix(in srgb, #fff 60%, transparent) inset, 0 2px 6px rgba(17,24,39,.18), 0 0 0 6px color-mix(in srgb, var(--line) 80%, transparent), 0 0 0 7px color-mix(in srgb, var(--muted) 26%, transparent);
 }
-.fab-cluster.fab-open .fab-pop { opacity: 1; pointer-events: auto; visibility: visible; transform: none; transition-delay: 0s; }
-.fab-pop button {
-  height: 40px; padding: 0 16px; border-radius: 12px;
-  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
-  font-size: 13px; cursor: pointer; white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(17,24,39,.1);
-  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), transform .22s var(--ease), opacity .22s var(--ease);
+.pwr-btn.ready { color: var(--green); }
+.pwr-btn.ready svg { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--green) 65%, transparent)); }
+.pwr-btn.err { color: var(--amber); }
+.pwr-caption { font-size: 12px; font-weight: 600; letter-spacing: .05em; }
+.pwr-state { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.pwr-state .hc-dot { width: 7px; height: 7px; }
+
+/* 自检灯组：三盏仪器 LED（DSH / Node / pnpm），亮 = 绿，缺失 = 红微闪 */
+.led-board { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.led-board-title { font-size: 11px; color: var(--muted); letter-spacing: .08em; display: flex; align-items: center; gap: 8px; }
+.led-board-title::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.led-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.led-item {
+  display: flex; align-items: center; gap: 9px; min-width: 132px;
+  border: 1px solid var(--line); border-radius: var(--rad); padding: 9px 14px;
+  background: color-mix(in srgb, var(--neutral-soft) 55%, transparent);
 }
-.fab-pop button:nth-child(2) { transition-delay: .03s; }
-.fab-pop button:hover { border-color: var(--accent); color: var(--accent); }
-.fab-cluster:not(.fab-open) .fab-pop button { transform: translateX(10px); }
-.fab-cluster:not(.fab-open) .fab-pop button:nth-child(2) { transform: translateX(18px); }
+.led-item .led { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
+.led-item .led.ok { background: var(--green); box-shadow: 0 0 7px color-mix(in srgb, var(--green) 75%, transparent); }
+.led-item .led.err { background: var(--red); box-shadow: 0 0 7px color-mix(in srgb, var(--red) 70%, transparent); animation: led-blink 1.6s ease-in-out infinite; }
+.led-item .lt { font-size: 12.5px; font-weight: 600; }
+.led-item .ls { font-size: 11px; color: var(--muted); }
+@keyframes led-blink { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* —— 警示条：插件可更新时点亮（琥珀），含检查更新/一键更新 —— */
+.alert-strip {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, var(--line));
+  background: var(--amber-soft); color: var(--ink);
+  border-radius: var(--rad); padding: 10px 14px;
+}
+.alert-strip .as-led { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; background: var(--amber); box-shadow: 0 0 8px color-mix(in srgb, var(--amber) 80%, transparent); animation: led-blink 1.8s ease-in-out infinite; }
+.alert-strip .as-text { font-size: 12.5px; flex: 1 1 auto; min-width: 200px; }
+.alert-strip .as-text .tag { font-family: var(--font-mono); font-size: 11px; margin-left: 6px; }
+.alert-strip .as-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+
+/* —— 插槽区：四个模块 = 可插入的插孔（悬停 = 插入感内阴影 + 指示灯点亮） —— */
+.slot-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.slot {
+  position: relative; text-align: left; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--rad);
+  background: color-mix(in srgb, var(--neutral-soft) 45%, var(--panel));
+  padding: 12px 14px 11px;
+  display: flex; flex-direction: column; gap: 5px;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.slot:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: inset 0 2px 6px rgba(17,24,39,.08); /* 插入感：向内吃进，而非浮起 */
+  transform: translateY(1px);
+}
+.slot .sl-top { display: flex; align-items: center; gap: 8px; }
+.slot .sl-led { width: 7px; height: 7px; border-radius: 50%; background: var(--line); flex: 0 0 7px; transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.slot:hover .sl-led { background: var(--accent); box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 70%, transparent); }
+.slot .sl-name { font-size: 13px; font-weight: 700; }
+.slot .sl-num { font-size: 11px; color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.slot .sl-num.upd { color: var(--amber); font-weight: 600; }
+.slot .sl-desc { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+/* 插孔的针脚：底部两根金属脚（仪器插座的固有特征） */
+.slot::after {
+  content: ""; position: absolute; left: 14px; bottom: -1px; width: 26px; height: 3px;
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--muted) 55%, transparent) 0 5px, transparent 5px 9px);
+  border-radius: 0 0 2px 2px; opacity: .55;
+}
+/* 小织插槽：她的角色色（粉）是产品既有约定（左侧女仆坞同款渐变） */
+.slot.slot-maid { border-color: color-mix(in srgb, #db2777 30%, var(--line)); }
+.slot.slot-maid .sl-name { color: #db2777; }
+.slot.slot-maid:hover { border-color: color-mix(in srgb, #db2777 65%, var(--line)); }
+.slot.slot-maid:hover .sl-led { background: #db2777; box-shadow: 0 0 6px rgba(219,39,119,.65); }
+.slot.slot-maid::after { background: repeating-linear-gradient(90deg, rgba(219,39,119,.5) 0 5px, transparent 5px 9px); }
+.slot .sl-ava {
+  width: 22px; height: 22px; border-radius: 50%; flex: 0 0 22px;
+  display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 800;
+  background: linear-gradient(135deg, #db2777, #f472b6);
+}
+
+/* —— 台尾：服务操作排 + 接地铭牌 —— */
+.console-ops {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border-top: 1px dashed var(--line); padding-top: 12px;
+}
+.console-ops .ops-label { font-size: 11px; color: var(--muted); letter-spacing: .08em; margin-right: 4px; }
+.console-ops .ops-spacer { flex: 1; }
+.console-earth { font-size: 10px; color: var(--muted); letter-spacing: .1em; display: flex; align-items: center; gap: 6px; }
+.console-earth::before { content: ""; width: 10px; height: 10px; border: 1px solid currentColor; border-radius: 2px; opacity: .6; }
+
+/* v1.3：悬浮操作簇（fab-*）已废除——启动主键收编进中控台（.pwr-btn），客户端选项收编进台尾服务排。 */
 /* ===== 客户端中心面板（内嵌官方 harness 选项 + 汇总 + 开关显示 + 环境自检） ===== */
 .client-center-backdrop {
   position: fixed; inset: 0; background: rgba(17,24,39,.45);
@@ -848,42 +895,41 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .hc-dot.ok { background: var(--green); }
 .hc-dot.err { background: var(--red); }
 
-/* ===== v1.1 顶部折叠导航：顶栏只留一个菜单按钮，点开向下缓出分组面板 ===== */
+/* ===== v1.3 顶部导航：四个分组按钮（管理/总览/插件/系统），各自点开向下缓出本组折叠面板 ===== */
 .topnav-spacer { flex: 1 1 auto; }
-.navmenu-wrap { position: relative; flex: 0 0 auto; }
-.navmenu-btn {
-  display: inline-flex; align-items: center; gap: 8px;
-  height: 34px; padding: 0 7px 0 9px;
-  border: 1px solid transparent; border-radius: var(--rad-full);
-  background: transparent; color: var(--ink);
+.navgroups { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.navgroup-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 11px; border: 0; border-radius: var(--rad-full);
+  background: transparent; color: var(--muted);
   font-size: 13px; font-weight: 600; letter-spacing: .01em; cursor: pointer;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.navmenu-btn:hover { background: var(--neutral-soft); border-color: var(--line); }
-.navmenu-btn.open { background: var(--accent-soft); color: var(--accent); }
-.navmenu-btn .nv-icon { display: grid; place-items: center; color: var(--muted); transition: color var(--dur) var(--ease); }
-.navmenu-btn .nv-icon svg { width: 15px; height: 15px; }
-.navmenu-btn:hover .nv-icon, .navmenu-btn.open .nv-icon { color: var(--accent); }
-.navmenu-btn .nv-caret { display: grid; place-items: center; color: var(--muted); transition: transform var(--dur) var(--ease); }
-.navmenu-btn .nv-caret svg { width: 12px; height: 12px; }
-.navmenu-btn.open .nv-caret { transform: rotate(180deg); color: var(--accent); }
-/* 锚定由 openNavMenu() 动态写入 left（贴菜单按钮左缘垂出，避开左缘女仆坞标签）；22px 仅为 JS 前的兜底 */
+.navgroup-btn:hover { background: var(--neutral-soft); color: var(--ink); }
+.navgroup-btn.active { background: var(--accent-soft); color: var(--accent); }
+.navgroup-btn .nv-caret { display: grid; place-items: center; color: var(--muted); transition: transform var(--dur) var(--ease); }
+.navgroup-btn .nv-caret svg { width: 11px; height: 11px; }
+.navgroup-btn.open .nv-caret { transform: rotate(180deg); color: var(--accent); }
+/* 组内更新数角标（插件组的可更新插件总数，一眼可见） */
+.navgroup-btn .ng-badge { font-size: 10px; line-height: 1; padding: 3px 6px; border-radius: var(--rad-full); background: var(--amber-soft); color: var(--amber); font-weight: 700; font-variant-numeric: tabular-nums; }
+/* 锚定由 anchorNavMenu() 动态写入 left（贴当前分组按钮左缘垂出，避开左缘女仆坞标签）；22px 仅为 JS 前的兜底 */
+/* 折叠面板：v1.3 起每次只呈现一个分组（按钮点开哪个垂哪组），单列列表 */
 .navmenu-panel {
   position: fixed; top: calc(var(--nav-h) + 8px); left: 22px;
-  width: min(560px, calc(100vw - 44px));
+  min-width: 220px; max-width: min(360px, calc(100vw - 44px));
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--rad-lg);
   box-shadow: 0 24px 60px rgba(17,24,39,.22);
-  padding: 10px; z-index: 49; /* 遮罩(48)之上：顶栏属应用骨架，菜单随时可用（小织见菜单自动让位） */
-  display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px;
+  padding: 8px; z-index: 49; /* 遮罩(48)之上：顶栏属应用骨架，菜单随时可用（小织见菜单自动让位） */
+  display: grid; gap: 3px; align-content: start;
   opacity: 0; transform: translateY(-14px) scale(.985); transform-origin: top left;
   pointer-events: none; visibility: hidden;
   transition: opacity .26s cubic-bezier(.33,1,.68,1), transform .26s cubic-bezier(.33,1,.68,1), visibility .26s;
 }
 .navmenu-panel.open { opacity: 1; transform: none; pointer-events: auto; visibility: visible; }
-.navmenu-group { display: grid; gap: 3px; min-width: 0; padding: 4px 2px; align-content: start; }
+.navmenu-group { display: grid; gap: 3px; min-width: 0; align-content: start; }
 .navmenu-group-title {
   font-size: 11px; color: var(--muted); letter-spacing: .05em;
-  padding: 4px 10px 6px; text-transform: uppercase; user-select: none;
+  padding: 4px 10px 6px; user-select: none;
 }
 .navmenu-item {
   display: flex; align-items: center; gap: 10px; width: 100%;
@@ -982,22 +1028,7 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 /* 菜单遮罩：整条页面区域（含左缘女仆坞标签——菜单开着时她也暂不可唤起） */
 .navmenu-panel.open ~ .menu-scrim { display: block; left: 0; }
 
-/* ===== v1.2 主页 · 插件更新模块（bento 首格：是否有更新 / 几个 / 一键更新 / 点击跳插件页） ===== */
-.home-update {
-  flex-direction: row; align-items: center; gap: 16px;
-  grid-column: span 2;
-}
-.home-update .hu-main { flex: 1 1 auto; min-width: 0; }
-.home-update h3 { margin: 0; font-size: 14.5px; }
-.home-update .hu-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
-.home-update .hu-names { font-size: 12px; margin-top: 7px; display: flex; gap: 6px; flex-wrap: wrap; }
-.home-update .hu-names .tag { font-family: var(--font-mono); font-size: 11px; }
-.home-update .hu-count { font-size: 28px; font-weight: 600; color: var(--amber); flex: 0 0 auto; text-align: center; line-height: 1; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.home-update .hu-count small { display: block; font-size: 10.5px; color: var(--muted); font-weight: 500; margin-top: 5px; font-family: var(--font-sans); }
-.home-update.ok .hu-count { color: var(--green); }
-.home-update .hu-actions { display: flex; gap: 8px; flex: 0 0 auto; align-items: center; }
-.home-update .hu-arrow { color: var(--muted); flex: 0 0 auto; display: grid; place-items: center; }
-.home-update .hu-arrow svg { width: 15px; height: 15px; }
+/* v1.3：旧主页更新格（.home-update）已由中控台警示条（.alert-strip）取代 */
 
 /* 无障碍：用户系统开启「减弱动态效果」时，收掉过渡与动画（保留状态切换本身） */
 @media (prefers-reduced-motion: reduce) {
@@ -1014,13 +1045,7 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
       </div>
       <div class="brand-name">Dseam世界</div>
     </div>
-    <div class="navmenu-wrap">
-      <button class="navmenu-btn" id="navMenuBtn" aria-haspopup="menu" aria-expanded="false" title="打开导航菜单">
-        <span class="nv-icon" id="navMenuIcon"></span>
-        <span id="navMenuLabel">菜单</span>
-        <span class="nv-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
-      </button>
-    </div>
+    <nav class="navgroups" id="navGroups" aria-label="主导航"></nav>
     <div class="topnav-spacer"></div>
     <div class="side-foot" id="sideFoot"></div>
     <div class="win-ctrls">
@@ -1088,9 +1113,9 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 </div>
 
 <script>
-/* ===== 导航契约（v1.1）=====
+/* ===== 导航契约（v1.3）=====
  * NAV          —— 全部主区视图（不含 ai：AI 装配间住在左侧女仆坞 #maidDock）
- * NAV_GROUPS   —— 顶部折叠菜单的分组呈现（总览 / 插件 / 管理 / 系统）
+ * NAV_GROUPS   —— 顶栏四个分组按钮（管理 / 总览 / 插件 / 系统），点开垂出本组折叠面板
  * 视图切换     —— switchView(id)；switchView('ai') 转义为展开女仆坞
  * 前后端契约   —— window.chrome.webview.postMessage('<command>[:payload]')，与 Main.cs
  *                WebMessageReceived 一一对应。本版新增命令：
@@ -1115,9 +1140,9 @@ const NAV = [
   { id: 'theme', label: '主题设置', icon: 'palette' }
 ];
 const NAV_GROUPS = [
+  { label: '管理', items: ['skills', 'mcp', 'plugins', 'memory'] },
   { label: '总览', items: ['home'] },
   { label: '插件', items: ['hub', 'market'] },
-  { label: '管理', items: ['skills', 'mcp', 'plugins', 'memory'] },
   { label: '系统', items: ['check', 'theme'] }
 ];
 
@@ -1897,8 +1922,10 @@ $('dlgOk').addEventListener('click', () => {
 });
 $('dlgBackdrop').addEventListener('click', (e) => { if (e.target === $('dlgBackdrop')) hideDialog(); });
 
-/* ===== 顶部折叠菜单（v1.1）：一个按钮 + 向下缓出分组面板 ===== */
+/* ===== 顶部导航（v1.3）：管理/总览/插件/系统 四个分组按钮，点开向下垂出本组折叠面板 =====
+ * navMenuOpen 保留（遮罩/ESC/遮罩点击依赖它）；navMenuGroup = 当前展开的分组名。 */
 let navMenuOpen = false;
+let navMenuGroup = null;
 
 /** 各视图的角标数据：统一来源（外壳注入的 window.__xxxData 优先，本地 state 兜底）。 */
 function navCounts(id) {
@@ -1913,10 +1940,34 @@ function navCounts(id) {
   return {};
 }
 
+/** 顶栏四个分组按钮：当前视图所在组高亮；插件组带可更新数角标（一眼可见）。 */
+function renderNavGroups() {
+  const nav = $('navGroups');
+  if (!nav) return;
+  nav.innerHTML = NAV_GROUPS.map((g) => {
+    const active = g.items.includes(currentView);
+    const upd = g.items.reduce((s, id) => s + ((navCounts(id).upd) || 0), 0);
+    return `
+    <button class="navgroup-btn ${active ? 'active' : ''} ${navMenuGroup === g.label ? 'open' : ''}"
+            data-group="${esc(g.label)}" aria-haspopup="menu" aria-expanded="${navMenuGroup === g.label ? 'true' : 'false'}"
+            title="${esc(g.label)}：${g.items.map((id) => { const n = NAV.find((x) => x.id === id); return n ? n.label : ''; }).filter(Boolean).join(' / ')}">
+      ${esc(g.label)}
+      ${upd ? `<span class="ng-badge">${upd}</span>` : ''}
+      <span class="nv-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+    </button>`;
+  }).join('');
+  nav.querySelectorAll('[data-group]').forEach((b) => b.addEventListener('click', () => {
+    const g = b.dataset.group;
+    if (navMenuOpen && navMenuGroup === g) closeNavMenu(); else openNavMenu(g);
+  }));
+}
+
+/** 折叠面板：只渲染当前展开的那一组（点开哪个垂哪组），单列呈现本组全部条目。 */
 function renderNavMenuPanel() {
   const panel = $('navMenuPanel');
   if (!panel) return;
-  panel.innerHTML = NAV_GROUPS.map((g) => `
+  const g = NAV_GROUPS.find((x) => x.label === navMenuGroup);
+  panel.innerHTML = !g ? '' : `
     <div class="navmenu-group" role="group" aria-label="${esc(g.label)}">
       <div class="navmenu-group-title">${esc(g.label)}</div>
       ${g.items.map((id) => {
@@ -1931,39 +1982,42 @@ function renderNavMenuPanel() {
           ${ICONS[n.icon]}<span class="mi-label">${esc(n.label)}</span>${countHtml}
         </button>`;
       }).join('')}
-    </div>`).join('');
+    </div>`;
   panel.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
     closeNavMenu();
     switchView(b.dataset.view);
   }));
 }
 
-/* 菜单面板锚定：贴「菜单」按钮左缘垂出（标准下拉范式）——按钮位于品牌区右侧，
- * 面板天然避开左缘女仆坞玻璃标签（0-34px），不再遮挡「小织」；右侧不出视口 */
+/* 面板锚定：贴当前分组按钮左缘垂出（标准下拉范式）——总览按钮位于品牌区右侧，
+ * 面板天然避开左缘女仆坞玻璃标签（0-34px），不遮挡「小织」；右侧不出视口 */
 function anchorNavMenu() {
-  const btn = $('navMenuBtn');
+  const btn = navMenuGroup ? document.querySelector(`.navgroup-btn[data-group="${CSS.escape(navMenuGroup)}"]`) : null;
   const panel = $('navMenuPanel');
-  if (!btn || !panel) return;
+  if (!panel) return;
   const vw = window.innerWidth;
-  const pw = panel.offsetWidth || Math.min(560, vw - 44);
-  let left = btn.getBoundingClientRect().left;
+  const pw = panel.offsetWidth || Math.min(360, vw - 44);
+  let left = btn ? btn.getBoundingClientRect().left : 22;
   left = Math.max(22, Math.min(left, vw - pw - 22));
   panel.style.left = Math.round(left) + 'px';
 }
-function openNavMenu() {
+function openNavMenu(group) {
   navMenuOpen = true;
+  navMenuGroup = group || NAV_GROUPS[0].label;
   if (maidOpen) openMaidDock(false); // 用户要去导航：小织自动让位缩回
+  renderNavGroups();
+  renderNavMenuPanel();
   anchorNavMenu();
-  $('navMenuPanel').classList.add('open');
-  renderShell();
+  const p = $('navMenuPanel');
+  if (p) p.classList.add('open');
 }
 function closeNavMenu() {
   navMenuOpen = false;
+  navMenuGroup = null;
   const p = $('navMenuPanel');
   if (p) p.classList.remove('open');
-  renderShell();
+  renderNavGroups();
 }
-function toggleNavMenu() { if (navMenuOpen) closeNavMenu(); else openNavMenu(); }
 
 /* ===== 左侧女仆坞（v1.2，仅主页）：玻璃标签 → 悬停延伸（无文字）→ 点击弹出 AI 装配间 ===== */
 let maidOpen = false;
@@ -1998,6 +2052,7 @@ function postPluginOp(msg) {
 }
 window.__onPluginsData = function () {
   if (currentView === 'home') renderHome();       // 主页更新面板刷新
+  renderNavGroups();                               // 顶栏插件组角标刷新（v1.3）
   renderNavMenuPanel();                            // 「插件管理」角标刷新
   if (pluginChangePending) {
     pluginChangePending = false;
@@ -2023,18 +2078,10 @@ function maybePromptDshRestart() {
 }
 
 function renderShell() {
-  const menuBtn = $('navMenuBtn');
   // 主页态标记：驱动标题条为女仆坞让位（body.on-home，见 .topbar 规则）
   document.body.classList.toggle('on-home', currentView === 'home');
-  if (menuBtn) {
-    const n = NAV.find((x) => x.id === currentView);
-    menuBtn.classList.toggle('open', navMenuOpen);
-    menuBtn.setAttribute('aria-expanded', navMenuOpen ? 'true' : 'false');
-    const lbl = $('navMenuLabel');
-    if (lbl) lbl.textContent = n ? n.label : '菜单';
-    const ic = $('navMenuIcon');
-    if (ic) ic.innerHTML = n ? ICONS[n.icon] : '';
-  }
+  // v1.3：四个分组按钮（管理/总览/插件/系统）随当前视图高亮与开合态刷新
+  renderNavGroups();
   renderNavMenuPanel();
   const restartable = state.pendingRestart > 0;
   $('sideFoot').innerHTML = `
@@ -2359,92 +2406,105 @@ function renderTheme() {
   });
 }
 
-/* ===== 主页（v1.2）：一体化 bento 大面板 + 右下悬浮操作簇 =====
- * 布局契约：左缘为女仆坞玻璃标签让位 64px；其余主页功能全部收进 bento 模块格；
- * 启动主键 + dsh 版本 + 客户端折叠选项固定于右下角。 */
+/* ===== 主页（v1.3）：DSH 插座坞 · 工业中控台 =====
+ * 布局契约：左缘为女仆坞玻璃标签让位 64px；整机为一块仪器面板（.console）：
+ * 台头（待机灯+铭牌）→ 主区（物理电源键 + 环境自检 LED 灯组）→ 更新警示条（有更新时）
+ * → 四个模块插槽（小织粉色角色槽 + 插件中枢/管理/市场）→ 台尾服务操作排。 */
 function renderHome() {
   const installed = state.installed.length + state.imported.length;
   const harnessOk = !!(window.__nativeSelfCheck && window.__nativeSelfCheck.dshVersion);
   const dshVer = harnessOk ? (window.__nativeSelfCheck && window.__nativeSelfCheck.dshVersion || state.dshVersion) : null;
   const nodeOk = !!(window.__nativeSelfCheck && window.__nativeSelfCheck.node);
   const pnpmOk = !!(window.__nativeSelfCheck && window.__nativeSelfCheck.pnpm);
+  const allOk = harnessOk && nodeOk && pnpmOk;
   const appVer = (window.__nativeSelfCheck && window.__nativeSelfCheck.appVersion) || '';
   const latest = (window.__nativeSelfCheck && window.__nativeSelfCheck.latestVersion) || state.latestVersion;
   const appUpdate = latest && appVer && (function (a, b) { var A = String(a).replace(/^v/i, '').split('-')[0].split('.'), B = String(b).replace(/^v/i, '').split('-')[0].split('.'); for (var i = 0; i < Math.max(A.length, B.length); i++) { var x = parseInt(A[i] || '0', 10), y = parseInt(B[i] || '0', 10); if (x !== y) return x - y; } return 0; })(latest, appVer) > 0;
   const plugins = pluginRows();
   const updPlugins = plugins.filter((r) => r.hasUpdate);
   const updCount = updPlugins.length;
+  const led = (ok, name, onTxt, offTxt) => `
+    <div class="led-item">
+      <span class="led ${ok ? 'ok' : 'err'}"></span>
+      <span class="lt">${name}</span>
+      <span class="ls">${ok ? onTxt : offTxt}</span>
+    </div>`;
   $('view-home').innerHTML = `
     <div class="home-shell">
-      <div class="bento">
-        <div class="bento-head">
-          <div class="bh-title"><span class="bh-dot"></span>中枢总览</div>
-          <div class="bh-sub mono">OVERVIEW</div>
-          <div class="bh-hint">点击模块进入对应面板</div>
-        </div>
-        <div class="bento-cell home-update ${updCount ? '' : 'ok'}" id="homeUpdatePanel" title="点击进入插件管理">
-          <div class="hu-main">
-            <div class="bc-label">插件更新 <span class="mono">UPDATE</span></div>
-            <div class="hu-sub">${updCount
-              ? updCount + ' 个插件有可用更新，可一键更新（更新后需重启 DSH 生效）'
-              : (plugins.length ? '全部插件均为最新版本' : '还没有已安装的插件，去插件市场逛逛吧')}</div>
-            ${updCount ? `<div class="hu-names">${updPlugins.slice(0, 3).map((r) => `<span class="tag">${esc(r.id)}${r.latest ? ' → ' + esc(r.latest) : ''}</span>`).join('')}${updCount > 3 ? `<span class="tag">+${updCount - 3} 个</span>` : ''}</div>` : ''}
+      <div class="console" id="homeConsole">
+        <span class="console-screw tl" aria-hidden="true"></span>
+        <span class="console-screw tr" aria-hidden="true"></span>
+        <span class="console-screw bl" aria-hidden="true"></span>
+        <span class="console-screw br" aria-hidden="true"></span>
+
+        <div class="console-head">
+          <span class="console-standby ${allOk ? '' : 'err'}" title="整机状态"></span>
+          <div class="console-name">DSH 插座坞 <small>HOTPLUG CONSOLE</small></div>
+          <div class="console-plate">
+            <span>VERSION</span><b>${appVer ? 'v' + esc(appVer) : '—'}</b>
+            <span class="sep">·</span>
+            <span>dsh</span><b>${dshVer ? esc(dshVer) : '未安装'}</b>
           </div>
-          ${updCount ? `<div class="hu-count">${updCount}<small>可更新</small></div>` : ''}
-          <div class="hu-actions">
+        </div>
+
+        <div class="console-main">
+          <div class="pwr-zone">
+            <button class="pwr-btn ${allOk ? 'ready' : (harnessOk ? '' : 'err')}" id="homeLaunchBtn" title="启动 DSH" aria-label="启动 DSH">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
+            </button>
+            <div class="pwr-caption">启动 DSH</div>
+            <div class="pwr-state"><span class="hc-dot ${harnessOk ? 'ok' : 'err'}"></span>${harnessOk ? '环境就绪' : '待自检通过'}</div>
+          </div>
+          <div class="led-board">
+            <div class="led-board-title">环境自检 · SELF CHECK</div>
+            <div class="led-row">
+              ${led(harnessOk, 'DSH', dshVer ? esc(dshVer) : '就绪', '未检测')}
+              ${led(nodeOk, 'Node', '就绪', '缺失')}
+              ${led(pnpmOk, 'pnpm', '就绪', '缺失')}
+            </div>
+          </div>
+        </div>
+
+        ${updCount ? `
+        <div class="alert-strip" id="homeUpdatePanel" title="点击进入插件管理">
+          <span class="as-led" aria-hidden="true"></span>
+          <span class="as-text">${updCount} 个插件有可用更新，一键更新后需重启 DSH 生效${updPlugins.slice(0, 3).map((r) => `<span class="tag">${esc(r.id)}${r.latest ? ' → ' + esc(r.latest) : ''}</span>`).join('')}${updCount > 3 ? `<span class="tag">+${updCount - 3} 个</span>` : ''}</span>
+          <span class="as-actions">
             <button class="btn sm" id="homeUpdateCheckBtn" title="强制刷新远端最新版本">${ICONS.refresh} 检查更新</button>
-            ${updCount ? `<button class="btn sm primary" id="homeUpdateAllBtn" title="依次更新全部可更新插件">${ICONS.download} 一键更新</button>` : ''}
-          </div>
-          <span class="hu-arrow" title="进入插件管理">${ICONS.chevronRight}</span>
+            <button class="btn sm primary" id="homeUpdateAllBtn" title="依次更新全部可更新插件">${ICONS.download} 一键更新</button>
+          </span>
+        </div>` : ''}
+
+        <div class="slot-grid">
+          <button class="slot slot-maid" data-goto="ai" title="打开小织 · AI 装配间">
+            <div class="sl-top"><span class="sl-led"></span><span class="sl-name">AI 装配间</span></div>
+            <div class="sl-desc"><span class="sl-ava" aria-hidden="true">织</span></div>
+            <div class="sl-desc">小织 · 把零散插件织成 hotpack</div>
+          </button>
+          <button class="slot" data-goto="hub" title="进入插件中枢">
+            <div class="sl-top"><span class="sl-led"></span><span class="sl-name">插件中枢</span><span class="sl-num">${installed} 插座包</span></div>
+            <div class="sl-desc">已装清单 · 健康状态</div>
+          </button>
+          <button class="slot" data-goto="plugins" title="进入插件管理">
+            <div class="sl-top"><span class="sl-led"></span><span class="sl-name">插件管理</span><span class="sl-num ${updCount ? 'upd' : ''}">${plugins.length} 插件${updCount ? ' · ' + updCount + ' 更新' : ''}</span></div>
+            <div class="sl-desc">更新 · 启停 · 卸载</div>
+          </button>
+          <button class="slot" data-goto="market" title="进入插件市场">
+            <div class="sl-top"><span class="sl-led"></span><span class="sl-name">插件市场</span><span class="sl-num ${appUpdate ? 'upd' : ''}">${appUpdate ? '程序可更新' : ''}</span></div>
+            <div class="sl-desc">社区插件 · 官方发布</div>
+          </button>
         </div>
-        <div class="bento-cell cell-maid" data-goto="ai">
-          <div class="bc-label">AI 装配间 <span class="mono">MAID</span></div>
-          <div class="cell-maid-mark">织</div>
-          <div class="bc-row">把零散插件织成完整 hotpack</div>
-          <div class="cell-maid-go">去找小织聊聊 →</div>
+
+        <div class="console-ops">
+          <span class="ops-label">服务 · SERVICE</span>
+          <button class="btn sm" id="homeApiBtn">⚙ API 配置</button>
+          <button class="btn sm" id="homeClientBtn">🖥 客户端中心</button>
+          <button class="btn sm" id="homeRepairBtn" title="检查并修复 dsh 配置文件">🔧 修改配置</button>
+          <button class="btn sm" id="homeChooseBtn" title="选择 dsh 客户端">🔌 选择客户端</button>
+          <span class="ops-spacer"></span>
+          <span class="console-earth mono" title="dsh 版本">DSH-DOCK · ${dshVer ? esc(dshVer) : '未安装'}</span>
+          <button class="btn sm danger" id="homeHarnessStopBtn" title="停止 dsh web 与 DSH 程序">⏻ 关闭 DSH</button>
         </div>
-        <div class="bento-cell" data-goto="hub">
-          <div class="bc-label">插件中枢 <span class="mono">HUB</span></div>
-          <div class="bc-num">${installed}<small>个插座包</small></div>
-          <div class="bc-row bc-note">已装清单 · 健康状态</div>
-        </div>
-        <div class="bento-cell" data-goto="check">
-          <div class="bc-label">服务状态 <span class="mono">STATUS</span></div>
-          <div class="bc-row mt">
-            <span class="hc-dot ${harnessOk ? 'ok' : 'err'}"></span><span>DSH ${harnessOk ? '就绪' : '未检测'}</span>
-            <span class="hc-dot ${nodeOk ? 'ok' : 'err'}"></span><span>Node ${nodeOk ? '就绪' : '缺失'}</span>
-            <span class="hc-dot ${pnpmOk ? 'ok' : 'err'}"></span><span>pnpm ${pnpmOk ? '就绪' : '缺失'}</span>
-          </div>
-          <div class="bc-row bc-note">运行环境自检</div>
-        </div>
-        <div class="bento-cell" data-goto="market">
-          <div class="bc-label">插件市场 <span class="mono">MARKET</span></div>
-          <div class="bc-row mt">${appUpdate ? `程序 v${esc(latest)} 可更新` : (appVer ? `程序已是最新 v${esc(appVer)}` : '社区插件与官方发布动态')}</div>
-          <div class="bc-row bc-note">发现新插件与发布动态</div>
-        </div>
-        <div class="bento-cell cell-wide" style="cursor:default">
-          <div class="bc-label">快捷操作 <span class="mono">QUICK</span></div>
-          <div class="bc-act">
-            <button class="btn sm" id="homeApiBtn">⚙ API 配置</button>
-            <button class="btn sm" id="homeClientBtn">🖥 客户端中心</button>
-            <button class="btn sm danger" id="homeHarnessStopBtn" title="停止 dsh web 与 DSH 程序">⏻ 关闭 DSH</button>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="fab-cluster" id="fabCluster">
-      <div class="fab-side">
-        <div class="fab-pop" id="fabPop">
-          <button id="fabRepairBtn" title="检查并修复 dsh 配置文件">修改配置</button>
-          <button id="fabChooseBtn" title="选择 dsh 客户端">选择客户端</button>
-        </div>
-        <button class="fab-arrow" id="fabArrow" title="客户端选项" aria-label="展开客户端选项">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
-        </button>
-      </div>
-      <div class="fab-main">
-        <div class="fab-ver mono" title="dsh 版本">dsh ${dshVer ? esc(dshVer) : '未安装'}</div>
-        <button class="fab-launch" id="homeLaunchBtn"><span class="fl-play">▶</span>启动 DSH</button>
       </div>
     </div>`;
   const postOrToast = (msg, tip) => {
@@ -2453,9 +2513,9 @@ function renderHome() {
   };
   const lb = $('homeLaunchBtn');
   if (lb) lb.addEventListener('click', () => postOrToast('launch', '请在 Dseam世界 桌面端启动 DSH'));
-  const repairBtn = $('fabRepairBtn');
+  const repairBtn = $('homeRepairBtn');
   if (repairBtn) repairBtn.addEventListener('click', () => postOrToast('repairConfig', '请在 Dseam世界 桌面端执行修复'));
-  const chooseBtn = $('fabChooseBtn');
+  const chooseBtn = $('homeChooseBtn');
   if (chooseBtn) chooseBtn.addEventListener('click', () => postOrToast('chooseHarness', '请在 Dseam世界 桌面端选择客户端'));
   const apiBtn = $('homeApiBtn');
   if (apiBtn) apiBtn.addEventListener('click', () => postOrToast('openApiConfig', '请在 Dseam世界 桌面端配置 API'));
@@ -2463,13 +2523,7 @@ function renderHome() {
   if (harnessStopBtn) harnessStopBtn.addEventListener('click', () => postOrToast('harnessStop', '请在 Dseam世界 桌面端停止 dsh'));
   const clientBtn = $('homeClientBtn');
   if (clientBtn) clientBtn.addEventListener('click', () => openClientCenter());
-  // 折叠箭头（默认收起）：展开后选项向左弹出（修改配置 / 选择客户端）
-  const fabArrow = $('fabArrow');
-  if (fabArrow) fabArrow.addEventListener('click', () => {
-    const c = $('fabCluster');
-    if (c) c.classList.toggle('fab-open');
-  });
-  // v1.2 插件更新模块：模块主体点击 → 插件管理页；按钮各自独立动作（不冒泡跳转）
+  // 更新警示条：主体点击 → 插件管理页；按钮各自独立动作（不冒泡跳转）
   const huPanel = $('homeUpdatePanel');
   if (huPanel) huPanel.addEventListener('click', (e) => {
     if (e.target.closest('button')) return;
@@ -4436,10 +4490,8 @@ document.addEventListener('DOMContentLoaded', () => {
   openMaidDock(state.maidDockOpen === true);
 });
 
-// 顶部折叠菜单交互（v1.2 遮罩模型）：按钮开合 / 遮罩点击=仅收起（零副作用）/ Esc 收起
+// 顶部导航交互（v1.3 遮罩模型）：四个分组按钮各自开合 / 遮罩点击=仅收起（零副作用）/ Esc 收起
 function bindNavMenu() {
-  const btn = document.getElementById('navMenuBtn');
-  if (btn) btn.addEventListener('click', toggleNavMenu);
   const scrim = document.getElementById('menuScrim');
   if (scrim) scrim.addEventListener('click', closeNavMenu);
   document.addEventListener('keydown', (e) => {
