@@ -24,7 +24,7 @@
 //   | EEXIST + pid 死                        | 立即接管                 |
 //   | EEXIST + EACCES/EPERM（他用户）        | 等待至超时，不接管       |
 //   | token 缺失/损坏                        | 按文件 mtime 判陈旧      |
-const { dirname } = require('path');
+const { dirname, join } = require('path');
 const {
   LOCK_WAIT_MS,
   LOCK_STALE_MS,
@@ -161,6 +161,60 @@ function checkV1DirectoryLock(fsPort, lockPath, opts) {
 }
 
 /**
+ * 启动锁 token 心跳。
+ * P1 修复：优先用 Worker 线程（独立事件循环）——主线程执行阻塞式 spawnSync 时
+ * setInterval 无法触发，token 会陈旧被第二写者接管；Worker 线程不受主线程阻塞影响。
+ * Worker 不可用（环境限制）时回退主线程 setInterval（尽力而为，阻塞期间仍可能陈旧）。
+ *
+ * P1b 修复（跨线程覆盖竞态）：Worker 经【主线程传入的持有 fd】写 token，绝不按路径
+ * 重开——按路径重开会在 release→reacquire 窗口打开新持有者的锁文件并用旧 pid 覆盖其
+ * token。fd 绑定获取锁时创建的 inode，release 后重建同名文件也不受影响。
+ * 同步停止握手：返回 heartbeat 句柄含 stop()，其置停止请求 + 等 Worker 确认后再让
+ * 调用方关 fd（见 releaseLock）。
+ * @param {object} fsPort fs 端口（回退路径用）
+ * @param {number} pid 持有者 pid
+ * @param {number} refreshMs 刷新周期（0=不刷新，返回 null）
+ * @param {number} fd 主线程已打开的锁 fd（Worker 经此写；回退路径重写 token 用）
+ * @returns {{stop: Function}|object|null} heartbeat 句柄或 interval 句柄
+ */
+function startHeartbeat(fsPort, pid, refreshMs, fd) {
+  if (!(refreshMs > 0)) return null;
+  try {
+    const { Worker } = require('worker_threads');
+    const ctrl = new SharedArrayBuffer(8); // 2×Int32：c[0]=停止请求，c[1]=已停止确认
+    const worker = new Worker(join(__dirname, 'lock-heartbeat.js'), {
+      workerData: { fd, pid, refreshMs, ctrl }
+    });
+    if (typeof worker.unref === 'function') worker.unref();
+    const c = new Int32Array(ctrl);
+    return {
+      stop() {
+        // 请求停止并等待 Worker 确认：确认后 Worker 绝不再写，调用方可安全关 fd。
+        Atomics.store(c, 0, 1);
+        Atomics.notify(c, 0);
+        const deadline = Date.now() + 1000;
+        while (Atomics.load(c, 1) === 0 && Date.now() < deadline) {
+          // Worker 收到 notify 后应立即置 c[1]=1；此处短暂自旋兜底（Worker 崩溃/未启动）
+          Atomics.wait(c, 1, 0, 50);
+        }
+        try { worker.terminate(); } catch (_) { /* 忽略 */ }
+      }
+    };
+  } catch (_) {
+    // Worker 不可用（worker_threads 缺失/创建失败）→ 回退主线程 setInterval
+    if (typeof setInterval !== 'function') return null;
+    const timer = setInterval(() => {
+      try {
+        fsPort.ftruncateSync(fd, 0);
+        fsPort.writeSync(fd, formatToken(pid, Date.now()), 0, 'utf8');
+      } catch (_) { /* 刷新失败：陈旧接管兜底 */ }
+    }, refreshMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    return { stop() { clearInterval(timer); } };
+  }
+}
+
+/**
  * 获取文件锁。
  * @param {object} fsPort fs 端口
  * @param {string} lockPath 锁文件路径
@@ -210,19 +264,15 @@ function acquireLock(fsPort, lockPath, opts = {}) {
         try { if (fsPort.existsSync(lockPath)) fsPort.unlinkSync(lockPath); } catch (_) { /* 忽略 */ }
         return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `写入锁 token 失败 ${lockPath}：${writeErr.message}`) };
       }
-      // 持锁期刷新：经已打开 fd 重写 token（防止长任务被误判陈旧）
-      let refresh = null;
-      if (refreshMs > 0 && typeof setInterval === 'function') {
-        refresh = setInterval(() => {
-          try {
-            fsPort.ftruncateSync(fd, 0);
-            fsPort.writeSync(fd, formatToken(pid, Date.now()), 0, 'utf8');
-          } catch (_) { /* 刷新失败：下次仍会尝试；陈旧接管兜底 */ }
-        }, refreshMs);
-        if (typeof refresh.unref === 'function') refresh.unref();
-      }
+      // 持锁期刷新：Worker 线程心跳（独立事件循环）——主线程阻塞 spawnSync 时
+      // setInterval 无法触发，token 会陈旧被第二写者接管（P1）；Worker 不受影响。
+      const refresh = startHeartbeat(fsPort, pid, refreshMs, fd);
       const release = () => releaseLock(fsPort, lockPath, { owner, pid, fd, refresh });
-      return { ok: true, fd, owner, token, release };
+      // 审计修复：返回 refresh 句柄——此前调用方（pipeline/index 等）直接 releaseLock
+      // {owner,pid,fd} 而不传 refresh，导致持锁期 setInterval 定时器在释放后泄漏、
+      // 每 10s 对已关闭 fd 写 token（EBADF 被吞）。返回后调用方须在 releaseLock 时
+      // 一并传入 refresh 以清理定时器。
+      return { ok: true, fd, owner, token, release, refresh };
     } catch (e) {
       if (fd !== null) {
         try { fsPort.closeSync(fd); } catch (_) { /* 忽略 */ }
@@ -297,7 +347,15 @@ function releaseLock(fsPort, lockPath, opts = {}) {
   const owner = opts.owner || `pid-${pid}`;
   try {
     if (opts.refresh) {
-      try { clearInterval(opts.refresh); } catch (_) { /* 忽略 */ }
+      // P1b 修复：refresh 统一为 heartbeat/interval 句柄（含 stop()）。
+      // stop() 先停 Worker 并等其确认（heartbeat）或 clearInterval（interval），
+      // 确保返回后不再有 token 写，调用方随后关 fd / unlink 才安全。
+      // 兼容旧形态（裸 Worker/interval）以防调用方仍传旧值。
+      try {
+        if (typeof opts.refresh.stop === 'function') opts.refresh.stop();
+        else if (typeof opts.refresh.terminate === 'function') opts.refresh.terminate();
+        else clearInterval(opts.refresh);
+      } catch (_) { /* 忽略 */ }
     }
     const token = readToken(fsPort, lockPath);
     if (token && token.pid !== pid) {

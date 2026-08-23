@@ -17,6 +17,7 @@
 | `PACK_ID_RE` | `^[a-z0-9][a-z0-9._-]{0,63}$`（大小写不敏感） | 包 id / CLI id：字母数字开头，允许 `. _ -`，1..64 字符 |
 | `PLUGIN_NAME_RE` | `^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$` | npm 包名（可 scoped） |
 | `EXACT_VERSION_RE` | `^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$` | 精确版本号（**须再经 semver 双检**：`semver.valid(v) !== null`，拒绝 `1.02.3` 等） |
+| `REPO_RE` | `^[0-9A-Za-z][0-9A-Za-z._-]*\/[0-9A-Za-z][0-9A-Za-z._-]*$` | GitHub 仓库 `owner/repo`（两段、字母数字开头；拒绝前导 `. -` 与 `..` 段，防 URL/git clone 路径穿越） |
 | `RESERVED_WIN_NAMES` | `CON PRN AUX NUL COM1..COM9 LPT1..LPT9` | Windows 保留设备名（任何单段名均拒绝，含首段匹配） |
 | 长度预算 | id ≤ 64；patch id ≤ 64；source.path ≤ 4096；source.repo ≤ 512；source.ref ≤ 256 | |
 
@@ -25,6 +26,7 @@
 - 尾随 `.` 或空格拒绝；
 - 插件名每个 `/` 段均过 Windows 安全名检查；
 - `source.path` 必须绝对、拒绝 UNC、拒绝 `.`/`..` 段；
+- `source.repo` 必须匹配 `REPO_RE`（`owner/repo` 两段、字母数字开头；拒绝空白/元字符/`..` 段）；
 - `source.ref` 拒绝 `..`、纯点、控制字符、超长（阶段 2 起允许合法 `/`）。
 
 ## 2. 错误码与结果契约

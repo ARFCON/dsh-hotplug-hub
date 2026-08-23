@@ -127,9 +127,22 @@ describe('validateSourcePath', () => {
 describe('validateSourceRepo / validateSourceRef', () => {
   it('repo 基本校验', () => {
     expect(validateSourceRepo('owner/repo').ok).toBe(true);
+    expect(validateSourceRepo('owner/repo.sub-1').ok).toBe(true);
     expect(validateSourceRepo('').ok).toBe(false);
     expect(validateSourceRepo('x'.repeat(513)).ok).toBe(false);
     expect(validateSourceRepo('a\u0000b').ok).toBe(false);
+  });
+  it('repo 必须是 owner/repo 格式（审计修复：拒绝穿越/空白/元字符/前导点）', () => {
+    expect(validateSourceRepo('../../etc/passwd').ok).toBe(false);
+    expect(validateSourceRepo('a/../b').ok).toBe(false);
+    expect(validateSourceRepo('a/..').ok).toBe(false);
+    expect(validateSourceRepo('.owner/repo').ok).toBe(false);
+    expect(validateSourceRepo('owner/.repo').ok).toBe(false);
+    expect(validateSourceRepo('a b/c').ok).toBe(false);
+    expect(validateSourceRepo('owner/repo?query').ok).toBe(false);
+    expect(validateSourceRepo('owner').ok).toBe(false); // 缺 /
+    expect(validateSourceRepo('a/b/c').ok).toBe(false); // 多段
+    expect(validateSourceRepo('owner/repo&x').ok).toBe(false);
   });
   it('ref 拒绝 .. / 纯点 / 空段 / 控制字符 / 超长；H-10 允许合法 /', () => {
     expect(validateSourceRef('main').ok).toBe(true);

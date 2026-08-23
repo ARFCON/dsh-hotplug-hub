@@ -7,6 +7,9 @@ const os = require('os');
 const PACK_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 const PLUGIN_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const EXACT_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+// GitHub 仓库 owner/repo 格式：两段、各段字母数字开头（拒绝前导 . - 与 .. 段，
+// 防止 repo 进入 URL/git clone 时产生路径穿越或畸形 URL）。
+const REPO_RE = /^[0-9A-Za-z][0-9A-Za-z._-]*\/[0-9A-Za-z][0-9A-Za-z._-]*$/;
 
 // Windows 保留设备名（N43：CON/NUL/COM1… 全部拒绝）
 const RESERVED_WIN_NAMES = new Set([
@@ -45,9 +48,10 @@ const LOCK_REFRESH_MS = 10000;
 const LAUNCH_ALIVE_CHECK_MS = 500;
 const LAUNCH_WAIT_TIMEOUT_MS = 120000;
 
-// 崩溃循环判定（3 次 / 30s 窗口）
+// 崩溃循环判定：连续 CRASH_LOOP_THRESHOLD 次非零退出（retries 连续失败计数，
+// 成功即清零；与 classifyStateSignals / healplan 触发文案一致）。历史曾声明
+// "30s 窗口"语义（CRASH_LOOP_WINDOW_MS），但从未被实现或消费——已删除该死常量。
 const CRASH_LOOP_THRESHOLD = 3;
-const CRASH_LOOP_WINDOW_MS = 30000;
 
 // 自愈默认重试预算
 const DEFAULT_RETRY_BUDGET = 3;
@@ -133,6 +137,7 @@ module.exports = {
   PACK_ID_RE,
   PLUGIN_NAME_RE,
   EXACT_VERSION_RE,
+  REPO_RE,
   RESERVED_WIN_NAMES,
   GITHUB_MIRRORS,
   SCHEMA_VERSION,
@@ -148,7 +153,6 @@ module.exports = {
   LAUNCH_ALIVE_CHECK_MS,
   LAUNCH_WAIT_TIMEOUT_MS,
   CRASH_LOOP_THRESHOLD,
-  CRASH_LOOP_WINDOW_MS,
   DEFAULT_RETRY_BUDGET,
   STATE_FILE,
   RUN_LOG_FILE,

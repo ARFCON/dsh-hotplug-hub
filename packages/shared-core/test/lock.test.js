@@ -65,6 +65,67 @@ describe('acquire / release（单进程）', () => {
     expect(fs.existsSync(lock)).toBe(false);
   });
 
+  it('acquireLock 返回 refresh 句柄，releaseLock 传入后清理定时器（审计修复：防定时器泄漏）', () => {
+    const dir = tempDir();
+    const lock = path.join(dir, '.lock');
+    // refreshMs>0 时 acquireLock 应返回 refresh 句柄（此前不返回，调用方直接 releaseLock
+    // 无法清理 setInterval → 释放后仍每 10s 对已关闭 fd 写 token 泄漏）
+    const a = acquireLock(nodeFs, lock, { waitMs: 500, refreshMs: 20 });
+    expect(a.ok).toBe(true);
+    expect(a.refresh).toBeTruthy();
+    expect(typeof a.release).toBe('function');
+    // 经 releaseLock 传入 refresh 释放 → 定时器被清理、锁文件删除
+    const r = releaseLock(nodeFs, lock, { owner: a.owner, pid: process.pid, fd: a.fd, refresh: a.refresh });
+    expect(r.ok).toBe(true);
+    expect(fs.existsSync(lock)).toBe(false);
+    // 释放后再次获取成功（无残留定时器干扰）
+    const b = acquireLock(nodeFs, lock, { waitMs: 200, refreshMs: 0 });
+    expect(b.ok).toBe(true);
+    releaseLock(nodeFs, lock, { owner: b.owner, pid: process.pid, fd: b.fd, refresh: b.refresh });
+  });
+
+  it('持锁方阻塞（真实 spawnSync）期间 token 仍被 Worker 心跳刷新（P1：不被陈旧接管）', () => {
+    const dir = tempDir();
+    const lock = path.join(dir, '.lock');
+    // 短 stale 窗口 + 短 refresh 周期，快速复现阻塞期陈旧
+    const staleMs = 200;
+    const refreshMs = 30;
+    const a = acquireLock(nodeFs, lock, { waitMs: 500, staleMs, refreshMs, pollMs: 20 });
+    expect(a.ok).toBe(true);
+    // 主线程阻塞 > staleMs（真实 spawnSync 冻结事件循环，setInterval 无法触发）
+    spawnSync(process.execPath, ['-e', 'const s=Date.now(); while(Date.now()-s<400){}'], { stdio: 'ignore' });
+    const token = readToken(nodeFs, lock);
+    expect(token).not.toBeNull();
+    // P1 断言：Worker 线程在阻塞期间持续刷新 token → 仍新鲜（旧 setInterval 实现会陈旧）
+    expect(isStale(token, Date.now(), staleMs)).toBe(false);
+    releaseLock(nodeFs, lock, { owner: a.owner, pid: process.pid, fd: a.fd, refresh: a.refresh });
+    // 释放后 Worker 已终止、锁文件删除
+    expect(fs.existsSync(lock)).toBe(false);
+  });
+
+  it('P1b：Worker 经持有 fd 写，释放后重建的锁文件不被旧 Worker 覆盖（跨线程覆盖竞态回归）', () => {
+    const dir = tempDir();
+    const lock = path.join(dir, '.lock');
+    // A 持锁，Worker 心跳每 20ms 刷新，注入 pid=11111
+    const a = acquireLock(nodeFs, lock, { waitMs: 500, refreshMs: 20, pid: 11111 });
+    expect(a.ok).toBe(true);
+    // 模拟竞态窗口：B 在 A 释放后立即接管（关 A 的 fd、删旧锁、写 B token）。
+    // 故意【不】先 stop A 的 Worker——制造"旧 Worker 仍在运行"的最坏窗口。
+    // 旧实现（每 tick fs.openSync(lockPath,'r+') 按路径重开）会打开 B 的新锁文件
+    // 并用 11111 覆盖其 token；新实现（经持有 fd 写旧 inode）不影响 B 的锁文件。
+    nodeFs.closeSync(a.fd);
+    nodeFs.unlinkSync(lock);
+    nodeFs.writeFileSync(lock, formatToken(22222, Date.now()));
+    // 阻塞 > 数个 refreshMs 周期（真实 spawnSync 冻结主线程，让 Worker 有机会跑多个 tick）
+    spawnSync(process.execPath, ['-e', 'const s=Date.now(); while(Date.now()-s<200){}'], { stdio: 'ignore' });
+    const token = readToken(nodeFs, lock);
+    expect(token).not.toBeNull();
+    expect(token.pid).toBe(22222); // B 的 token 未被旧 Worker 覆盖（P1b 修复）
+    // 清理：停止 A 的 Worker（其 fd 已关，写走 EBADF 分支，不影响 stop 语义）
+    if (a.refresh && typeof a.refresh.stop === 'function') a.refresh.stop();
+    if (fs.existsSync(lock)) fs.unlinkSync(lock);
+  });
+
   it('持锁期间二次获取失败（互斥）', () => {
     const dir = tempDir();
     const lock = path.join(dir, '.lock');
