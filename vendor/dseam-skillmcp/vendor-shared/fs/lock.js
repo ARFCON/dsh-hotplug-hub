@@ -24,6 +24,7 @@
 //   | EEXIST + pid 死                        | 立即接管                 |
 //   | EEXIST + EACCES/EPERM（他用户）        | 等待至超时，不接管       |
 //   | token 缺失/损坏                        | 按文件 mtime 判陈旧      |
+const fs = require('fs');
 const { dirname, join } = require('path');
 const {
   LOCK_WAIT_MS,
@@ -63,6 +64,28 @@ function parseToken(text) {
 /** 序列化 token（协议钉死：pid\nunix_ms\n）。 */
 function formatToken(pid, at) {
   return `${pid}\n${at}\n`;
+}
+
+/**
+ * 原子重写锁 token（先整体覆盖、后截断到精确长度）。
+ * 关键修复（CI flaky 根因）：绝不可在写前 truncate——"truncate→write" 两步之间会
+ * 留出空文件窗口，并发读者（readToken）读到空文件即判锁损坏（readToken 返回 null）；
+ * 改为"write(offset 0)→ftruncate(精确长度)"，读者任一时刻要么读到旧 token、要么读到
+ * 新 token，绝不为空；写后截断又保证 token 变短时无残留字节。
+ * @param {number} fd 已打开的锁 fd（绑定获取锁时的 inode，见 P1b）
+ * @param {number} pid 持有者 pid
+ * @param {object} [opts]
+ * @param {object} [opts.fsImpl] fs 实现（默认 node:fs；测试注入假实现校验调用顺序）
+ * @param {number} [opts.at] 时间戳（默认 Date.now；测试注入固定值）
+ * @returns {string} 写入的 token 文本
+ */
+function rewriteToken(fd, pid, opts = {}) {
+  const fsImpl = opts.fsImpl || fs;
+  const ts = opts.at === undefined ? Date.now() : opts.at;
+  const buf = Buffer.from(formatToken(pid, ts), 'utf8');
+  fsImpl.writeSync(fd, buf, 0, buf.length, 0);
+  fsImpl.ftruncateSync(fd, buf.length);
+  return formatToken(pid, ts);
 }
 
 /**
@@ -205,8 +228,7 @@ function startHeartbeat(fsPort, pid, refreshMs, fd) {
     if (typeof setInterval !== 'function') return null;
     const timer = setInterval(() => {
       try {
-        fsPort.ftruncateSync(fd, 0);
-        fsPort.writeSync(fd, formatToken(pid, Date.now()), 0, 'utf8');
+        rewriteToken(fd, pid, { fsImpl: fsPort });
       } catch (_) { /* 刷新失败：陈旧接管兜底 */ }
     }, refreshMs);
     if (typeof timer.unref === 'function') timer.unref();
@@ -371,4 +393,4 @@ function releaseLock(fsPort, lockPath, opts = {}) {
   }
 }
 
-module.exports = { acquireLock, releaseLock, readToken, parseToken, formatToken, isStale, probePid, isDirectoryLock };
+module.exports = { acquireLock, releaseLock, readToken, parseToken, formatToken, rewriteToken, isStale, probePid, isDirectoryLock };
