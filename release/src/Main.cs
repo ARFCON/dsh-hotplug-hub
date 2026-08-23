@@ -49,20 +49,25 @@ namespace DSHHotplugHub
                 }
             }
 
-            bool createdNew;
-            using (Mutex mutex = new Mutex(true, @"LocalDseamWorld-DSH-Hotplug-Hub", out createdNew))
+            Mutex mutex;
+            if (!ShellContract.TryAcquireSingleInstance(@"LocalDseamWorld-DSH-Hotplug-Hub", out mutex))
             {
-                if (!createdNew)
-                {
-                    // 已有实例：广播聚焦消息，唤起已隐藏到托盘的窗口（README「重复打开只唤起已有窗口」）。
-                    try { PostMessage((IntPtr)HWND_BROADCAST, WM_DSH_MAIN_FOCUS, IntPtr.Zero, IntPtr.Zero); } catch { /* 有意吞掉：聚焦失败不影响主流程 */ }
-                    return;
-                }
+                // 已有存活实例：广播聚焦消息，唤起已隐藏到托盘的窗口（README「重复打开只唤起已有窗口」）。
+                try { PostMessage((IntPtr)HWND_BROADCAST, WM_DSH_MAIN_FOCUS, IntPtr.Zero, IntPtr.Zero); } catch { /* 有意吞掉：聚焦失败不影响主流程 */ }
+                return;
+            }
+            try
+            {
                 SetProcessDPIAware();
                 try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new MainForm());
+            }
+            finally
+            {
+                try { mutex.ReleaseMutex(); } catch { /* 有意吞掉：进程已退出，尽力释放 */ }
+                try { mutex.Dispose(); } catch { /* 有意吞掉 */ }
             }
         }
 
@@ -72,9 +77,8 @@ namespace DSHHotplugHub
             // 互斥获取带重试：修复配置后的重启是「先起新进程、旧进程再退出」，新进程需等旧实例释放互斥
             for (int attempt = 0; ; attempt++)
             {
-                bool harnessCreated;
-                Mutex harnessMutex = new Mutex(true, @"LocalDseamWorld-DSH-Harness-Window", out harnessCreated);
-                if (harnessCreated)
+                Mutex harnessMutex;
+                if (ShellContract.TryAcquireSingleInstance(@"LocalDseamWorld-DSH-Harness-Window", out harnessMutex))
                 {
                     try
                     {
@@ -87,19 +91,41 @@ namespace DSHHotplugHub
                     }
                     finally
                     {
+                        try { harnessMutex.ReleaseMutex(); } catch { /* 有意吞掉：进程已退出，尽力释放 */ }
                         try { harnessMutex.Dispose(); } catch { /* 有意吞掉 */ }
                     }
                 }
-                harnessMutex.Dispose();
                 if (attempt == 0)
                 {
                     // 已有一个 DSH 独立窗口：先广播聚焦消息让已开窗口置前
-                    try { PostMessage((IntPtr)HWND_BROADCAST, WM_DSH_HARNESS_FOCUS, IntPtr.Zero, IntPtr.Zero); } catch { /* 有意吞掉 */ }
+                    BroadcastHarnessFocus();
                 }
                 // 若那是正在退出的旧实例（重启场景），最多再等 ~3.6s 争用互斥；否则本进程静默退出
                 if (attempt >= 12) return;
                 Thread.Sleep(300);
             }
+        }
+
+        /// <summary>广播聚焦消息，唤起已打开的 DSH 独立窗口（重复拉起/退出聚焦语义单一真源）。</summary>
+        internal static void BroadcastHarnessFocus()
+        {
+            try { PostMessage((IntPtr)HWND_BROADCAST, WM_DSH_HARNESS_FOCUS, IntPtr.Zero, IntPtr.Zero); } catch { /* 有意吞掉：聚焦失败不影响主流程 */ }
+        }
+
+        /// <summary>读取窗口状态 {w,h,max}，w/h 已按当前主屏工作区钳制（防换屏/拔显示器后越界）；无记录时返回钳制后的默认尺寸。</summary>
+        internal static int[] LoadWindowStateClamped(string file, int minW, int minH, int defW, int defH)
+        {
+            int w = defW, h = defH, max = 0;
+            try
+            {
+                int[] parsed = ShellContract.ParseWindowState(File.ReadAllText(file), minW, minH);
+                if (parsed != null) { w = parsed[0]; h = parsed[1]; max = parsed[2]; }
+            }
+            catch { /* 无记录/损坏：用默认尺寸 */ }
+            int maxW = Screen.PrimaryScreen.WorkingArea.Width;
+            int maxH = Screen.PrimaryScreen.WorkingArea.Height;
+            int[] c = ShellContract.ClampWindowSize(w, h, minW, minH, maxW, maxH);
+            return new int[] { c[0], c[1], max };
         }
 
         [DllImport("user32.dll")]
@@ -140,8 +166,6 @@ namespace DSHHotplugHub
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("gdi32.dll")] private static extern IntPtr CreateRoundRectRgn(int x1, int y1, int x2, int y2, int w, int h);
         private const int WM_NCLBUTTONDOWN = 0xA1, HTCAPTION = 0x2, WM_NCHITTEST = 0x84;
-        private const int HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14,
-                          HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
 
         public HarnessHostForm()
         {
@@ -151,7 +175,7 @@ namespace DSHHotplugHub
             StartPosition = FormStartPosition.CenterScreen;
             ShowInTaskbar = true;
             int[] saved = LoadState();
-            Size = saved != null ? new Size(saved[0], saved[1]) : new Size(1280, 800);
+            Size = new Size(saved[0], saved[1]);
             MinimumSize = new Size(640, 480);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { /* 图标失败不影响使用 */ }
 
@@ -199,13 +223,15 @@ namespace DSHHotplugHub
 
             // 窗口移动/缩放时设置面板立即收起（面板锚定按钮位置，避免错位重叠）
             LocationChanged += delegate { CloseSettingsPopup(); };
-            Resize += delegate { CloseSettingsPopup(); LayoutWebView(); };
+            // 圆角随 Resize 重设（程序化最大化/还原也触发 Resize，ResizeEnd 仅用户拖动结束触发；
+            // 仅用 ResizeEnd 会让程序化最大化不清除圆角区域 → 窗口被旧尺寸圆角裁剪）
+            Resize += delegate { CloseSettingsPopup(); LayoutWebView(); ReapplyRound(); };
 
             Load += async delegate (object s, EventArgs e)
             {
                 LayoutWebView();
                 ReapplyRound();
-                if (saved != null && saved.Length >= 3 && saved[2] == 1)
+                if (saved[2] == 1)
                 {
                     MaximizedBounds = Screen.FromHandle(Handle).WorkingArea;
                     WindowState = FormWindowState.Maximized;
@@ -213,7 +239,6 @@ namespace DSHHotplugHub
                 }
                 await BootstrapAsync();
             };
-            ResizeEnd += delegate { ReapplyRound(); };
             FormClosing += delegate
             {
                 SaveState();
@@ -464,12 +489,7 @@ namespace DSHHotplugHub
 
         private static int[] LoadState()
         {
-            try
-            {
-                return ShellContract.ParseWindowState(File.ReadAllText(StatePath()), 640, 480);
-            }
-            catch { /* 无记录则用默认尺寸 */ }
-            return null;
+            return Program.LoadWindowStateClamped(StatePath(), 640, 480, 1280, 800);
         }
 
         private void SaveState()
@@ -495,7 +515,8 @@ namespace DSHHotplugHub
             {
                 try
                 {
-                    if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                    // 聚焦/唤起目标状态决议（契约）：最小化→Normal；最大化保持（与主窗 ShowMainForm 统一）。
+                    WindowState = (FormWindowState)ShellContract.ResolveShowWindowState((int)WindowState);
                     SetForegroundWindow(Handle); // 与主窗 ShowMainForm 一致：显式抢占前台，Activate 可能被前台锁拦截
                     Activate();
                 }
@@ -509,22 +530,20 @@ namespace DSHHotplugHub
                     base.WndProc(ref m);
                     return;
                 }
+                // 无边框边缘命中：顶部可调边位于标题栏下缘（titleBarH=TITLE_H），收敛到 ShellContract.HitTestResizeEdge
                 long lp = m.LParam.ToInt64();
                 int sx = (short)(lp & 0xFFFF);
                 int sy = (short)((lp >> 16) & 0xFFFF);
                 Point pt = PointToClient(new Point(sx, sy));
-                int w = ClientSize.Width, h = ClientSize.Height;
-                bool left = pt.X <= resizeBorder, right = pt.X >= w - resizeBorder;
-                bool top = pt.Y <= resizeBorder, bottom = pt.Y >= h - resizeBorder;
-                if (left && top) m.Result = (IntPtr)HTTOPLEFT;
-                else if (right && top) m.Result = (IntPtr)HTTOPRIGHT;
-                else if (left && bottom) m.Result = (IntPtr)HTBOTTOMLEFT;
-                else if (right && bottom) m.Result = (IntPtr)HTBOTTOMRIGHT;
-                else if (left) m.Result = (IntPtr)HTLEFT;
-                else if (right) m.Result = (IntPtr)HTRIGHT;
-                else if (top) m.Result = (IntPtr)HTTOP;
-                else if (bottom) m.Result = (IntPtr)HTBOTTOM;
-                else base.WndProc(ref m);
+                int hit = ShellContract.HitTestResizeEdge(pt.X, pt.Y, ClientSize.Width, ClientSize.Height, resizeBorder, TITLE_H);
+                if (hit != 0)
+                {
+                    m.Result = (IntPtr)hit;
+                }
+                else
+                {
+                    base.WndProc(ref m);
+                }
                 return;
             }
             base.WndProc(ref m);
@@ -670,9 +689,8 @@ namespace DSHHotplugHub
         private static extern IntPtr CreateRoundRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect, int nWidthEllipse, int nHeightEllipse);
         private const int WM_NCLBUTTONDOWN = 0xA1;
         private const int HTCAPTION = 0x2;
-        // 无边框窗口边缘拖拽调整大小：WM_NCHITTEST 命中区
+        // 无边框窗口边缘拖拽调整大小：WM_NCHITTEST 命中区（命中判定见 ShellContract.HitTestResizeEdge）
         private const int WM_NCHITTEST = 0x84;
-        private const int HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14, HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
         private const int resizeBorder = 6; // 边缘 6px 视为调整大小区
 
         private const string APP_VERSION = "1.0.1";
@@ -795,10 +813,10 @@ namespace DSHHotplugHub
         public MainForm()
         {
             Text = "Dseam世界";
-            // 默认舒适尺寸 1240x820；若上次有关闭前记录的尺寸则恢复
+            // 默认舒适尺寸 1240x820；若上次有关闭前记录的尺寸则恢复（已按当前主屏工作区钳制，防换屏越界）
             int[] saved = LoadWindowState();
-            Width = saved != null ? saved[0] : 1240;
-            Height = saved != null ? saved[1] : 820;
+            Width = saved[0];
+            Height = saved[1];
             MinimumSize = new Size(900, 600);
             StartPosition = FormStartPosition.CenterScreen;
             // 无边框设计：去掉系统标题栏/边框，自绘窗口控制（最小化/关闭按钮在 UI 顶部）
@@ -808,14 +826,16 @@ namespace DSHHotplugHub
             {
                 ReapplyRoundRegion();
                 // 上次是最大化关闭的，则本次恢复最大化（留出任务栏，与 winMax/harness 窗一致）
-                if (saved != null && saved.Length >= 3 && saved[2] == 1)
+                if (saved[2] == 1)
                 {
                     MaximizedBounds = Screen.FromHandle(Handle).WorkingArea;
                     WindowState = FormWindowState.Maximized;
                 }
             };
+            // 圆角随 Resize 重设：程序化最大化/还原也触发 Resize，而 ResizeEnd 仅在用户拖动结束时触发。
+            // 若仅用 ResizeEnd，程序化最大化不会清除圆角区域 → 窗口被旧尺寸圆角裁剪（与 harness 窗统一修复）。
             Resize += (s, e) => ReapplyRoundRegion();
-            // 深色背景：避免无边框后加载/关闭瞬间露出系统白屏（也作为四周 6px 调整大小边框的颜色）
+            // 浅色主题背景（与页面 --bg 一致）：避免无边框后加载/关闭瞬间露出系统默认底色（也作为四周 6px 调整大小边框的颜色）
             BackColor = Color.FromArgb(246, 247, 249);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
             catch { Icon = SystemIcons.Application; }
@@ -917,23 +937,21 @@ namespace DSHHotplugHub
                     base.WndProc(ref m);
                     return;
                 }
-                // 无边框窗口整个都是客户区，base 不返回 HTCAPTION，直接按鼠标屏幕坐标判断边缘
+                // 无边框窗口整个都是客户区，base 不返回 HTCAPTION，直接按鼠标屏幕坐标判断边缘。
+                // 边缘命中判定收敛到 ShellContract.HitTestResizeEdge（单一真源，主窗无标题栏 titleBarH=0）。
                 long lp = m.LParam.ToInt64();
                 int sx = (short)(lp & 0xFFFF);
                 int sy = (short)((lp >> 16) & 0xFFFF);
                 Point pt = PointToClient(new Point(sx, sy));
-                int w = ClientSize.Width, h = ClientSize.Height;
-                bool left = pt.X <= resizeBorder, right = pt.X >= w - resizeBorder;
-                bool top = pt.Y <= resizeBorder, bottom = pt.Y >= h - resizeBorder;
-                if (left && top) m.Result = (IntPtr)HTTOPLEFT;
-                else if (right && top) m.Result = (IntPtr)HTTOPRIGHT;
-                else if (left && bottom) m.Result = (IntPtr)HTBOTTOMLEFT;
-                else if (right && bottom) m.Result = (IntPtr)HTBOTTOMRIGHT;
-                else if (left) m.Result = (IntPtr)HTLEFT;
-                else if (right) m.Result = (IntPtr)HTRIGHT;
-                else if (top) m.Result = (IntPtr)HTTOP;
-                else if (bottom) m.Result = (IntPtr)HTBOTTOM;
-                else base.WndProc(ref m);
+                int hit = ShellContract.HitTestResizeEdge(pt.X, pt.Y, ClientSize.Width, ClientSize.Height, resizeBorder, 0);
+                if (hit != 0)
+                {
+                    m.Result = (IntPtr)hit;
+                }
+                else
+                {
+                    base.WndProc(ref m);
+                }
                 return;
             }
             base.WndProc(ref m);
@@ -1045,7 +1063,10 @@ namespace DSHHotplugHub
         {
             Show();
             ShowInTaskbar = true;
-            WindowState = FormWindowState.Normal;
+            // 聚焦/唤起目标状态决议（契约）：最小化→Normal；最大化保持。绝不把「已最大化」降级为普通窗
+            // （旧实现无条件 Normal，重复启动已最大化的主窗会误降级；与 harness 窗聚焦语义统一）。
+            // FormWindowState 与 ShellContract.WS_* 数值一致（Normal=0/Minimized=1/Maximized=2）。
+            WindowState = (FormWindowState)ShellContract.ResolveShowWindowState((int)WindowState);
             // 显式抢占前台：仅 Activate() 在托盘双击/跨进程聚焦场景可能被系统前台锁拦截
             try { SetForegroundWindow(Handle); } catch { /* 有意吞掉 */ }
             Activate();
@@ -1216,7 +1237,7 @@ namespace DSHHotplugHub
                         }
                         else if (message == "harnessEmbed")
                         {
-                            OpenHarnessEmbed();
+                            await OpenHarnessEmbed();
                         }
                         else if (message == "harnessPopout")
                         {
@@ -1820,8 +1841,8 @@ namespace DSHHotplugHub
             try { File.Delete(HarnessPortFile()); } catch { /* 有意吞掉：文件不存在/被占 */ }
         }
 
-        // 内嵌弹窗：加载官方 harness web UI
-        private async void OpenHarnessEmbed()
+        // 内嵌弹窗：加载官方 harness web UI（async Task：异常沿 await 链抛给消息处理 try/catch，不再 async void 崩溃）
+        private async Task OpenHarnessEmbed()
         {
             // 若已有内嵌窗，聚焦
             if (_harnessEmbedForm != null && !_harnessEmbedForm.IsDisposed)
@@ -1838,6 +1859,7 @@ namespace DSHHotplugHub
             }
             _harnessPort = port;
             _harnessEmbedForm = BuildHarnessForm("官方 DSH · 内嵌", new Size(1080, 720), false);
+            _harnessEmbedForm.Owner = this; // CenterParent 依赖 Owner；并随主窗最小化/还原
             _harnessEmbedForm.FormClosed += delegate { _harnessEmbedForm = null; };
             await ((BorderlessHarnessForm)_harnessEmbedForm).WebView.EnsureCoreWebView2Async(_env);
             ((BorderlessHarnessForm)_harnessEmbedForm).WebView.CoreWebView2.Navigate("http://127.0.0.1:" + port + "/");
@@ -1873,6 +1895,17 @@ namespace DSHHotplugHub
         // 调用前必须确保 dsh web 已就绪并已 WriteHarnessPortFile；重复拉起由独立程序自行聚焦。
         private void LaunchStandaloneHarnessWindow()
         {
+            // 已在运行：只聚焦现有独立窗口，不重复拉起——
+            // 否则会覆盖 _standaloneHarnessProc 指向一个「检测到互斥后即将退出的瞬态进程」，
+            // 退出时 CloseStandaloneHarness 无法命中真正的独立窗口 → 孤儿进程。
+            bool alive = false;
+            try { alive = _standaloneHarnessProc != null && !_standaloneHarnessProc.HasExited; } catch { /* 句柄失效按已退出处理 */ }
+            if (alive)
+            {
+                try { WriteHarnessPortFile(_harnessPort); } catch { /* 有意吞掉 */ }
+                Program.BroadcastHarnessFocus();
+                return;
+            }
             try
             {
                 WriteHarnessPortFile(_harnessPort);
@@ -1904,6 +1937,7 @@ namespace DSHHotplugHub
                 }
             }
             catch { /* 有意吞掉 */ }
+            try { if (_standaloneHarnessProc != null) _standaloneHarnessProc.Dispose(); } catch { /* 有意吞掉 */ }
             _standaloneHarnessProc = null;
         }
 
@@ -1933,9 +1967,9 @@ namespace DSHHotplugHub
                 BackColor = Color.FromArgb(30, 41, 59);
                 try { Icon = icon; } catch { /* 图标加载失败不影响使用 */ }
 
-                // 恢复上次窗口尺寸（默认用传入的 defaultSize）
-                int[] saved = LoadState();
-                Size = saved != null ? new Size(saved[0], saved[1]) : defaultSize;
+                // 恢复上次窗口尺寸（默认用传入的 defaultSize；已按当前主屏工作区钳制）
+                int[] saved = LoadState(defaultSize);
+                Size = new Size(saved[0], saved[1]);
                 MinimumSize = new Size(640, 480);
 
                 // 自绘标题栏：深色 + 标题 + 最小化/最大化/关闭按钮（沿用主窗顶部导航深色 + 强调色）
@@ -1960,9 +1994,8 @@ namespace DSHHotplugHub
                 _btnMin = MakeTitleButton("—", (s, e) => { WindowState = FormWindowState.Minimized; });
                 _btnMax = MakeTitleButton("□", (s, e) => ToggleMaximize());
                 _btnClose = MakeTitleButton("×", (s, e) => { Close(); }, true);
-                _btnMin.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-                _btnMax.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-                _btnClose.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                // 按钮定位统一走 LayoutTitleButtons（titleBar.SizeChanged 触发），与 HarnessHostForm 一致，
+                // 不再叠加 Anchor=Right（双重定位会互相覆盖，见 HarnessHostForm 纯手动布局为单一真源）
 
                 _titleBar.Controls.Add(titleLabel);
                 _titleBar.Controls.Add(_btnMin);
@@ -1984,7 +2017,7 @@ namespace DSHHotplugHub
                 {
                     LayoutWebView();
                     ReapplyRound();
-                    if (saved != null && saved.Length >= 3 && saved[2] == 1)
+                    if (saved[2] == 1)
                     {
                         MaximizedBounds = Screen.FromHandle(Handle).WorkingArea;
                         WindowState = FormWindowState.Maximized;
@@ -1992,9 +2025,9 @@ namespace DSHHotplugHub
                     }
                 };
                 // WebView 布局须在 ClientSize 就绪后（Load/Resize）计算，构造时 ClientSize 未就绪会算错导致覆盖标题栏/边缘
-                Resize += (s, e) => LayoutWebView();
-                // 圆角只在拖动结束时重设（Resize 里频繁 SetWindowRgn 会引发闪烁）
-                ResizeEnd += (s, e) => ReapplyRound();
+                // 圆角随 Resize 重设（程序化最大化/还原也触发 Resize，ResizeEnd 仅用户拖动结束触发；
+                // 仅用 ResizeEnd 会让程序化最大化不清除圆角区域 → 窗口被旧尺寸圆角裁剪）
+                Resize += (s, e) => { LayoutWebView(); ReapplyRound(); };
                 FormClosing += (s, e) => SaveState();
             }
 
@@ -2086,14 +2119,9 @@ namespace DSHHotplugHub
                     "DSH-Hotplug-Hub", "harness-window-state.txt");
             }
 
-            private static int[] LoadState()
+            private static int[] LoadState(Size defaultSize)
             {
-                try
-                {
-                    return ShellContract.ParseWindowState(File.ReadAllText(StatePath()), 640, 480);
-                }
-                catch { /* 无记录则用默认尺寸 */ }
-                return null;
+                return Program.LoadWindowStateClamped(StatePath(), 640, 480, defaultSize.Width, defaultSize.Height);
             }
 
             private void SaveState()
@@ -2128,22 +2156,20 @@ namespace DSHHotplugHub
                         base.WndProc(ref m);
                         return;
                     }
+                    // 无边框边缘命中：顶部可调边位于标题栏下缘（titleBarH=TITLE_H），收敛到 ShellContract.HitTestResizeEdge
                     long lp = m.LParam.ToInt64();
                     int sx = (short)(lp & 0xFFFF);
                     int sy = (short)((lp >> 16) & 0xFFFF);
                     Point pt = PointToClient(new Point(sx, sy));
-                    int w = ClientSize.Width, h = ClientSize.Height;
-                    bool left = pt.X <= resizeBorder, right = pt.X >= w - resizeBorder;
-                    bool top = pt.Y <= resizeBorder, bottom = pt.Y >= h - resizeBorder;
-                    if (left && top) m.Result = (IntPtr)HTTOPLEFT;
-                    else if (right && top) m.Result = (IntPtr)HTTOPRIGHT;
-                    else if (left && bottom) m.Result = (IntPtr)HTBOTTOMLEFT;
-                    else if (right && bottom) m.Result = (IntPtr)HTBOTTOMRIGHT;
-                    else if (left) m.Result = (IntPtr)HTLEFT;
-                    else if (right) m.Result = (IntPtr)HTRIGHT;
-                    else if (top) m.Result = (IntPtr)HTTOP;
-                    else if (bottom) m.Result = (IntPtr)HTBOTTOM;
-                    else base.WndProc(ref m);
+                    int hit = ShellContract.HitTestResizeEdge(pt.X, pt.Y, ClientSize.Width, ClientSize.Height, resizeBorder, TITLE_H);
+                    if (hit != 0)
+                    {
+                        m.Result = (IntPtr)hit;
+                    }
+                    else
+                    {
+                        base.WndProc(ref m);
+                    }
                     return;
                 }
                 base.WndProc(ref m);
@@ -2726,15 +2752,10 @@ namespace DSHHotplugHub
                 "DSH-Hotplug-Hub", "window-state.txt");
         }
 
-        // 读取上次窗口状态：{w,h,maximized}；无则返回 null
+        // 读取上次窗口状态：{w,h,maximized}（已按当前主屏工作区钳制）；无记录返回钳制后的默认尺寸
         private static int[] LoadWindowState()
         {
-            try
-            {
-                return ShellContract.ParseWindowState(File.ReadAllText(WindowStatePath()), 900, 600);
-            }
-            catch { /* 有意吞掉 */ }
-            return null;
+            return Program.LoadWindowStateClamped(WindowStatePath(), 900, 600, 1240, 820);
         }
 
         // 记录窗口状态（关闭/退出时调用）：正常态取 Bounds，最大化/最小化取 RestoreBounds，
