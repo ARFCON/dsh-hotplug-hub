@@ -30,11 +30,15 @@ async function stageHeal(core, state, args) {
   }
   const profileDir = path.join(core.config.roots.profilesRoot, id);
   // C7 修复：heal 执行前确保 profile 目录存在（此前从未 launch 的 id 直接 heal 时，
-  // reinstall 的 npm install 以缺失目录为 cwd → 误导性的 ENOENT/ERR_INSTALL_FAILED）
-  try {
-    fsPort.mkdirSync(profileDir, { recursive: true });
-  } catch (e) {
-    return errResult(makeError('ERR_INSTALL_DEP', `无法创建 profile 目录 ${profileDir}：${e.message}`));
+  // reinstall 的 npm install 以缺失目录为 cwd → 误导性的 ENOENT/ERR_INSTALL_FAILED）。
+  // 审计修复：mkdirSync 是持久副作用，必须只在执行模式（--yes）下做——预览（无 --yes）
+  // 契约承诺"零持久副作用"，此前无条件 mkdirSync 违反该契约。
+  if (yes) {
+    try {
+      fsPort.mkdirSync(profileDir, { recursive: true });
+    } catch (e) {
+      return errResult(makeError('ERR_INSTALL_DEP', `无法创建 profile 目录 ${profileDir}：${e.message}`));
+    }
   }
   const ctx = buildHealContext(core, state, id, profileDir);
   const run = await core.infra.heal.runHeal(core, planned.actions, ctx, { dryRun: !yes });

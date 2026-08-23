@@ -60,10 +60,17 @@ function classifySignal(signal) {
         // 无法修复缺失的 dsh 可执行文件）——映射独立动作 HARNESS_FIX。
         return { code: 'ERR_LAUNCH_SPAWN', action: 'HARNESS_FIX', suggest: '可执行文件不存在，检查安装或 PATH' };
       }
+      // 审计修复：EACCES/EPERM（权限不足）此前一律归 HARNESS_FIX——reprobe-harness
+      // 无法修复权限类错误，正确动作是 INSTALL_FAIL（检查目录权限/重装）。
+      if (c === 'EACCES' || c === 'EPERM') {
+        return { code: 'ERR_LAUNCH_SPAWN', action: 'INSTALL_FAIL', suggest: '可执行文件权限不足，检查目录权限后重试' };
+      }
       return { code: 'ERR_LAUNCH_SPAWN', action: 'HARNESS_FIX', suggest: `spawn 失败：${(signal.err && signal.err.message) || '未知错误'}` };
     }
     case 'exit': {
-      if (signal.exitCode !== 0) {
+      // 审计修复：exitCode 为 null/undefined 时应视为"无信号"（与 classifyStateSignals
+      // 将 lastExit===null 视为无信号一致），而非 `null !== 0` 被误判为非零退出。
+      if (signal.exitCode != null && signal.exitCode !== 0) {
         return { code: 'ERR_LAUNCH_EXIT', action: 'CRASH_LOOP', suggest: '启动后非零退出，检查 run.jsonl 日志' };
       }
       return null;
@@ -119,13 +126,14 @@ function classifyEntries(entries) {
  * 基于 state.launch 的状态驱动分类（C3 修复：CRASH_LOOP 真实可达）。
  *
  * 背景：classifyEntries 只能从行式日志产生 stderr/log 信号，进程退出码从不写入
- * run.jsonl，导致 CRASH_LOOP 在 heal 链路上永远不可达（CRASH_LOOP_THRESHOLD/WINDOW
- * 常量定义后无人使用）。本函数把 state.launch 的退出信息合成结构化信号：
- *   - lastExit 非 0：若 retries 已超过窗口阈值 → CRASH_LOOP（动作触发）；
+ * run.jsonl，导致 CRASH_LOOP 在 heal 链路上永远不可达。本函数把 state.launch 的
+ * 退出信息合成结构化信号：
+ *   - lastExit 非 0：若 retries 达到 CRASH_LOOP_THRESHOLD（连续失败计数，成功即清零）
+ *     → CRASH_LOOP（动作触发）；
  *   - 否则返回 null（单次崩溃不足，由调用方决定是否等待更多证据）。
  *
- * 窗口语义（与 healplan.CRASH_LOOP 触发文案一致）：CRASH_LOOP_THRESHOLD 次
- * 非零退出（retries 计数）即判定崩溃循环。
+ * 语义（与 healplan.CRASH_LOOP 触发文案一致）：连续 CRASH_LOOP_THRESHOLD 次
+ * 非零退出（retries 计数）即判定崩溃循环；不依赖时间窗口。
  *
  * @param {object} state 当前 state（含 launch.lastExit/retries）
  * @returns {Array<{code:string, action:string, suggest:string}>}

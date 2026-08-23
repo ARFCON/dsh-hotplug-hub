@@ -58,19 +58,24 @@ describe('QA3 classify 分类穷尽（审计 J 强化）', () => {
     }
   });
 
-  it('spawn-error 多信号优先级：spawn-error → HARNESS_FIX（C3 修复：harness 归因）', () => {
+  it('spawn-error 多信号优先级：ENOENT → HARNESS_FIX；EACCES → INSTALL_FAIL（审计修复：权限归因）', () => {
     const c1 = classifySignal({ kind: 'spawn-error', err: Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) });
     expect(c1.action).toBe('HARNESS_FIX');
-    const c2 = classifySignal({ kind: 'spawn-error', err: new Error('EACCES') });
-    expect(c2.action).toBe('HARNESS_FIX');
+    // EACCES/EPERM（权限不足）→ INSTALL_FAIL（reprobe-harness 无法修复权限）
+    const c2 = classifySignal({ kind: 'spawn-error', err: Object.assign(new Error('EACCES'), { code: 'EACCES' }) });
+    expect(c2.action).toBe('INSTALL_FAIL');
     expect(c2.code).toBe('ERR_LAUNCH_SPAWN');
+    // 无 code 的未知 spawn 错误 → 保守 HARNESS_FIX
+    const c3 = classifySignal({ kind: 'spawn-error', err: new Error('EACCES') });
+    expect(c3.action).toBe('HARNESS_FIX');
+    expect(c3.code).toBe('ERR_LAUNCH_SPAWN');
   });
 
-  it('exit 信号：非零 → CRASH_LOOP；零 → null；exitCode 为 null（信号退出）→ CRASH_LOOP', () => {
+  it('exit 信号：非零 → CRASH_LOOP；零/null/undefined → null（审计修复：null=无退出码，与 classifyStateSignals 一致，非信号退出）', () => {
     expect(classifySignal({ kind: 'exit', exitCode: 1 }).action).toBe('CRASH_LOOP');
     expect(classifySignal({ kind: 'exit', exitCode: 0 })).toBeNull();
-    expect(classifySignal({ kind: 'exit', exitCode: null }).action).toBe('CRASH_LOOP');
-    expect(classifySignal({ kind: 'exit', exitCode: undefined }).action).toBe('CRASH_LOOP');
+    expect(classifySignal({ kind: 'exit', exitCode: null })).toBeNull();
+    expect(classifySignal({ kind: 'exit', exitCode: undefined })).toBeNull();
   });
 
   it('log 信号：error 级 + U+FFFD → UTF8_CORRUPTION；error 级 + 规则行 → 对应动作；info 级 → null', () => {

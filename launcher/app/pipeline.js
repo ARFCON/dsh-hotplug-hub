@@ -74,7 +74,7 @@ async function runPipeline(core, command, args) {
     return result;
   } finally {
     if (lock) {
-      core.infra.lock.releaseLock(fsPort, lockPath, { owner: lock.owner, pid: process.pid, fd: lock.fd });
+      core.infra.lock.releaseLock(fsPort, lockPath, { owner: lock.owner, pid: process.pid, fd: lock.fd, refresh: lock.refresh });
       core._activeLock = null;
     }
   }

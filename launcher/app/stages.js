@@ -199,7 +199,11 @@ async function stageLaunch(core, state, args) {
     // C6 修复：失败时 pid 置 null（无存活进程），避免残留旧 pid 误导 status。
     state.launch = {
       ...state.launch,
-      lastExit: launched.error.childExitCode !== undefined ? launched.error.childExitCode : (launched.error.exitCode || 1),
+      // 审计修复：无 childExitCode（spawn/timeout/detach 等基础设施失败，子进程从未
+      // 启动/退出）时 lastExit 记 null，而非 fallback 到 ERR_ 契约码 8——后者会让
+      // classifyStateSignals 误判为"非零退出→CRASH_LOOP"（基础设施失败应走 HARNESS_FIX）。
+      // null 与"detach 存活中 lastExit:null"语义一致，classifyStateSignals 视为无信号。
+      lastExit: launched.error.childExitCode !== undefined ? launched.error.childExitCode : null,
       retries: (state.launch.retries || 0) + 1,
       pid: null
     };

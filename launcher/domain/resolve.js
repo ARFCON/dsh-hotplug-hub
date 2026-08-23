@@ -5,14 +5,17 @@
 const semver = require('semver');
 const { EXACT_VERSION_RE } = require('../contracts/constants');
 const { makeError } = require('../contracts/errors');
+const { isValidSemverString } = require('./ids');
 
 /**
- * 是否为精确版本号（C2 修复：正则 + semver.valid 双条件，与 ids.validateVersion 一致）。
+ * 是否为精确版本号（审计修复：收敛到 shared ids.isValidSemverString 单一真源——
+ * 此前本地用 `semver.valid(v) !== null` 重复实现同一判定，与零依赖内建实现语义等价
+ * 却分叉维护；现与 ids.validateVersion 共用同一判定）。
  * @param {unknown} v
  * @returns {boolean}
  */
 function isExactVersion(v) {
-  return typeof v === 'string' && EXACT_VERSION_RE.test(v) && semver.valid(v) !== null;
+  return typeof v === 'string' && EXACT_VERSION_RE.test(v) && isValidSemverString(v);
 }
 
 /**
@@ -41,6 +44,17 @@ function resolveVersion(name, version, registry) {
 
   if (isExactVersion(version)) {
     return { resolvedVersion: version, pinned: true, source: 'exact' };
+  }
+  // 审计修复：非空垃圾版本串（既非精确版也非合法范围，如 'garbage'/'latest'）在
+  // 有 registry 数据时，此前被 `range = '*'` 兜底静默 pin 最高版——与注释声称的
+  // "unresolved + warning"矛盾。现提前判定，垃圾串一律 unresolved，绝不进入 registry 匹配。
+  if (typeof version === 'string' && version.length > 0 && !semver.validRange(version)) {
+    return {
+      resolvedVersion: null,
+      pinned: false,
+      source: 'unresolved',
+      warning: `非法版本串，无法 pin ${name}@${version}`
+    };
   }
   if (Array.isArray(available) && available.length > 0) {
     const range = version && semver.validRange(version) ? version : '*';
@@ -78,17 +92,6 @@ function resolveVersion(name, version, registry) {
       pinned: false,
       source: 'unresolved',
       warning: `无 registry 数据，无法 pin ${name}@${version}`
-    };
-  }
-  // C2 修复：既非精确版也非合法范围的垃圾版本串（'garbage'/'latest' 等）——
-  // 不得标 pinned:true source:'exact'（曾导致 install 把垃圾 spec 交给 npm、
-  // conflicts 将其按"缺版本"处理），改为 unresolved + warning。
-  if (typeof version === 'string' && version.length > 0) {
-    return {
-      resolvedVersion: null,
-      pinned: false,
-      source: 'unresolved',
-      warning: `非法版本串，无法 pin ${name}@${version}`
     };
   }
   return { resolvedVersion: null, pinned: false, source: 'unresolved', warning: `缺少版本，无法 pin ${name}` };

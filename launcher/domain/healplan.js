@@ -57,7 +57,7 @@ const ACTIONS = {
   },
   CRASH_LOOP: {
     code: 'CRASH_LOOP',
-    trigger: `启动后 ${CRASH_LOOP_THRESHOLD} 次在窗口内崩溃`,
+    trigger: `启动后连续 ${CRASH_LOOP_THRESHOLD} 次非零退出`,
     steps: [{ type: 'rollback-snapshot' }, { type: 'disable-recent' }],
     verify: '重启后存活时间显著增加',
     rollback: '恢复被禁用插件',
@@ -99,6 +99,9 @@ const ACTIONS = {
  * @returns {{ok: boolean, actions: Array<object>}}
  */
 function planActions(classification, context = {}) {
+  // 审计修复：`context = {}` 只覆盖 undefined；显式传 null 时 context.dryRun 抛
+  // TypeError。改为空对象兜底（null/undefined 一视同仁）。
+  context = context || {};
   const items = Array.isArray(classification) ? classification : [classification];
   const codes = new Set();
   for (const c of items) {
