@@ -60,7 +60,7 @@ export class MemoryHubService extends MemoryProtocolCore {
       limit: opts.limit ?? this.config.searchLimit,
       includeExpired: opts.includeExpired === true,
     })
-    return packResult(expandHits(hits), String(query ?? ''), packId, hits.map((hit) => hit.item))
+    return packResult(expandHits(hits), String(query ?? ''), packId)
   }
 
   /** 沉淀（writePolicy=auto 直写 / ask 进提案队列）；未指定 pack 时按内容关键词路由。 */
@@ -160,7 +160,7 @@ function packText(entry) {
   ].filter((item) => typeof item === 'string').join(' ')
 }
 
-function packResult(hits, query, packId, sourceItems) {
+function packResult(hits, query, packId) {
   return {
     query: String(query),
     pack: packId,

@@ -9,7 +9,7 @@
  *    rejected=拒绝（denied，Nothing written）——全部落审计。
  *  - 写前 budget 检查、subject 冲突检查、name 唯一化、revision 快照、审计行。
  */
-import { DEFAULTS, NAME_RE, STRINGS } from './constants.mjs'
+import { DEFAULTS, NAME_RE, STRINGS, SUBJECT_KEY_RE } from './constants.mjs'
 import {
   BudgetExceededError, InvalidInputError, NotFoundError, SubjectConflictError, WriteDeniedError,
 } from './errors.mjs'
@@ -199,7 +199,8 @@ export class MemoryProtocolCore {
       const normalized = this.normalizeEntry(entry)
       this.validateEntryShape(normalized)
       if (this.store.hasEntry(packId, normalized.name)) {
-        // 同名 = 更新（revision+1），subject 冲突检查跳过（同条目）
+        // 同名 = 更新（revision+1）。subjectKey 变更时同样要校验冲突：
+        // 把条目从旧 subjectKey 挪到已被他人持有的新 subjectKey 会制造"一 subject 两活跃值"。
         const prev = this.store.readEntry(packId, normalized.name)
         const now = new Date().toISOString()
         this.store.snapshotRevision(packId, prev)
@@ -220,6 +221,8 @@ export class MemoryProtocolCore {
           want: undefined,
         }
         this.validatePinnedBudget(packId, next)
+        // 同条目自身持有的 subjectKey 会被 subjectHolder 的 id 比对豁免；变更到他人持有者则抛冲突
+        this.assertSubjectFree(packId, next)
         this.store.writeEntryFile(packId, next)
         this.store.rebuildIndex(packId)
         this.store.syncPackCount(packId)
@@ -287,6 +290,9 @@ export class MemoryProtocolCore {
     if (entry.subjectKey !== undefined && entry.subjectKey !== null && typeof entry.subjectKey !== 'string') {
       throw new InvalidInputError('subjectKey 必须是字符串')
     }
+    if (typeof entry.subjectKey === 'string' && !SUBJECT_KEY_RE.test(entry.subjectKey)) {
+      throw new InvalidInputError(`subjectKey 非法：${JSON.stringify(entry.subjectKey)}（须为小写字母数字/_- 的点分段 key 或空串）`)
+    }
   }
 
   assertSubjectFree(packId, entry) {
@@ -333,21 +339,26 @@ export class MemoryProtocolCore {
   }
 
   restoreArchived(packId, name) {
-    const archived = this.store.listArchived(packId).find((item) => item.entry.name === name)
-    if (archived === undefined) throw new NotFoundError(`归档条目不存在：${name}（pack ${packId}）`)
-    if (this.store.hasEntry(packId, name)) throw new InvalidInputError(`条目 ${name} 已存在，恢复前需先 remove`)
-    const restored = {
-      ...archived.entry,
-      updatedAt: new Date().toISOString(),
-      archivedAt: undefined,
-      revision: this.store.listRevisions(packId, archived.entry.id).length + 1,
-    }
-    this.store.writeEntryFile(packId, restored)
-    this.store.rebuildIndex(packId)
-    this.store.syncPackCount(packId)
-    this.store.auditAppend({ action: 'restore', packId, entryId: restored.id, operator: 'user', outcome: 'ok' })
-    this._postChange({ action: 'restore', packId, name: restored.name })
-    return restored
+    // 与 create/update/remove 一致：读-查-写全周期持跨进程写锁，避免并发恢复竞态；
+    // 恢复成功后删除归档副本，避免条目同时存在于活跃集与归档集（此前漏删 → 状态漂移）。
+    return this.store.withWriteLock(() => {
+      const archived = this.store.listArchived(packId).find((item) => item.entry.name === name)
+      if (archived === undefined) throw new NotFoundError(`归档条目不存在：${name}（pack ${packId}）`)
+      if (this.store.hasEntry(packId, name)) throw new InvalidInputError(`条目 ${name} 已存在，恢复前需先 remove`)
+      const restored = {
+        ...archived.entry,
+        updatedAt: new Date().toISOString(),
+        archivedAt: undefined,
+        revision: archived.entry.revision + 1,
+      }
+      this.store.writeEntryFile(packId, restored)
+      this.store.deleteArchivedFile(packId, name)
+      this.store.rebuildIndex(packId)
+      this.store.syncPackCount(packId)
+      this.store.auditAppend({ action: 'restore', packId, entryId: restored.id, operator: 'user', outcome: 'ok' })
+      this._postChange({ action: 'restore', packId, name: restored.name })
+      return restored
+    })
   }
 }
 
@@ -364,6 +375,8 @@ export function slugify(title) {
     .replace(/^-+|-+$/g, '')
     .slice(0, 64)
   if (NAME_RE.test(raw)) return raw
-  const src = String(title ?? '').trim()
-  return 'm-' + (src === '' ? 'untitled' : src).slice(0, 62)
+  // raw 为空 ⟺ 标题无任何字母/数字（纯标点/emoji/符号）。此前 fallback 直接把
+  // 原始标题拼到 'm-' 后，会产出含非法字符（如 'm-!!!'、'm-😀'）的 name，随后被
+  // assertSafeName 拒绝而抛 InvalidInputError。统一回退为合法 'm-untitled'。
+  return 'm-untitled'
 }

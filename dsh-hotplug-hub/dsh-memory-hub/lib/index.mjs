@@ -28,14 +28,16 @@ export const inject = ['tools', 'systemPrompt']
 
 function defaultConfig(config) {
   const cfg = { ...config }
+  // 预算/上限必须为正数；非有限或 ≤0 一律回退默认，避免负数/0 让 slice(0, n) 出现反常截断。
+  const pos = (v, fallback) => (Number.isFinite(v) && v > 0 ? v : fallback)
   cfg.hubDir = typeof cfg.hubDir === 'string' && cfg.hubDir !== '' ? cfg.hubDir : defaultHubDir()
   cfg.writePolicy = ['ask', 'auto', 'off'].includes(cfg.writePolicy) ? cfg.writePolicy : 'ask'
   cfg.snapshotOrder = Number.isFinite(cfg.snapshotOrder) ? cfg.snapshotOrder : 50
-  cfg.snapshotChars = Number.isFinite(cfg.snapshotChars) ? cfg.snapshotChars : DEFAULTS.snapshotChars
-  cfg.searchLimit = Number.isFinite(cfg.searchLimit) ? cfg.searchLimit : DEFAULTS.searchLimit
-  cfg.reviewEveryTurns = Number.isFinite(cfg.reviewEveryTurns) ? cfg.reviewEveryTurns : 8
-  cfg.tailMaxNotices = Number.isFinite(cfg.tailMaxNotices) ? cfg.tailMaxNotices : DEFAULTS.tailMaxNotices
-  cfg.tailMaxChars = Number.isFinite(cfg.tailMaxChars) ? cfg.tailMaxChars : DEFAULTS.tailMaxChars
+  cfg.snapshotChars = pos(cfg.snapshotChars, DEFAULTS.snapshotChars)
+  cfg.searchLimit = pos(cfg.searchLimit, DEFAULTS.searchLimit)
+  cfg.reviewEveryTurns = pos(cfg.reviewEveryTurns, 8)
+  cfg.tailMaxNotices = pos(cfg.tailMaxNotices, DEFAULTS.tailMaxNotices)
+  cfg.tailMaxChars = pos(cfg.tailMaxChars, DEFAULTS.tailMaxChars)
   return cfg
 }
 
@@ -160,7 +162,7 @@ function buildTools(service, config) {
     isConcurrencySafe: () => true,
     execute: async (args) => {
       const found = service.store.findById(String(args.id ?? ''))
-      if (found === null) return `未找到记忆条目：${args.id}`
+      if (found === null) throw new NotFoundError(`条目不存在：${args.id}`)
       const prev = found.entry
       const res = await service.submit({
         action: 'update',
@@ -206,7 +208,9 @@ function buildTools(service, config) {
           ? store.listProposals(String(pack), args.status ?? 'pending').slice(0, limit)
           : store.allProposals(args.status ?? 'pending').slice(0, limit)
       } else if (what === 'archived') {
-        data = pack ? store.listArchived(String(pack)) : []
+        data = pack
+          ? store.listArchived(String(pack)).map(({ entry }) => ({ ...entrySummary(entry), packId: pack }))
+          : store.allArchived().map(({ packId, entry }) => ({ ...entrySummary(entry), packId }))
       } else {
         data = pack
           ? store.listEntries(String(pack)).map(entrySummary)
@@ -311,6 +315,17 @@ function entrySummary(entry) {
 
 // ---------- 冻结快照段 ----------
 
+/** 按 UTF-16 code unit 截断但绝不在代理对中间切断（emoji/astral 字符不产生孤立代理）。 */
+function truncateCodePoints(s, max) {
+  if (s.length <= max) return s
+  let i = max
+  if (i > 0) {
+    const c = s.charCodeAt(i - 1)
+    if (c >= 0xd800 && c <= 0xdbff) i -= 1
+  }
+  return s.slice(0, i)
+}
+
 function snapshotText(service, config) {
   const store = service.store
   const entries = store.allEntries()
@@ -325,7 +340,7 @@ function snapshotText(service, config) {
   // 预算：先钳住动态部分，固定提示行永远保留（保证前缀稳定 + 引导收尾自动沉淀）。
   const fixed = `\n\n> ${STRINGS.fixedPromptLine}`
   const cap = Math.max(0, (config.snapshotChars ?? DEFAULTS.snapshotChars) - fixed.length - 8)
-  if (body.length > cap) body = body.slice(0, cap) + '…'
+  if (body.length > cap) body = truncateCodePoints(body, cap) + '…'
   return body + fixed
 }
 
@@ -394,7 +409,7 @@ export function apply(ctx, config) {
       const lines = fresh.slice(-(cfg.tailMaxNotices ?? DEFAULTS.tailMaxNotices))
         .map((c) => `- ${c.action} ${c.packId}${c.name ? `/${c.name}` : ''}${c.proposalId ? ` (${c.proposalId})` : ''}`)
       let body = `${STRINGS.tailHeader}\n${lines.join('\n')}`
-      if (body.length > (cfg.tailMaxChars ?? DEFAULTS.tailMaxChars)) body = body.slice(0, cfg.tailMaxChars) + '…'
+      if (body.length > (cfg.tailMaxChars ?? DEFAULTS.tailMaxChars)) body = truncateCodePoints(body, cfg.tailMaxChars ?? DEFAULTS.tailMaxChars) + '…'
       tailSeen.set(session, fresh[fresh.length - 1].at)
       return body
     },
@@ -476,7 +491,7 @@ async function memoryCommand(service, args) {
   }
 }
 
-export { MemoryHubService, snapshotText, policyGate }
+export { MemoryHubService, snapshotText, policyGate, truncateCodePoints }
 
 // ---------- M4 Web 面板：/memory-hub/api/* 挂载（webServer + 同源 fence） ----------
 

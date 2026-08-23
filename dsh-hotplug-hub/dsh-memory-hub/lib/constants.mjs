@@ -25,6 +25,12 @@ export const REF_RE = /^(project|global)\/([\p{L}\p{N}][\p{L}\p{N}._-]{0,63})\.m
 export const ID_PREFIX = 'mem-'
 /** legacy ID 兼容前缀（迁移用，不生成）。 */
 export const LEGACY_ID_RE = /^legacy-[0-9a-f]{12}$/
+/**
+ * subjectKey 契约（与 schema/dsh-memory-protocol-v1.schema.json 的 pattern 一致）：
+ * 空串（=无 subject）或小写字母数字/_- 开头、点分段、每段以字母数字开头的 dot-notated key。
+ * 此前代码只校验"是字符串"，不校验字符集，导致 `UPPER case!` 之类非法 key 能落盘、违反 schema。
+ */
+export const SUBJECT_KEY_RE = /^(?:[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)*)?$/
 
 /** 记忆包顶层固定键（规划文档 line 159 记忆包格式）。 */
 export const PACK_KEYS = ['memoryPackId', 'scope', 'schemaVersion', 'keywords', 'entries']

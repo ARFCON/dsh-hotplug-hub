@@ -33,7 +33,7 @@ import {
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter.mjs'
 import { newMemoryId, revisionFileName } from './id.mjs'
 import {
-  InvalidInputError, NotFoundError, SubjectConflictError, BudgetExceededError, MemoryHubError,
+  InvalidInputError, NotFoundError, MemoryHubError,
 } from './errors.mjs'
 
 // ---------- 路径与目录 ----------
@@ -187,7 +187,6 @@ export function serializeEntry(entry) {
 
 /** 解析条目文件全文（frontmatter + body）。不存在的文件返回 null。 */
 export function deserializeEntryFile(text, name) {
-  const bodyStart = text.indexOf('\n---')
   let fmText = text
   let body = ''
   if (text.startsWith('---\n')) {
@@ -492,13 +491,30 @@ export class MemoryStore {
     } catch {
       return []
     }
-    return names.filter((name) => /^\d+\.md$/.test(name)).sort().map((name) => Number(name.slice(0, -3)))
+    // 数值排序（而非字符串排序）：revision ≥ 1000 时 "1000.md" 的字符串序会排在 "999.md" 之前，
+    // 导致历史版本乱序。按整数比较保持任意 revision 数量下都单调递增。
+    return names
+      .filter((name) => /^\d+\.md$/.test(name))
+      .sort((a, b) => Number(a.slice(0, -3)) - Number(b.slice(0, -3)))
+      .map((name) => Number(name.slice(0, -3)))
+  }
+
+  archivePath(packId, name) {
+    assertSafeName(name, 'name')
+    return safeJoin(this.packDir(packId), FILES.archiveDir, `${name}.md`)
   }
 
   archiveEntry(packId, entry) {
-    const path = safeJoin(this.packDir(packId), FILES.archiveDir, `${entry.name}.md`)
+    const path = this.archivePath(packId, entry.name)
     const archived = { ...entry, archivedAt: new Date().toISOString() }
     atomicWriteText(path, serializeEntry(archived))
+  }
+
+  /** 删除归档文件（restore 恢复后调用，避免条目同时存在于活跃集与归档集）。 */
+  deleteArchivedFile(packId, name) {
+    const path = this.archivePath(packId, name)
+    if (existsSync(path)) rmSync(path, { force: true })
+    return true
   }
 
   listArchived(packId) {
@@ -513,7 +529,14 @@ export class MemoryStore {
       const text = readFileSync(join(dir, name), 'utf8')
       const entry = deserializeEntryFile(text, name.slice(0, -3))
       return { packId, entry }
-    }).filter((item) => item.entry !== null)
+    })
+  }
+
+  /** 全部包的归档条目（供 GUI/工具跨包列出）。 */
+  allArchived() {
+    const out = []
+    for (const packId of this.listPackIds()) out.push(...this.listArchived(packId))
+    return out
   }
 
   /** 写入条目文件（唯一写入口：原子写）。 */
@@ -535,19 +558,20 @@ export class MemoryStore {
     return safeJoin(this.packDir(packId), FILES.proposalsDir)
   }
 
-  /** 追加提案（maintainer 进程内 id）。 */
+  /** 追加提案（maintainer 进程内 id）。直接返回刚构造的记录，避免按 createdAt 排序重读可能误取同毫秒提案。 */
   appendProposal(packId, proposal) {
     const dir = this.proposalDir(packId)
     mkdirSync(dir, { recursive: true })
     const seq = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8)
-    atomicWriteJson(join(dir, `${seq}.json`), {
+    const record = {
       ...proposal,
       id: `p-${seq}`,
       packId,
       status: 'pending',
       createdAt: new Date().toISOString(),
-    })
-    return this.listProposals(packId).at(-1)
+    }
+    atomicWriteJson(join(dir, `${seq}.json`), record)
+    return record
   }
 
   listProposals(packId, status = 'pending') {
@@ -638,24 +662,11 @@ export class MemoryStore {
   subjectHolder(packId, subjectKey) {
     if (typeof subjectKey !== 'string' || subjectKey === '') return null
     for (const entry of this.listEntries(packId)) {
-      if (entry.subjectKey === subjectKey && !isExpired(entry) && entry.id !== '__probe__') {
+      if (entry.subjectKey === subjectKey && !isExpired(entry)) {
         return { packId, holder: entry }
       }
     }
     return null
-  }
-
-  /** 尊重 subject 冲突的确定性 create 检查入口（protocol 调用）。 */
-  assertSubjectFree(packId, subjectKey, exceptId = null) {
-    if (typeof subjectKey !== 'string' || subjectKey === '') return
-    for (const entry of this.listEntries(packId)) {
-      if (entry.subjectKey === subjectKey && entry.id !== exceptId && !isExpired(entry)) {
-        throw new SubjectConflictError(
-          `subjectKey "${subjectKey}" 已被条目 ${entry.name}（id ${entry.id}）占用；请改用更新该条目的方式（revision+1），一 subject 一活跃值。`,
-          { holderId: entry.id, holderName: entry.name },
-        )
-      }
-    }
   }
 
   // ----- L3 日志轨（M3：project/daily，不注入、按需读取；<hub>/logs/）-----
@@ -683,15 +694,19 @@ export class MemoryStore {
    * @param {string} text
    */
   appendLog(scope, text) {
-    const line = `${new Date().toISOString()}  ${String(typeof text === 'string' ? text : '').trim().slice(0, 2000)}`
-    const path = this.logPath(scope)
-    mkdirSync(dirname(path), { recursive: true })
-    const existed = existsSync(path)
-    let content = line + '\n'
-    if (existed) content = readFileSync(path, 'utf8') + content
-    atomicWriteText(path, content)
-    const lines = content.trim().split('\n').length
-    return { path, line: lines, scope: this.safeScopeDir(scope) }
+    // 读-改-写（前置最新行）须持跨进程写锁：两进程并发追加时，第二个在锁内重读
+    // 最新内容再写，避免 read-modify-write 竞态丢失日志行。
+    return this.withWriteLock(() => {
+      const line = `${new Date().toISOString()}  ${String(typeof text === 'string' ? text : '').trim().slice(0, 2000)}`
+      const path = this.logPath(scope)
+      mkdirSync(dirname(path), { recursive: true })
+      const existed = existsSync(path)
+      let content = line + '\n'
+      if (existed) content = readFileSync(path, 'utf8') + content
+      atomicWriteText(path, content)
+      const lines = content.trim().split('\n').length
+      return { path, line: lines, scope: this.safeScopeDir(scope) }
+    })
   }
 
   /** 列出某 scope 的日志文件（按日期名倒序）。 */

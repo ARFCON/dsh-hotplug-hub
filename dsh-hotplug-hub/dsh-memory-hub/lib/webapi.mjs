@@ -108,7 +108,7 @@ export function buildMemoryApi(service) {
         throw new NotFoundError('adopt 需要 packId + proposalId')
       }
       const res = await service.adopt(payload.packId, payload.proposalId)
-      return { ok: true, proposalId: payload.proposalId, result: res?.result?.id ?? res?.id ?? null }
+      return { ok: true, proposalId: payload.proposalId, result: res?.result?.id ?? null }
     },
 
     reject(payload = {}) {
