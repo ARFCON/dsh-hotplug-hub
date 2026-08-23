@@ -79,36 +79,42 @@ export function appendPatchBlock(pack) {
     if (!r.ok) return { ok: false, error: r.error.message }
     return { ok: true }
   } finally {
-    releaseLock(nodeFsPort, lockPath, { pid: process.pid, fd: a.fd })
+    releaseLock(nodeFsPort, lockPath, { pid: process.pid, fd: a.fd, refresh: a.refresh })
   }
 }
 
 /**
  * 移除 hotplug 分节块（按 marker 匹配，不按 id 内容——迁移规则 §9）。
  * 兼容旧内联形态（`- insert:  # hotplug:<packId>`）：按行手术移除。
+ * 审计修复：返回统一为 {ok, removed?, error?}（与 appendPatchBlock/shared 一致）；
+ * 此前锁获取失败静默 return false，调用方 unmountPack 丢弃返回值——deactivate 会
+ * 在 patch 块实际未移除的情况下仍返回成功，破坏"停用即卸载"契约。
+ * @returns {{ok: boolean, removed?: boolean, error?: string}}
  */
 export function removePatchBlock(packId) {
   const path = patchPath()
   const lockPath = patchLockPath()
   const a = acquireLock(nodeFsPort, lockPath, { waitMs: 10000, refreshMs: 5000 })
-  if (!a.ok) return false
+  if (!a.ok) return { ok: false, error: `patch 锁获取失败：${a.error.message}` }
   try {
-    if (!existsSync(path)) return false
+    if (!existsSync(path)) return { ok: true, removed: false }
     // 1) 契约形态（## / # 单行 marker）
     const r = sharedRemovePatchBlock(nodeFsPort, path, 'hotplug', packId)
-    if (r.ok && r.removed) return true
+    if (!r.ok) return { ok: false, error: r.error.message }
+    if (r.removed) return { ok: true, removed: true }
     // 2) 旧内联形态（- insert:  # hotplug:<packId>）
     const lines = readFileSync(path, 'utf8').split('\n')
     const markerRe = new RegExp(`#\\s*hotplug:${packId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`)
     const start = lines.findIndex((line) => markerRe.test(line))
-    if (start === -1) return false
+    if (start === -1) return { ok: true, removed: false }
     let end = start + 1
     while (end < lines.length && (lines[end].startsWith(' ') || lines[end].startsWith('\t') || lines[end].trim() === '')) end++
     lines.splice(start, end - start)
     const w = writeFileAtomic(nodeFsPort, path, lines.join('\n'), { errorCode: 'ERR_INSTALL_FAILED' })
-    return w.ok
+    if (!w.ok) return { ok: false, error: w.error.message }
+    return { ok: true, removed: true }
   } finally {
-    releaseLock(nodeFsPort, lockPath, { pid: process.pid, fd: a.fd })
+    releaseLock(nodeFsPort, lockPath, { pid: process.pid, fd: a.fd, refresh: a.refresh })
   }
 }
 
@@ -184,7 +190,8 @@ export function removeBundles(names) {
 // ---------- 激活 / 卸载 ----------
 
 export async function unmountPack(pack) {
-  removePatchBlock(pack.id)
+  const removed = removePatchBlock(pack.id)
+  if (!removed.ok) return { ok: false, error: removed.error }
   const bundleNames = bundlePkgNames(pack)
   removeBundles(bundleNames)
   const manifest = readJson(manifestPath())
@@ -207,21 +214,36 @@ export async function unmountPack(pack) {
   return { ok: true }
 }
 
+/**
+ * 回滚一次失败的挂载：以 unmountPack 作为逆操作（link / bundles / patch / npm 全撤销）。
+ * 只撤销已写入的部分——unmountPack 各项均为"存在才移除"的幂等语义，故半挂载安全。
+ * @param {object} pack
+ */
+async function rollbackMount(pack) {
+  try { await unmountPack(pack) } catch { /* 回滚失败不覆盖主错误（尽力而为） */ }
+}
+
 export async function mountPack(pack) {
   const steps = []
+  // 审计修复：挂载失败统一回滚（此前 gateway 只撤 patch+bundles，link: 依赖/junction
+  // 与 ensureNpm 装入的 npm 包残留，形成半挂载）。现在 mount = 全有或全无。
+  const fail = async (error) => {
+    await rollbackMount(pack)
+    return { ok: false, error, steps }
+  }
   for (const entry of pack.plugins) {
     const ensured = await ensureEntry(entry)
-    if (!ensured.ok) return { ok: false, error: ensured.error, steps }
+    if (!ensured.ok) return fail(ensured.error)
     steps.push({ id: entry.id, name: entry.name, status: ensured.status, detail: ensured.detail })
   }
   const manifest = readJson(manifestPath())
-  if (manifest === null) return { ok: false, error: 'profile package.json 不可读', steps }
+  if (manifest === null) return fail('profile package.json 不可读')
   for (const entry of pack.plugins.filter((item) => item.source.type !== 'npm')) {
     const linked = linkEntryIntoProfile(entry)
-    if (!linked.ok) return { ok: false, error: linked.error, steps }
+    if (!linked.ok) return fail(linked.error)
   }
   addBundles(bundlePkgNames(pack))
   const patched = appendPatchBlock(pack)
-  if (!patched.ok) return { ok: false, error: patched.error, steps }
+  if (!patched.ok) return fail(patched.error)
   return { ok: true, steps, restartNeeded: true }
 }

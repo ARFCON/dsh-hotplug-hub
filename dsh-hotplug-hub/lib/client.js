@@ -206,13 +206,17 @@ window.__ModuleLoader__.load({
 		// 市场抓取来源通道：'github'=官方，其余为镜像站域名（与 lib/core/paths.js GITHUB_MIRRORS 一致）
 		const MARKET_SOURCE_OPTIONS = ["github", "ghfast.top", "gh-proxy.com", "ghproxy.net", "mirror.ghproxy.com", "ghproxy.cc", "gh-proxy.net"];
 		const MARKET_DETAIL_CONCURRENCY = 6;
+		// 离线示例目录：仅作展示（无真实插件清单 manifest）。审计修复：此前未标 importable，
+		// 渲染层 `installable = p.importable !== false` 把它们当成可导入，doMarketInstall 用
+		// plugins:[] 硬拼 manifest → parseHotpack 非空校验必失败（离线「导入」恒报错）。
+		// 现显式标 importable:false，按钮正确显示「不可导入」且禁用。
 		const CATALOG = [
-			{ id: "pack-research", name: "科研插座包", tags: ["科研", "论文", "文献"], desc: "文献检索、综述、论文写作、引用与审稿建议", plugins: 4, accent: "#0e7c6b" },
-			{ id: "pack-video", name: "视频制作插座包", tags: ["视频", "剪辑", "字幕"], desc: "脚本、分镜、剪辑清单、字幕与封面生成", plugins: 4, accent: "#b45309" },
-			{ id: "pack-social", name: "自媒体插座包", tags: ["自媒体", "选题", "文案"], desc: "热点选题、拆解、文案与发布清单", plugins: 3, accent: "#8b5e3c" },
-			{ id: "pack-kaoyan", name: "考研冲刺插座包", tags: ["考研", "学习", "闪卡"], desc: "背诵计划、真题梳理、中日双语文法和闪卡导出", plugins: 3, accent: "#1d5f9e" },
-			{ id: "pack-fullstack", name: "全栈开发插座包", tags: ["开发", "全栈", "DevOps"], desc: "脚手架、代码评审、测试和安全检查", plugins: 4, accent: "#5b5488" },
-			{ id: "pack-notes", name: "知识管理插座包", tags: ["笔记", "知识库", "整理"], desc: "网页收藏、笔记整理、书摘提取与双链", plugins: 3, accent: "#237a57" }
+			{ id: "pack-research", name: "科研插座包", tags: ["科研", "论文", "文献"], desc: "文献检索、综述、论文写作、引用与审稿建议", plugins: 4, accent: "#0e7c6b", importable: false, importError: "离线示例包，需联网搜索真实插件包" },
+			{ id: "pack-video", name: "视频制作插座包", tags: ["视频", "剪辑", "字幕"], desc: "脚本、分镜、剪辑清单、字幕与封面生成", plugins: 4, accent: "#b45309", importable: false, importError: "离线示例包，需联网搜索真实插件包" },
+			{ id: "pack-social", name: "自媒体插座包", tags: ["自媒体", "选题", "文案"], desc: "热点选题、拆解、文案与发布清单", plugins: 3, accent: "#8b5e3c", importable: false, importError: "离线示例包，需联网搜索真实插件包" },
+			{ id: "pack-kaoyan", name: "考研冲刺插座包", tags: ["考研", "学习", "闪卡"], desc: "背诵计划、真题梳理、中日双语文法和闪卡导出", plugins: 3, accent: "#1d5f9e", importable: false, importError: "离线示例包，需联网搜索真实插件包" },
+			{ id: "pack-fullstack", name: "全栈开发插座包", tags: ["开发", "全栈", "DevOps"], desc: "脚手架、代码评审、测试和安全检查", plugins: 4, accent: "#5b5488", importable: false, importError: "离线示例包，需联网搜索真实插件包" },
+			{ id: "pack-notes", name: "知识管理插座包", tags: ["笔记", "知识库", "整理"], desc: "网页收藏、笔记整理、书摘提取与双链", plugins: 3, accent: "#237a57", importable: false, importError: "离线示例包，需联网搜索真实插件包" }
 		];
 		// AI 服务商预设（与后端 lib/core/ai.js AI_PROVIDERS 注册表一致的默认值；
 		// 后端为权威，此处仅作 UI 快捷填充。label 只写平台名，模型名由模型输入框体现，
@@ -427,7 +431,19 @@ window.__ModuleLoader__.load({
 								if (!prev) return prev;
 								return { ...prev, entries: prev.entries.map((x) => (x.id === e.id ? { ...x, ...entry, detailPending: false } : x)) };
 							});
-						} catch { /* 单条详情失败：保留列表占位，标记不可导入，不阻塞其他条目 */ }
+						} catch {
+							// 审计修复：catch 原为空转——注释声称"标记不可导入"却未实现，导致
+							// detailPending 永远为 true、卡片永久「加载中…」。现显式标记失败态。
+							setMarketData((prev) => {
+								if (!prev) return prev;
+								return {
+									...prev,
+									entries: prev.entries.map((x) => (x.id === e.id
+										? { ...x, detailPending: false, importable: false, importError: "详情加载失败，可稍后重试" }
+										: x)),
+								};
+							});
+						}
 					}
 				};
 				Array.from({ length: Math.min(MARKET_DETAIL_CONCURRENCY, pending.length) }, () => worker());
@@ -437,16 +453,14 @@ window.__ModuleLoader__.load({
 			const doMarketRefresh = () => { setMarketPage(1); loadMarket(marketParams(1, true)); };
 			const doMarketMore = () => { const next = marketPage + 1; setMarketPage(next); loadMarket(marketParams(next, false)); };
 			const doMarketInstall = (pack) => {
-				const manifest = pack.manifest || {
-					hotpack: "1.0",
-					id: pack.id,
-					name: pack.name,
-					version: "1.0.0",
-					description: pack.description || pack.desc || "",
-					tags: pack.tags || pack.topics || [],
-					plugins: []
-				};
-				run("import", () => api.importPack(JSON.stringify(manifest))).then((result) => {
+				// 审计修复：无真实 manifest 的条目（离线 CATALOG 示例 / 详情抓取失败的仓库）
+				// 此前用 plugins:[] 硬拼 manifest → parseHotpack 非空校验必失败。现显式拒绝，
+				// 不再发起注定失败的 import（渲染层已用 importable:false 禁用按钮，此为双保险）。
+				if (!pack.manifest) {
+					say("error", (pack.importError || t("marketUnavailable")));
+					return;
+				}
+				run("import", () => api.importPack(JSON.stringify(pack.manifest))).then((result) => {
 					if (result && result.ok) {
 						say("success", t("importDone") + pack.name);
 						setTab("hub");

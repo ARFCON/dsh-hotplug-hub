@@ -185,7 +185,9 @@ export function rawFileUrls(repo, ref, path, sources) {
 export async function searchMarketRepos(topic, q, page, sources) {
   // 选中的来源通道同时发起，取第一个成功响应（"哪个快用哪个"）
   const res = await raceFetch(apiSearchUrls(topic, q, page, sources), 20000, { Accept: 'application/vnd.github+json' }, 15000)
-  if (!res.ok) return { ok: false, error: 'HTTP ' + (res.status ?? 0) || '网络请求失败' }
+  // 审计修复：原 'HTTP ' + (res.status ?? 0) || '网络请求失败' 因 + 优先级高于 ||，
+  // 后半段为永不可达死代码，网络失败（status=0）时错误地显示 "HTTP 0"。
+  if (!res.ok) return { ok: false, error: res.status ? 'HTTP ' + res.status : '网络请求失败' }
   try {
     const json = JSON.parse(res.text)
     if (!Array.isArray(json.items)) return { ok: false, error: json.message ?? '响应结构异常' }

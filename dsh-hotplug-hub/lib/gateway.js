@@ -12,7 +12,8 @@ import { readPackManifest, readState, writeState } from './core/state.js'
 import { statusSync, importPackSync, previewPack, checkAsync } from './core/status.js'
 import { marketListAsync, marketDetailAsync } from './core/market.js'
 import { aiAssemble, aiChat as aiChatCore } from './core/ai.js'
-import { mountPack, unmountPack, removePatchBlock, removeBundles, bundlePkgNames } from './core/patch.js'
+import { mountPack, unmountPack, removePatchBlock } from './core/patch.js'
+import { exitCodeForCode } from '../vendor-shared/index.mjs'
 
 /** 网关通用失败码（RPC 域，非 CLI ERROR_CODES 表）。 */
 export const RPC_ERROR_CODE = 'ERR_HOTPLUG_FAILED'
@@ -20,16 +21,30 @@ export const RPC_ERROR_CODE = 'ERR_HOTPLUG_FAILED'
 /**
  * RPC 结果归一化：失败统一 {ok:false, code, message, exitCode}；
  * 兼容保留 error 字段（迁移期 client 可回退读取）。
+ * 审计修复：exitCode 只由 code 推导（shared exitCodeForCode）——此前 result 未带
+ * exitCode 时一律归一为 1，导致 hotpack 校验错误（ERR_ASSEMBLY_*，应为 exit 3）被
+ * 压成 exit 1，32 码退出码契约从不透传。
  * @param {object} result
  * @returns {object}
  */
 export function normalizeRpc(result) {
-  if (!result || result.ok !== false) return result
+  if (!result) return result
+  if (result.ok !== false) {
+    // 审计修复：成功信封统一补 code:'OK' / exitCode:0——此前只有 aiAssemble/aiChat
+    // 手写 {code:'OK', data, exitCode:0}，其余方法（status/importPack/activate…）裸返回，
+    // RPC 信封 {ok, code, exitCode} 不统一；现在所有成功响应统一携带 OK/0。
+    return {
+      ...result,
+      code: result.code === undefined ? 'OK' : result.code,
+      exitCode: result.exitCode === undefined ? 0 : result.exitCode,
+    }
+  }
+  const code = typeof result.code === 'string' && result.code !== '' ? result.code : RPC_ERROR_CODE
   return {
     ...result,
-    code: typeof result.code === 'string' ? result.code : RPC_ERROR_CODE,
+    code,
     message: typeof result.message === 'string' ? result.message : (typeof result.error === 'string' ? result.error : '操作失败'),
-    exitCode: typeof result.exitCode === 'number' ? result.exitCode : 1,
+    exitCode: typeof result.exitCode === 'number' ? result.exitCode : exitCodeForCode(code),
   }
 }
 
@@ -86,12 +101,8 @@ class HotplugGateway extends TypertRemoteService {
         }
       }
       const mounted = await mountPack(manifest)
-      if (!mounted.ok) {
-        // 挂载失败：把已经写进去的部分尽量还原（patch 块 + bundles），避免半挂载。
-        removePatchBlock(manifest.id)
-        removeBundles(bundlePkgNames(manifest))
-        return { ok: false, error: mounted.error, steps: mounted.steps }
-      }
+      // mountPack 已事务化：失败时内部回滚 link/bundles/patch/npm，无需此处二次清理。
+      if (!mounted.ok) return { ok: false, error: mounted.error, steps: mounted.steps }
       const next = readState()
       next.activePack = packId
       next.history = [...(next.history ?? []), { event: 'activate', packId, at: new Date().toISOString() }].slice(-64)

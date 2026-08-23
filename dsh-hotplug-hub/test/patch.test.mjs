@@ -53,10 +53,10 @@ describe('appendPatchBlock / removePatchBlock（锁内分节合并）', () => {
     const r2 = appendPatchBlock(pack)
     expect(r2.ok).toBe(false)
     expect(r2.error).toContain('已存在')
-    // 移除（契约形态）
-    expect(removePatchBlock('pack.test')).toBe(true)
+    // 移除（契约形态）——返回统一 {ok, removed} 形状（审计修复：锁失败不再静默 false）
+    expect(removePatchBlock('pack.test')).toEqual({ ok: true, removed: true })
     expect(readFileSync(iso.profile + '/cordis.patch.yml', 'utf8')).not.toContain('hotplug:pack.test')
-    expect(removePatchBlock('pack.test')).toBe(false)
+    expect(removePatchBlock('pack.test')).toEqual({ ok: true, removed: false })
   })
 
   it('移除保留其它块与注释（分节语义）', () => {
@@ -72,7 +72,7 @@ describe('appendPatchBlock / removePatchBlock（锁内分节合并）', () => {
 
   it('旧内联形态（- insert:  # hotplug:pack.test）移除兼容（迁移规则 §9）', () => {
     writeFileSync(join(iso.profile, 'cordis.patch.yml'), '# 顶部注释\n- insert:  # hotplug:pack.test\n    - id: hp-old\n      name: \'old\'\n      config: {}\n')
-    expect(removePatchBlock('pack.test')).toBe(true)
+    expect(removePatchBlock('pack.test')).toEqual({ ok: true, removed: true })
     const text = readFileSync(join(iso.profile, 'cordis.patch.yml'), 'utf8')
     expect(text).toContain('# 顶部注释')
     expect(text).not.toContain('hotplug:pack.test')
@@ -121,5 +121,20 @@ describe('mountPack / unmountPack 对称回滚（H-9，path 源，零 spawn）',
     expect(m.error).toContain('nope')
     expect(Array.isArray(m.steps)).toBe(true)
     expect(m.steps[0].status).toBe('reused')
+  })
+
+  it('挂载失败（appendPatchBlock 拒绝已存在块）→ 回滚已 link 的依赖（审计修复：无半挂载）', async () => {
+    const okDir = join(iso.dshHome, 'plugin-src', 'pkg-ok')
+    mkdirSync(okDir, { recursive: true })
+    writeFileSync(join(okDir, 'package.json'), JSON.stringify({ name: 'pkg-ok', version: '1.0.0' }))
+    const pack = samplePack({ plugins: [{ id: 'ok', name: 'pkg-ok', source: { type: 'path', path: okDir }, config: {} }] })
+    // 预置同名 patch 块，使 appendPatchBlock 在 link 之后失败，验证回滚撤销 link: 依赖与 junction
+    writeFileSync(join(iso.profile, 'cordis.patch.yml'), '## hotplug:pack.test\n- insert: []\n')
+    const m = await mountPack(pack)
+    expect(m.ok).toBe(false)
+    // 审计修复断言：失败后 profile 无 link: 残留（此前仅撤 patch+bundles，link 残留）
+    const manifest = JSON.parse(readFileSync(join(iso.profile, 'package.json'), 'utf8'))
+    expect(manifest.dependencies?.['pkg-ok']).toBeUndefined()
+    expect(existsSync(join(iso.profile, 'node_modules', 'pkg-ok'))).toBe(false)
   })
 })
