@@ -69,9 +69,12 @@ describe('runCli（H-6 / R-v5-9）', () => {
     expect(seen.s).toBeUndefined()
   })
 
-  it('命令不存在 → {code:null, signal:"error"}，不抛异常', async () => {
+  it('命令不存在 → 返回失败结果，不抛异常', async () => {
     const r = await runCli('definitely-not-a-command-xyz', [], 2000, { cwd: iso.profile })
-    expect(r.code).toBeNull()
-    expect(r.signal).toBe('error')
+    // 失败形态因平台而异：POSIX 直连 spawn → error 事件（code null / signal 'error'）；
+    // Windows 经 cmd.exe /c 包装 → cmd 退出码 1。核心不变量：不抛异常 + 非成功码。
+    expect(r.code).not.toBe(0)
+    expect(typeof r.stdout).toBe('string')
+    expect(typeof r.stderr).toBe('string')
   })
 })

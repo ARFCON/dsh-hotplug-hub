@@ -1548,8 +1548,8 @@ namespace DSHHotplugHub
                 "if(window.__nativeSelfCheck.dshVersion){state.dshVersion=window.__nativeSelfCheck.dshVersion;if(window.__nativeSelfCheck.latestVersion){state.latestVersion=window.__nativeSelfCheck.latestVersion;}if(typeof renderShell==='function')renderShell();}" +
                 "if(window.__nativeSelfCheck.panelInstalled||window.__nativeSelfCheck.panelLatest){state.panelInstalled=window.__nativeSelfCheck.panelInstalled||state.panelInstalled||null;state.panelLatest=window.__nativeSelfCheck.panelLatest||state.panelLatest||null;}" +
                 "(function(){window.__baseGetChecks=window.__baseGetChecks||getChecks;getChecks=function(){var r=window.__baseGetChecks();" +
-                // semver 比较（数值段，pre 后缀剔除）：latest > app 才算「可更新」——本地领先（如 0.9.8 未发布）不误报
-                "var nv=function(a,b){var A=String(a||'').replace(/^v/i,'').split('-')[0].split('.'),B=String(b||'').replace(/^v/i,'').split('-')[0].split('.');for(var i=0;i<Math.max(A.length,B.length);i++){var x=parseInt(A[i]||'0',10),y=parseInt(B[i]||'0',10);if(x!==y)return x-y;}return 0;};" +
+                // semver 比较（数值段，pre/build 后缀整版本剔除，与 PatchContract.CompareVersions 语义一致）：latest > app 才算「可更新」——本地领先（如 0.9.8 未发布）不误报
+                "var nv=function(a,b){var A=String(a||'').replace(/^v/i,'').trim().split(/[-+]/)[0].split('.'),B=String(b||'').replace(/^v/i,'').trim().split(/[-+]/)[0].split('.');for(var i=0;i<Math.max(A.length,B.length);i++){var x=parseInt(A[i]||'0',10)||0,y=parseInt(B[i]||'0',10)||0;if(x!==y)return x-y;}return 0;};" +
                 "for(var i=0;i<r.length;i++){" +
                 "if(r[i].name==='Node.js'){r[i].val=window.__nativeSelfCheck.node||'未检测到';r[i].text=window.__nativeSelfCheck.node?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.node?'ok':'err';}" +
                 "if(r[i].name==='pnpm'){r[i].val=window.__nativeSelfCheck.pnpm||'未检测到';r[i].text=window.__nativeSelfCheck.pnpm?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.pnpm?'ok':'err';}" +
@@ -2222,30 +2222,14 @@ namespace DSHHotplugHub
             return s.Length > 0 && (s[0] == 'v' || s[0] == 'V') ? s.Substring(1) : s;
         }
 
-        // semver 语义比较（数值段逐个比对，pre 后缀（如 -pre）剥离后比较）：
+        // semver 语义比较（数值段逐个比对，pre/build 后缀整版本剥离后比较）：
         // 仅当 candidate（远程/最新）严格大于 current（本地）时返回 true——
         // 修复「本地构建版本领先 GitHub 发布时（如 0.9.8 尚未发布）每次启动误报发现新版本」。
+        // 审计修复：收敛到 PatchContract.CompareVersions（与注入页面 JS nv 语义一致；
+        // 旧实现按「段」剥离 '-'，`1.0.0-alpha.1` 会把 `alpha` 当作第 4 段 1 误判 > `1.0.0`）。
         private static bool IsNewerVersion(string candidate, string current)
         {
-            string a = NormalizeVersion(candidate);
-            string b = NormalizeVersion(current);
-            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
-            string[] pa = a.Split('.');
-            string[] pb = b.Split('.');
-            for (int i = 0; i < Math.Max(pa.Length, pb.Length); i++)
-            {
-                int x = 0, y = 0;
-                int.TryParse(i < pa.Length ? StripPreSuffix(pa[i]) : "0", out x);
-                int.TryParse(i < pb.Length ? StripPreSuffix(pb[i]) : "0", out y);
-                if (x != y) return x > y;
-            }
-            return false;
-        }
-
-        private static string StripPreSuffix(string s)
-        {
-            int idx = s.IndexOf('-');
-            return idx > 0 ? s.Substring(0, idx) : s;
+            return PatchContract.IsNewerVersion(candidate, current);
         }
 
         // 必须请求 releases/latest：请求 releases/tags/v{当前版本} 拿到的永远是自身 tag，更新提示永远不会触发

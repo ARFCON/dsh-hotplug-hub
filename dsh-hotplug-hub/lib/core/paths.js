@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // v5：常量单一真源 = vendor-shared（shared-core 字节副本）
-import { GITHUB_MIRRORS as SHARED_GITHUB_MIRRORS, resolveDshRoot } from '../../vendor-shared/index.mjs'
+import { GITHUB_MIRRORS as SHARED_GITHUB_MIRRORS, MEMORY_DIR, resolveDshRoot } from '../../vendor-shared/index.mjs'
 
 export const VERSION = (() => {
   try {
@@ -62,6 +62,8 @@ export const MARKET_PACK_CANDIDATES = ['hotpack.json', '.dshpack.json', 'dshpack
 export function homeDir() {
   return resolveDshRoot(process.env).dshRoot
 }
+/** 全局记忆中枢根目录（与 dsh-memory-hub 的 MEMORY_DIR 单一真源一致）。 */
+export function memoryDir() { return join(homeDir(), MEMORY_DIR) }
 export function hotplugRoot() { return join(homeDir(), 'hotplug-hub') }
 export function packsDir() { return join(hotplugRoot(), 'packs') }
 export function storeRoot() { return join(homeDir(), 'hotplug-store') }

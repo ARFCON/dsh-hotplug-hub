@@ -318,5 +318,53 @@ namespace DSHHotplugHub
             }
             catch { /* 尽力而为：ACL 设置失败不影响主流程 */ }
         }
+
+        // ---------- 版本比较契约（CONTRACT.md §7：自检/更新检测单一真源） ----------
+
+        /// <summary>版本比较：先剥离前导 v/V 与空白，再取 '-'/'+' 之前的核心段，按 '.'
+        /// 切分后逐段数值比较（非数字段按 0、缺失段按 0）。返回 -1 / 0 / 1。
+        /// 与 Main.cs 注入页面的 JS nv（split(/[-+]/)[0] 后逐段 parseInt||0）语义一致。
+        /// 修正旧 IsNewerVersion 的 pre 后缀「逐段剥离」缺陷：`1.0.0-alpha.1` 曾被误判
+        /// 大于 `1.0.0`（alpha.1 被当成第 4 段 1），现按整版本剥离 pre/build 后再比较。</summary>
+        public static int CompareVersions(string a, string b)
+        {
+            string[] pa = CoreSegments(a);
+            string[] pb = CoreSegments(b);
+            int len = Math.Max(pa.Length, pb.Length);
+            for (int i = 0; i < len; i++)
+            {
+                int x = ParseSegment(pa, i);
+                int y = ParseSegment(pb, i);
+                if (x != y) return x > y ? 1 : -1;
+            }
+            return 0;
+        }
+
+        /// <summary>candidate 是否严格大于 current（用于「发现新版本」判定）。
+        /// 任一为空 → false（与旧 IsNewerVersion 的空值守卫语义一致）。</summary>
+        public static bool IsNewerVersion(string candidate, string current)
+        {
+            if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(current)) return false;
+            return CompareVersions(candidate, current) > 0;
+        }
+
+        /// <summary>提取核心版本段：trim + 去前导 v/V + 去 pre(-)/build(+) 后缀 + 按 '.' 切分。</summary>
+        private static string[] CoreSegments(string v)
+        {
+            if (string.IsNullOrEmpty(v)) return new string[0];
+            string s = v.Trim();
+            if (s.Length > 0 && (s[0] == 'v' || s[0] == 'V')) s = s.Substring(1);
+            int cut = s.IndexOfAny(new char[] { '-', '+' });
+            if (cut >= 0) s = s.Substring(0, cut);
+            return s.Split('.');
+        }
+
+        /// <summary>第 i 段数值；缺失或非数字按 0（与旧 IsNewerVersion 的 int.TryParse→0 语义一致）。</summary>
+        private static int ParseSegment(string[] segments, int i)
+        {
+            if (i >= segments.Length) return 0;
+            int n;
+            return int.TryParse(segments[i], out n) ? n : 0;
+        }
     }
 }

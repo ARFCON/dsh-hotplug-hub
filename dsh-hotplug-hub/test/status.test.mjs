@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join } from 'node:path'
 import { copyFileSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs'
 import { statusSync, importPackSync, previewPack, checkAsync } from '../lib/core/status.js'
+import { readState, writeState } from '../lib/core/state.js'
 import { applyIsolatedEnv, isolatedDsh, samplePack } from './helpers.mjs'
 
 let restoreEnv = null
@@ -52,6 +53,33 @@ describe('statusSync', () => {
     expect(plugins).toHaveLength(2)
     expect(plugins[0].cached).toBe(false) // npm 未装
     expect(plugins[1].cached).toBe(false) // path 不存在
+  })
+
+  it('activatedAt 取最近一次激活（激活→卸载→再激活，非最早那次）', () => {
+    importPackSync(JSON.stringify(samplePack()))
+    writeState({
+      ...readState(),
+      activePack: 'pack.test',
+      history: [
+        { event: 'activate', packId: 'pack.test', at: '2020-01-01T00:00:00.000Z' },
+        { event: 'deactivate', packId: 'pack.test', at: '2020-01-02T00:00:00.000Z' },
+        { event: 'activate', packId: 'pack.test', at: '2020-01-03T00:00:00.000Z' },
+      ],
+    })
+    const s = statusSync()
+    expect(s.packs[0].active).toBe(true)
+    expect(s.packs[0].activatedAt).toBe('2020-01-03T00:00:00.000Z')
+  })
+
+  it('无激活历史时 activatedAt 为 null（不抛错）', () => {
+    importPackSync(JSON.stringify(samplePack()))
+    const s = statusSync()
+    expect(s.packs[0].activatedAt).toBeNull()
+  })
+
+  it('statusSync 含 memoryDir（与 checkAsync 契约统一，单一真源 MEMORY_DIR）', () => {
+    const s = statusSync()
+    expect(s.memoryDir).toContain('memory-hub')
   })
 })
 

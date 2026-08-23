@@ -6,12 +6,33 @@
  * SSL_CERT_FILE/SSL_CERT_DIR——TLS 校验不可被静默关闭、Node 行为不可被注入）。
  */
 import { spawn } from 'node:child_process'
+import { extname } from 'node:path'
 import { sanitizeChildEnv } from '../../vendor-shared/index.mjs'
-import { OUTPUT_CAP, profileDir } from './paths.js'
+import { IS_WIN, OUTPUT_CAP, profileDir } from './paths.js'
+
+/**
+ * C6 修复（与 launcher infra/launch.js wrapCmdScript 同源）：Windows 下 `.cmd` / `.bat`
+ * / 裸命令（如 `pnpm`，npm 全局安装只生成 `pnpm.cmd` 而非 `pnpm.exe`）不能被
+ * CreateProcess 直接启动（Node spawn shell:false 抛 EINVAL），必须经 ComSpec
+ * （cmd.exe /d /c）包装。ComSpec 用绝对路径，避免 PATH 被隔离（如测试隔离环境）
+ * 时 `cmd.exe` 自身 ENOENT。
+ * 注：curl.exe / tar.exe 已带 `.exe` 扩展名，不命中本分支，仍走直接 spawn。
+ */
+function isWindowsShellCommand(command) {
+  if (!IS_WIN) return false
+  const ext = extname(String(command ?? '')).toLowerCase()
+  return ext === '' || ext === '.cmd' || ext === '.bat'
+}
 
 export function runCli(command, args, timeoutMs, options = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
+    let bin = command
+    let argv = args
+    if (isWindowsShellCommand(command)) {
+      bin = process.env.ComSpec || 'cmd.exe'
+      argv = ['/d', '/c', command, ...args]
+    }
+    const child = spawn(bin, argv, {
       cwd: options.cwd ?? profileDir(),
       env: sanitizeChildEnv(process.env),
       windowsHide: true,
