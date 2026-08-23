@@ -1,7 +1,7 @@
 // test/gateway-instance.test.mjs — HotplugGateway 实例方法（typert 基类真实接线）
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join } from 'node:path'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { HotplugGateway } from '../lib/gateway.js'
 import { readState } from '../lib/core/state.js'
 import { applyIsolatedEnv, isolatedDsh } from './helpers.mjs'
@@ -91,6 +91,25 @@ describe('HotplugGateway 实例', () => {
     expect(r2.ok).toBe(false)
     const r3 = await gateway.removePack('pack.p')
     expect(r3.ok).toBe(true)
+  })
+
+  it('activate：前一包 manifest 缺失仍移除旧 patch 块（审计修复：无孤儿块）', async () => {
+    // 构造两个 path 源包并先后激活；随后删除 A 的 manifest，再激活 B
+    const packA = pathPack() // id pack.p
+    const packB = { ...pathPack(), id: 'pack.q', name: 'Q', plugins: [{ id: 'main', name: 'pkg-p', source: { type: 'path', path: packA.plugins[0].source.path }, config: {} }] }
+    gateway.importPack(JSON.stringify(packA))
+    await gateway.activate('pack.p')
+    const patchFile = join(iso.profile, 'cordis.patch.yml')
+    expect(readFileSync(patchFile, 'utf8')).toContain('hotplug:pack.p')
+    // 删除 A 的 manifest（模拟状态引用已删包）
+    rmSync(join(iso.dshHome, 'hotplug-hub', 'packs', 'pack.p'), { recursive: true, force: true })
+    // 导入并激活 B：旧 patch 块应被移除，不残留 hotplug:pack.p
+    gateway.importPack(JSON.stringify(packB))
+    const act = await gateway.activate('pack.q')
+    expect(act.ok).toBe(true)
+    const patchText = readFileSync(patchFile, 'utf8')
+    expect(patchText).not.toContain('hotplug:pack.p')
+    expect(patchText).toContain('hotplug:pack.q')
   })
 
   it('check()：自检（pnpm 缺失不崩）', async () => {

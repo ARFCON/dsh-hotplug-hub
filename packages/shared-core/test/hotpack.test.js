@@ -79,6 +79,16 @@ describe('parseHotpack 顶层校验（launcher 语义基线）', () => {
     expect(dup.code).toBe('ERR_ASSEMBLY_DUPLICATE');
   });
 
+  it('source.type 空串 / 未知类型拒绝（不与缺省 npm 混同）', () => {
+    const base = () => ({ hotpack: '1.0', id: 'ok', name: 'x', version: '1.0.0', plugins: [] });
+    const one = (p) => parseHotpack({ ...base(), plugins: [p] });
+    expect(one({ id: 'p', name: 'n', source: { type: '' }, version: '1.0.0' }).ok).toBe(false);
+    expect(one({ id: 'p', name: 'n', source: { type: '' }, version: '1.0.0' }).code).toBe('ERR_ASSEMBLY_FIELD');
+    // 缺省 source.type（undefined）仍默认 npm（向后兼容）
+    expect(one({ id: 'p', name: 'n', source: {}, version: '1.0.0' }).ok).toBe(true);
+    expect(one({ id: 'p', name: 'n', source: { type: 'path', path: 'C:/x' } }).ok).toBe(true);
+  });
+
   it('opts：maxNameLength / maxDescLength（hotplug 214/300 展示约束）', () => {
     const pack = validPack();
     pack.description = 'd'.repeat(500);
@@ -200,6 +210,20 @@ describe('dshpackToHotpack（H-11b/c 修复后语义）', () => {
   it('非法 JSON / 非对象 → 报错', () => {
     expect(dshpackToHotpack('{').ok).toBe(false);
     expect(dshpackToHotpack('[1]').ok).toBe(false);
+  });
+
+  it('dshpack source 显式枚举：path / 未知类型显式报错（不再静默降 npm）', () => {
+    const pathStr = dshpackToHotpack(JSON.stringify({
+      packId: 'x', name: 'n', version: '1.0.0',
+      bundles: [{ id: 'a', package: 'pkg-a', version: '1.0.0', source: 'path' }],
+    }));
+    expect(pathStr.ok).toBe(false);
+    expect(pathStr.message).toContain('只支持 npm / github');
+    const pathObj = dshpackToHotpack(JSON.stringify({
+      packId: 'x', name: 'n', version: '1.0.0',
+      bundles: [{ id: 'a', package: 'pkg-a', version: '1.0.0', source: { type: 'path', path: 'C:/x' } }],
+    }));
+    expect(pathObj.ok).toBe(false);
   });
 });
 

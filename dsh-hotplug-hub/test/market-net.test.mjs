@@ -75,6 +75,19 @@ describe('raceFetch / raceFiles', () => {
     const r = await raceFetch(['https://a/x'], 5000, {}, 100)
     expect(r.budget).toBe(true)
   })
+
+  it('raceFiles：429 限流不算确定性不存在，镜像 200 仍可胜出（审计修复）', async () => {
+    // 官方 429 先结算；旧代码 status<500 会把它当「不存在」立即结束、丢弃镜像 200
+    globalThis.fetch = async (url) => {
+      const u = String(url)
+      if (u.includes('official')) return { ok: false, status: 429, text: async () => '' }
+      await new Promise((r) => setTimeout(r, 20))
+      return { ok: true, status: 200, text: async () => 'mirror-ok' }
+    }
+    const r = await raceFiles(['https://official/f', 'https://mirror/f'], 1000)
+    expect(r.ok).toBe(true)
+    expect(r.text).toBe('mirror-ok')
+  })
 })
 
 describe('searchMarketRepos', () => {
@@ -199,6 +212,31 @@ describe('fetchRepoDetail / marketListAsync（全链路桩）', () => {
     const bad = await marketDetailAsync({ repo: 'not-a-repo' })
     expect(bad.ok).toBe(false)
     expect(bad.error).toContain('repo')
+  })
+
+  it('marketDetailAsync：repo 校验统一到 shared（拒绝 .foo/bar、-x/y、a//b）', async () => {
+    // 旧本地 REPO_RE 曾放行 .foo/bar / -x/y（无字母数字开头约束），现收敛到 validateSourceRepo
+    for (const repo of ['.foo/bar', '-x/y', 'a//b', 'a/../b']) {
+      const r = await marketDetailAsync({ repo })
+      expect(r.ok, repo).toBe(false)
+      expect(r.error, repo).toContain('repo')
+    }
+  })
+
+  it('marketDetailAsync：ref 允许合法 /（feature/x 不再回退 main，契约与 validateSourceRef 一致）', async () => {
+    const seen = []
+    globalThis.fetch = async (url) => {
+      const u = String(url)
+      seen.push(u)
+      if (u.includes('package.json')) return { ok: true, status: 200, text: async () => '{"name":"pkg-r","version":"1.0.0"}' }
+      return { ok: false, status: 404, text: async () => '' }
+    }
+    const r = await marketDetailAsync({ repo: 'o/r', ref: 'feature/x', sources: ['github'] })
+    expect(r.ok).toBe(true)
+    expect(r.entry.importable).toBe(true)
+    // ref 被原样采用（feature/x），未回退 main
+    expect(seen.some((u) => u.includes('/feature/x/'))).toBe(true)
+    expect(seen.some((u) => u.includes('/main/'))).toBe(false)
   })
 
   it('marketListAsync：非法参数明确错误', async () => {

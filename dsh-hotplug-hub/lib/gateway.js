@@ -98,6 +98,11 @@ class HotplugGateway extends TypertRemoteService {
           const unmounted = await unmountPack(previous)
           if (!unmounted.ok) return unmounted
           events.push(`已卸载上一个包：${previous.name ?? previous.id}（无损替换，记忆与 store 保留）`)
+        } else {
+          // 审计修复：manifest 缺失（状态引用已删包）时仍须移除旧 patch 块，否则
+          // 激活新包后残留旧 `## hotplug:<id>` 块，形成双块不一致（与 deactivate 对齐）。
+          const removed = removePatchBlock(state.activePack)
+          if (!removed.ok) return { ok: false, error: removed.error }
         }
       }
       const mounted = await mountPack(manifest)

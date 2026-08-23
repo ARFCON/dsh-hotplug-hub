@@ -625,11 +625,10 @@ describe('aiChat（人设化对话式装配）', () => {
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'ai-broken.json'), '{not json', 'utf8')
     expect(loadSession('ai-broken')).toBeNull()
-    // 路径穿越：sessionId 含 ../ 被白名单清洗，文件名不含分隔符 → 不逃逸会话目录
-    const cleaned = sessionPath('ai-../../evil')
-    expect(cleaned.startsWith(dir)).toBe(true)
-    expect((cleaned.split(/[\\/]/).pop() || '')).not.toMatch(/[\\/]/)
-    expect(cleaned.endsWith('.json')).toBe(true)
+    // 路径穿越：sessionId 含 ../ 或分隔符现被「拒绝」（返回 null），不再有损清洗
+    // （有损清洗非单射：'a/b' 与 'ab' 同文件，会覆盖/误删/读不到——审计修复）
+    expect(sessionPath('ai-../../evil')).toBeNull()
+    expect(sessionPath('a/b')).toBeNull()
     // 删除：存在与不存在均返回 true 且不抛
     expect(deleteSession('ai-test-1')).toBe(true)
     expect(loadSession('ai-test-1')).toBeNull()

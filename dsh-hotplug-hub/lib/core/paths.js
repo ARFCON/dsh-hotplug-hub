@@ -52,8 +52,8 @@ export const MARKET_FILE_BUDGET_MS = 8000
 export const MARKET_README_CANDIDATES = ['README.zh.md', 'README.md', 'readme.md', 'README_CN.md', 'README_ZH.md', 'Readme.md', 'README.txt']
 export const MARKET_PACK_CANDIDATES = ['hotpack.json', '.dshpack.json', 'dshpack.json']
 
-export const REF_RE = /^[0-9A-Za-z._-]+$/
-export const REPO_RE = /^[0-9A-Za-z._-]+\/[0-9A-Za-z._-]+$/
+// 注：market 的 repo/ref 校验统一走 vendor-shared validateSourceRepo/validateSourceRef
+//（单一真源，避免本地正则与共享契约漂移——见 lib/core/market.js marketDetailAsync）。
 
 /** DSH 根域（.dsh 目录）：resolveDshRoot 契约（优先级 DSH_HOTPLUG_ROOT > DSH_HOME > ~/.dsh）。
  *  审计修复：此前本地复刻只认 DSH_HOME、忽略最高优先级 DSH_HOTPLUG_ROOT——现收敛到

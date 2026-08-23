@@ -89,10 +89,30 @@ describe('README 提取', () => {
 })
 
 describe('packIdOf / buildGithubPluginPack', () => {
-  it('packIdOf：owner/repo → pack.owner-repo（≤64）', () => {
-    expect(packIdOf('ARFCON/dsh-hotplug-hub')).toBe('pack.arfcon-dsh-hotplug-hub')
-    expect(packIdOf('a/b')).toBe('pack.a-b')
+  it('packIdOf：owner/repo → pack.<owner>-<repo>-<hash>（单射、≤64、无碰撞）', () => {
+    const id = packIdOf('ARFCON/dsh-hotplug-hub')
+    expect(id.startsWith('pack.arfcon-dsh-hotplug-hub-')).toBe(true)
+    expect(id.length).toBeLessThanOrEqual(64)
+    expect(packIdOf('a/b').startsWith('pack.a-b-')).toBe(true)
     expect(packIdOf('x'.repeat(80) + '/y').length).toBeLessThanOrEqual(64)
+    // 审计修复：'/'→'-' 有损曾使不同仓库同 id（a-b/c 与 a/b-c → pack.a-b-c），现单射
+    expect(packIdOf('a-b/c')).not.toBe(packIdOf('a/b-c'))
+    expect(packIdOf('a.b/c')).not.toBe(packIdOf('a/b.c'))
+    // 确定性：同输入同 id（跨导入稳定）
+    expect(packIdOf('o/r')).toBe(packIdOf('o/r'))
+  })
+
+  it('buildGithubPluginPack：非法 semver 版本兜底 0.0.0（1.02.3 / 1.2.3-a..b 不再放行）', () => {
+    // 审计修复：旧正则放行 '1.02.3'/'1.2.3-a..b' 后 parseHotpack 拒收 → importable=false；
+    // 现严格 semver 校验，非法版本统一兜底 0.0.0
+    for (const bad of ['1.02.3', '01.2.3', '1.2.3-a..b']) {
+      const r = buildGithubPluginPack('o/r', 'main', 'pkg-x', bad, {})
+      expect(r.ok, bad).toBe(true)
+      expect(r.pack.version, bad).toBe('0.0.0')
+    }
+    const ok = buildGithubPluginPack('o/r', 'main', 'pkg-x', '1.2.3', {})
+    expect(ok.ok).toBe(true)
+    expect(ok.pack.version).toBe('1.2.3')
   })
 
   it('buildGithubPluginPack：单插件 manifest（tags 去重截断）', () => {

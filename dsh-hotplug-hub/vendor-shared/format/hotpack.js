@@ -96,7 +96,10 @@ function parseHotpack(input, opts = {}) {
       return { ok: false, code: 'ERR_ASSEMBLY_FIELD', message: `${at}.config 必须是对象` };
     }
     const source = item.source && typeof item.source === 'object' ? item.source : {};
-    const type = source.type || 'npm';
+    // C2/审计修复：source.type 显式为 ''（空串）时必须拒绝，不得与「缺省 npm」混同——
+    // 此前 `source.type || 'npm'` 把空串与缺失都静默降级为 npm，与 `' '`（空白）被拒绝
+    // 自相矛盾，且用户漏写 type 时 source.repo/source.path 被整段丢弃、插件被误当 npm 安装。
+    const type = source.type === undefined || source.type === null ? 'npm' : source.type;
     if (type !== 'npm' && type !== 'path' && type !== 'github') {
       return { ok: false, code: 'ERR_ASSEMBLY_FIELD', message: `${at}.source.type 只支持 npm / path / github` };
     }
@@ -247,9 +250,15 @@ function dshpackToHotpack(text, opts = {}) {
     if (typeof name !== 'string' || name.length === 0) {
       return { ok: false, code: 'ERR_ASSEMBLY_FIELD', message: `bundles[${index}] 缺少 package/name` };
     }
-    const sourceType = (bundle.source === 'github') || (bundle.source && typeof bundle.source === 'object' && bundle.source.type === 'github')
-      ? 'github'
-      : 'npm';
+    // 审计修复：source 显式枚举 npm/github，未知类型（如 'path'）显式报错，不再静默降级
+    // 为 npm（此前 `=== 'github' ? 'github' : 'npm'` 把 source:'path' / {type:'path'} 的
+    // path 信息整段丢弃、插件被误当 npm 包，或报出误导性「npm 源必须给精确 version」）。
+    const sourceRaw = bundle.source;
+    const sourceTypeRaw = sourceRaw && typeof sourceRaw === 'object' ? sourceRaw.type : sourceRaw;
+    const sourceType = sourceTypeRaw === undefined || sourceTypeRaw === null ? 'npm' : sourceTypeRaw;
+    if (sourceType !== 'npm' && sourceType !== 'github') {
+      return { ok: false, code: 'ERR_ASSEMBLY_FIELD', message: `bundles[${index}]（${name}）source 只支持 npm / github：${JSON.stringify(sourceType)}` };
+    }
     const version = bundle.version;
     if (sourceType === 'npm' && (typeof version !== 'string' || version.length === 0)) {
       // H-11b：npm 源缺精确 version 显式报错（曾静默跳过该 bundle）

@@ -1,7 +1,7 @@
 // test/ensure-npm.test.mjs — ensureNpm 全流程（假 pnpm = node 副本 / node shebang 脚本）
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join } from 'node:path'
-import { copyFileSync, writeFileSync, existsSync, readFileSync, chmodSync } from 'node:fs'
+import { copyFileSync, writeFileSync, existsSync, readFileSync, chmodSync, mkdirSync } from 'node:fs'
 import { ensureNpm, installedVersion, npmModuleDir } from '../lib/core/ensure.js'
 import { applyIsolatedEnv, isolatedDsh } from './helpers.mjs'
 
@@ -91,5 +91,18 @@ describe('ensureNpm（真实 spawn 假 pnpm）', () => {
     expect(r.ok).toBe(false)
     expect(r.status).toBe('error')
     expect(r.error).toContain('pnpm add')
+  })
+
+  it('reused 判定补包名校验：版本吻合但包名不符 → 不 reused（触发重装，审计修复）', async () => {
+    fakePnpmAdd('1.0.0')
+    // 预置 node_modules/foo 包名错误但版本正确（串包/篡改残留）
+    const dir = npmModuleDir('foo')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'evil-trojan', version: '1.0.0' }))
+    const r = await ensureNpm({ name: 'foo', version: '1.0.0', source: { type: 'npm' } })
+    expect(r.ok).toBe(true)
+    // 不应判定 reused（包名不符），应重装为 replaced
+    expect(r.status).toBe('replaced')
+    expect(installedVersion('foo')).toBe('1.0.0')
   })
 })

@@ -1,25 +1,29 @@
 /**
  * lib/core/state.js — 文件工具 + 中枢状态（v5 阶段 3 自 index.js 拆出）
  *
- * 注：writeTextSafe 的历史 .bak 语义保留（兼容既有行为）；阶段 4 将随
- * 「分节合并 + 统一原子写」迁移到 vendor-shared fs/atomic（M-44）。
+ * 写盘统一走 vendor-shared fs/atomic（随机 tmp + O_EXCL + fsync + rename）——
+ * 审计修复（M-44）：此前 writeTextSafe 用固定 `${path}.tmp` + rmSync→renameSync 且无锁，
+ * 多进程并发写同一文件时 ENOENT/EPERM 竞态；历史 .bak 无任何消费者，一并移除。
  */
 import {
-  copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync,
+  closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync,
+  renameSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { PACK_ID_RE } from '../../vendor-shared/index.mjs'
+import { PACK_ID_RE, writeFileAtomic } from '../../vendor-shared/index.mjs'
 import { packsDir, statePath } from './paths.js'
+
+// writeFileAtomic 契约所需 fs 端口（与 ai-session.js 的 atomicFsPort 一致）
+const atomicFsPort = {
+  mkdirSync, openSync, writeFileSync, fsyncSync, closeSync, renameSync, existsSync, unlinkSync,
+}
 
 export function readJson(path) {
   try { return JSON.parse(readFileSync(path, 'utf8')) } catch { return null }
 }
 export function writeTextSafe(path, text) {
-  const tmp = `${path}.tmp`
-  writeFileSync(tmp, text, 'utf8')
-  try { copyFileSync(path, `${path}.bak`) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
-  try { rmSync(path, { force: true }) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
-  renameSync(tmp, path)
+  const r = writeFileAtomic(atomicFsPort, path, text, { errorCode: 'ERR_LOG_WRITE' })
+  if (!r.ok) throw r.error
 }
 export function writeJsonSafe(path, value) {
   mkdirSync(dirname(path), { recursive: true })

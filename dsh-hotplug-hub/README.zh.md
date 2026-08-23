@@ -129,10 +129,10 @@ dsh-hotplug-hub/
 
 ## 边界与红线
 
-- profile 的 `package.json` / `cordis.patch.yml` 一律原子写（.tmp + .bak + rename），挂载失败自动回滚 patch 块与 bundles，不留半挂载状态。
+- profile 的 `package.json` / `cordis.patch.yml` 一律原子写（随机 tmp + O_EXCL + fsync + rename），挂载失败自动回滚 patch 块与 bundles，不留半挂载状态。
 - 绝不执行 hotpack 或下载内容里的任何脚本；npm 插件走 pnpm 正常依赖解析，github/path 源只做 link 挂载。
 - 换包时 npm 源的旧插件会 `pnpm remove`（profile 保持干净，不与 dsh-hub 的 bundle 校对打架）；复用靠 pnpm store 缓存，重装不重新下载。
-- 进 shell 的名字 / ref / repo 必须过白名单正则（`PACK_ID_RE` / `PLUGIN_NAME_RE` / `EXACT_VERSION_RE` / `REF_RE` / `REPO_RE`），参数走 argv，不做字符串拼接。
+- 进 shell 的名字 / ref / repo 必须过白名单校验（`validateId` / `validatePluginName` / `validateVersion` / `validateSourceRef` / `validateSourceRepo`，均由 vendor-shared 单一真源提供），参数走 argv，不做字符串拼接。
 - 插件以用户权限作为本地代码运行，导入前请自行确认来源可信；本插件不做安全审核。
 
 ## 维护铁律

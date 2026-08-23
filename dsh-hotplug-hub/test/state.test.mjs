@@ -1,7 +1,7 @@
 // test/state.test.mjs — 状态 / 包清单 / 导入（隔离 DSH_HOME）
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join } from 'node:path'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { readState, writeState, readPackManifest, listPackIds, readJson, writeJsonSafe } from '../lib/core/state.js'
 import { importPackSync } from '../lib/core/status.js'
 import { applyIsolatedEnv, isolatedDsh, samplePack } from './helpers.mjs'
@@ -59,5 +59,15 @@ describe('lib/core/state', () => {
     expect(readJson(f)).toEqual({ a: 1 })
     expect(readJson(join(iso.dshHome, 'nope.json'))).toBeNull()
     expect(readJson(f + '?bad')).toBeNull()
+  })
+
+  it('writeJsonSafe 原子写（审计修复 M-44）：覆盖写往返一致、无 .tmp/.bak 残留', () => {
+    const f = join(iso.dshHome, 'atomic.json')
+    writeJsonSafe(f, { a: 1 })
+    writeJsonSafe(f, { a: 2 }) // 覆盖写
+    expect(readJson(f)).toEqual({ a: 2 })
+    const files = readdirSync(iso.dshHome)
+    expect(files.some((x) => x.includes('.tmp'))).toBe(false)
+    expect(files.some((x) => x.endsWith('.bak'))).toBe(false)
   })
 })

@@ -1,7 +1,7 @@
 // test/ensure.test.mjs — 源解析：path 校验 / zip URL / 解包树安全（M-39）/ env 净化
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join } from 'node:path'
-import { mkdirSync, mkdtempSync, writeFileSync, symlinkSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync, symlinkSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { ensurePath, githubZipUrls, verifyExtractedTree, storeDirOf, npmModuleDir } from '../lib/core/ensure.js'
 import { applyIsolatedEnv, isolatedDsh } from './helpers.mjs'
@@ -43,6 +43,27 @@ describe('ensurePath / storeDirOf', () => {
     expect(storeDirOf({ name: 'n', source: { type: 'path', path: 'C:/x' } })).toBe('C:/x')
     expect(storeDirOf({ name: '@s/n', source: { type: 'npm' } })).toBe(join(iso.profile, 'node_modules', '@s', 'n'))
     expect(npmModuleDir('@s/n')).toBe(join(iso.profile, 'node_modules', '@s', 'n'))
+  })
+
+  it('storeDirOf：含 / 的 ref 与 scoped 名编码为单段（无父子目录 → 无数据丢失）', () => {
+    const feature = storeDirOf({ name: 'pkg', source: { type: 'github', ref: 'feature' } })
+    const featureX = storeDirOf({ name: 'pkg', source: { type: 'github', ref: 'feature/x' } })
+    expect(feature).toBe(join(iso.dshHome, 'hotplug-store', 'pkg@feature'))
+    expect(featureX).toBe(join(iso.dshHome, 'hotplug-store', 'pkg@feature%2Fx'))
+    expect(featureX.startsWith(feature + '/') || featureX.startsWith(feature + '\\')).toBe(false)
+    expect(storeDirOf({ name: '@scope/name', source: { type: 'github', ref: 'main' } }))
+      .toBe(join(iso.dshHome, 'hotplug-store', '@scope%2Fname@main'))
+    expect(storeDirOf({ name: 'pkg', source: { type: 'github', ref: 'main' } }))
+      .toBe(join(iso.dshHome, 'hotplug-store', 'pkg@main'))
+  })
+
+  it('storeDirOf 数据丢失回归：rmSync(ref=feature) 不影响 ref=feature/x 的缓存', () => {
+    const feature = storeDirOf({ name: 'pkg', source: { type: 'github', ref: 'feature' } })
+    const featureX = storeDirOf({ name: 'pkg', source: { type: 'github', ref: 'feature/x' } })
+    mkdirSync(featureX, { recursive: true })
+    writeFileSync(join(featureX, 'package.json'), JSON.stringify({ name: 'pkg' }))
+    rmSync(feature, { recursive: true, force: true })
+    expect(existsSync(join(featureX, 'package.json'))).toBe(true)
   })
 })
 
