@@ -24,7 +24,7 @@ describe('FIX-10 文件锁（H-4）：token pid 校验 + v1 目录锁迁移', ()
     const wrong = releaseLock(fsPort, lockPath, { owner: 'bob', pid: process.pid + 1 });
     expect(wrong.ok).toBe(false); // 拒绝释放他人（不同 pid）锁
     expect(fs.existsSync(lockPath)).toBe(true); // 锁仍在
-    const right = releaseLock(fsPort, lockPath, { owner: 'alice', pid: process.pid, fd: a.fd });
+    const right = releaseLock(fsPort, lockPath, { owner: 'alice', pid: process.pid, fd: a.fd, refresh: a.refresh });
     expect(right.ok).toBe(true);
     expect(fs.existsSync(lockPath)).toBe(false);
     fs.rmSync(dir, { recursive: true, force: true });
@@ -50,7 +50,7 @@ describe('FIX-10 文件锁（H-4）：token pid 校验 + v1 目录锁迁移', ()
     const { readToken } = require('../infra/lock');
     const token = readToken(fsPort, lockPath);
     expect(token.pid).toBe(process.pid);
-    releaseLock(fsPort, lockPath, { owner: 'newcomer', pid: process.pid, fd: r3.fd });
+    releaseLock(fsPort, lockPath, { owner: 'newcomer', pid: process.pid, fd: r3.fd, refresh: r3.refresh });
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

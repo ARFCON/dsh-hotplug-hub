@@ -60,7 +60,7 @@ describe('QA3 store/atomic 强化', () => {
     expect(r.ok).toBe(true);
     const token = fs.readFileSync(lockPath, 'utf8').trim().split('\n');
     expect(token[0]).toBe(String(process.pid));
-    releaseLock(fsPort, lockPath, { owner: 'qa3-test', pid: process.pid, fd: r.fd });
+    releaseLock(fsPort, lockPath, { owner: 'qa3-test', pid: process.pid, fd: r.fd, refresh: r.refresh });
   });
 
   it('锁等待超时：锁被持有且未过期 → ERR_LOCK_ACQUIRE（exit=10）', () => {
@@ -85,11 +85,11 @@ describe('QA3 store/atomic 强化', () => {
     const r2 = acquireLock(fsPort, lockPath, { waitMs: 150, staleMs: 60000, owner: 'second', pid: process.pid + 1 });
     expect(r2.ok).toBe(false);
     expect(r2.error.code).toBe('ERR_LOCK_ACQUIRE');
-    releaseLock(fsPort, lockPath, { owner: 'first', pid: process.pid, fd: r1.fd });
+    releaseLock(fsPort, lockPath, { owner: 'first', pid: process.pid, fd: r1.fd, refresh: r1.refresh });
     // 释放后可再获取
     const r3 = acquireLock(fsPort, lockPath, { waitMs: 1000, staleMs: 60000, owner: 'third' });
     expect(r3.ok).toBe(true);
-    releaseLock(fsPort, lockPath, { owner: 'third', pid: process.pid, fd: r3.fd });
+    releaseLock(fsPort, lockPath, { owner: 'third', pid: process.pid, fd: r3.fd, refresh: r3.refresh });
   });
 
   it('writeState：成功写入后可 readState 读回且 schemaVersion 正确', () => {
