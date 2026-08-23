@@ -13,6 +13,8 @@ $embeddedDshHubTgz = Join-Path $root 'embedded/dsh-hub-1.1.8.tgz'
 $main = Join-Path $srcDir 'Main.cs'
 # v5（crosslang 重构）：Main.cs 引用 PatchContract（锁/分节/字符集契约），必须同编译单元
 $patchContract = Join-Path $srcDir 'PatchContract.cs'
+# 托盘/窗口状态契约（ShellContract）同样与 Main.cs 同编译单元
+$shellContract = Join-Path $srcDir 'ShellContract.cs'
 $out = Join-Path $root 'DSH-Hotplug-Hub.exe'
 
 # WebView2 托管 DLL 与原生 Loader（从本机 Office/OfficePLUS 复制，避免联网）
@@ -50,7 +52,8 @@ $args = @(
   '/reference:System.Drawing.dll',
   '/reference:System.Web.Extensions.dll',
   $main,
-  $patchContract
+  $patchContract,
+  $shellContract
 )
 & $csc $args
 if ($LASTEXITCODE -ne 0) { throw "编译失败，exit=$LASTEXITCODE" }
