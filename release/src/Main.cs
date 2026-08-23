@@ -33,6 +33,7 @@ namespace DSHHotplugHub
         private static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
         private const int HWND_BROADCAST = 0xFFFF;
         internal static readonly int WM_DSH_HARNESS_FOCUS = RegisterWindowMessage("LocalDseamWorld-DSH-Harness-Focus");
+        internal static readonly int WM_DSH_MAIN_FOCUS = RegisterWindowMessage("LocalDseamWorld-DSH-Main-Focus");
 
         [STAThread]
         private static void Main()
@@ -53,7 +54,8 @@ namespace DSHHotplugHub
             {
                 if (!createdNew)
                 {
-                    MessageBox.Show("Dseam世界已经在运行（托盘或后台进程）。", "Dseam世界", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    // 已有实例：广播聚焦消息，唤起已隐藏到托盘的窗口（README「重复打开只唤起已有窗口」）。
+                    try { PostMessage((IntPtr)HWND_BROADCAST, WM_DSH_MAIN_FOCUS, IntPtr.Zero, IntPtr.Zero); } catch { /* 有意吞掉：聚焦失败不影响主流程 */ }
                     return;
                 }
                 SetProcessDPIAware();
@@ -135,6 +137,7 @@ namespace DSHHotplugHub
         [DllImport("user32.dll")] private static extern bool ReleaseCapture();
         [DllImport("user32.dll")] private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
         [DllImport("user32.dll")] private static extern bool SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("gdi32.dll")] private static extern IntPtr CreateRoundRectRgn(int x1, int y1, int x2, int y2, int w, int h);
         private const int WM_NCLBUTTONDOWN = 0xA1, HTCAPTION = 0x2, WM_NCHITTEST = 0x84;
         private const int HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14,
@@ -463,15 +466,7 @@ namespace DSHHotplugHub
         {
             try
             {
-                string[] parts = File.ReadAllText(StatePath()).Trim().Split('|');
-                if (parts.Length >= 2)
-                {
-                    int w, h;
-                    if (int.TryParse(parts[0], out w) && int.TryParse(parts[1], out h) && w >= 640 && h >= 480)
-                    {
-                        return new int[] { w, h, parts.Length >= 3 && parts[2] == "1" ? 1 : 0 };
-                    }
-                }
+                return ShellContract.ParseWindowState(File.ReadAllText(StatePath()), 640, 480);
             }
             catch { /* 无记录则用默认尺寸 */ }
             return null;
@@ -481,11 +476,14 @@ namespace DSHHotplugHub
         {
             try
             {
-                Rectangle r = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-                if (r.Width < 640 || r.Height < 480) return;
+                int[] s = ShellContract.ResolveWindowState(
+                    WindowState == FormWindowState.Normal,
+                    WindowState == FormWindowState.Maximized,
+                    Bounds.Width, Bounds.Height, RestoreBounds.Width, RestoreBounds.Height);
+                if (s[0] < 640 || s[1] < 480) return;
                 string file = StatePath();
                 Directory.CreateDirectory(Path.GetDirectoryName(file));
-                File.WriteAllText(file, r.Width + "|" + r.Height + "|" + (WindowState == FormWindowState.Maximized ? "1" : "0"));
+                File.WriteAllText(file, ShellContract.SerializeWindowState(s[0], s[1], s[2] == 1));
             }
             catch { /* 有意吞掉 */ }
         }
@@ -498,6 +496,7 @@ namespace DSHHotplugHub
                 try
                 {
                     if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                    SetForegroundWindow(Handle); // 与主窗 ShowMainForm 一致：显式抢占前台，Activate 可能被前台锁拦截
                     Activate();
                 }
                 catch { /* 有意吞掉 */ }
@@ -710,6 +709,7 @@ namespace DSHHotplugHub
         private static bool _updateNotified = false;
         private NotifyIcon _trayIcon = null;
         private bool _allowExit = false;
+        private bool _trayReady = false; // 托盘图标创建成功才为 true（失败时关闭应退出，而非藏入不可恢复的托盘）
         private Process _harnessProc = null;   // 官方 harness 主进程引用（用于停止）
         private int _harnessPort = 0;          // 探测到的 harness web 端口
         private Form _harnessEmbedForm = null; // 内嵌弹窗
@@ -807,9 +807,10 @@ namespace DSHHotplugHub
             Load += (s, e) =>
             {
                 ReapplyRoundRegion();
-                // 上次是最大化关闭的，则本次恢复最大化
+                // 上次是最大化关闭的，则本次恢复最大化（留出任务栏，与 winMax/harness 窗一致）
                 if (saved != null && saved.Length >= 3 && saved[2] == 1)
                 {
+                    MaximizedBounds = Screen.FromHandle(Handle).WorkingArea;
                     WindowState = FormWindowState.Maximized;
                 }
             };
@@ -830,14 +831,25 @@ namespace DSHHotplugHub
             Load += async delegate { await InitializeAsync(); };
             FormClosing += (sender, e) =>
             {
-                if (_allowExit) return;
-                // 关闭窗口时隐藏到托盘，保持后台进程常驻（运行后后台也有进程）。
-                SaveWindowState();  // 记录本次窗口尺寸
-                // 主窗 Hide 前先关闭 harness 子窗体（内嵌/跳出），否则它们会被顶到前台显示成纯色空窗
-                try { if (_harnessEmbedForm != null && !_harnessEmbedForm.IsDisposed) _harnessEmbedForm.Close(); } catch { /* 有意吞掉 */ }
-                try { if (_harnessPopoutForm != null && !_harnessPopoutForm.IsDisposed) _harnessPopoutForm.Close(); } catch { /* 有意吞掉 */ }
-                e.Cancel = true;
-                HideMainSafely();
+                // 统一关闭语义（单一真源 ShellContract.ShouldHideToTray）：
+                if (ShellContract.ShouldHideToTray(_trayReady, _allowExit))
+                {
+                    // 托盘可用且非显式退出 → 记录尺寸 + 关闭 harness 子窗 + 隐藏到托盘常驻。
+                    SaveWindowState();  // 记录本次窗口尺寸（含最大化标志，RestoreBounds）
+                    CloseHarnessChildForms();
+                    e.Cancel = true;
+                    HideMainSafely();
+                    return;
+                }
+                // 不藏托盘：显式退出（ExitApplication 已整体回收资源）或托盘不可用。
+                // 托盘不可用时在此整体回收资源并放行关闭，避免窗口藏入无恢复途径的托盘、
+                // 也避免直接退出时遗留 dsh web / DSH 独立程序孤儿进程。
+                if (!_allowExit)
+                {
+                    _allowExit = true;
+                    SaveWindowState();
+                    CleanupAndExit();
+                }
             };
             SetupTray();
         }
@@ -891,6 +903,12 @@ namespace DSHHotplugHub
         // 无边框窗口：手动处理 WM_NCHITTEST 让边缘可拖拽调整大小；窗口尺寸变化时重设圆角
         protected override void WndProc(ref Message m)
         {
+            // 重复启动主程序时广播聚焦消息 → 唤起已隐藏到托盘的窗口
+            if (m.Msg == Program.WM_DSH_MAIN_FOCUS)
+            {
+                try { ShowMainForm(); } catch { /* 有意吞掉 */ }
+                return;
+            }
             if (m.Msg == WM_NCHITTEST)
             {
                 // 最大化状态不允许边缘 resize，直接走 base（也避免对最大化窗口拖边缘出错）
@@ -1018,8 +1036,9 @@ namespace DSHHotplugHub
                 _trayIcon.ContextMenuStrip = menu;
                 _trayIcon.DoubleClick += delegate { ShowMainForm(); };
                 _trayIcon.Visible = true;
+                _trayReady = true; // 托盘图标完整就绪后才置位
             }
-            catch { /* 有意吞掉：托盘不可用时应用仍可正常使用 */ }
+            catch { /* 有意吞掉：托盘不可用时 _trayReady=false，关闭将退出而非藏入不可恢复的托盘 */ }
         }
 
         private void ShowMainForm()
@@ -1027,6 +1046,8 @@ namespace DSHHotplugHub
             Show();
             ShowInTaskbar = true;
             WindowState = FormWindowState.Normal;
+            // 显式抢占前台：仅 Activate() 在托盘双击/跨进程聚焦场景可能被系统前台锁拦截
+            try { SetForegroundWindow(Handle); } catch { /* 有意吞掉 */ }
             Activate();
         }
 
@@ -1048,17 +1069,28 @@ namespace DSHHotplugHub
         private void ExitApplication()
         {
             _allowExit = true;
-            // 先关闭所有子窗体（内嵌/跳出的官方 harness 弹窗），否则主窗 Hide 后它们会被顶到前台显示成白窗
-            try { if (_harnessEmbedForm != null && !_harnessEmbedForm.IsDisposed) _harnessEmbedForm.Close(); } catch { /* 有意吞掉 */ }
-            try { if (_harnessPopoutForm != null && !_harnessPopoutForm.IsDisposed) _harnessPopoutForm.Close(); } catch { /* 有意吞掉 */ }
-            // 先还原最大化再隐藏窗口，避免全屏残留 + WebView2 释放资源瞬间露出白屏
-            HideMainSafely();
-            try { _trayIcon.Visible = false; _trayIcon.Dispose(); } catch { /* 有意吞掉 */ }
+            SaveWindowState();  // 退出前记录窗口状态（含最大化标志），下次启动恢复——与 harness 子窗「关闭即保存」一致
             // v1.2：真正退出 = 整体回收本程序拉起的资源（dsh web 进程树 + DSH 独立程序 + 端口握手文件）。
             // 仅藏入托盘（窗口关闭/自绘 ×）不走此路径，后台常驻语义不变。
+            CleanupAndExit();
+            Application.Exit();
+        }
+
+        // 关闭 harness 子窗体（内嵌/跳出）：主窗 Hide 前先关，否则它们会被顶到前台显示成纯色空窗
+        private void CloseHarnessChildForms()
+        {
+            try { if (_harnessEmbedForm != null && !_harnessEmbedForm.IsDisposed) _harnessEmbedForm.Close(); } catch { /* 有意吞掉 */ }
+            try { if (_harnessPopoutForm != null && !_harnessPopoutForm.IsDisposed) _harnessPopoutForm.Close(); } catch { /* 有意吞掉 */ }
+        }
+
+        // 退出路径的资源整体回收：关子窗体 + 藏主窗 + 释放托盘图标 + 回收 dsh web 进程树 + DSH 独立程序 + 端口握手文件。
+        private void CleanupAndExit()
+        {
+            CloseHarnessChildForms();
+            HideMainSafely();
+            try { if (_trayIcon != null) { _trayIcon.Visible = false; _trayIcon.Dispose(); } } catch { /* 有意吞掉 */ }
             CloseStandaloneHarness();
             StopOfficialHarness();
-            Application.Exit();
         }
 
         private async Task InitializeAsync()
@@ -1098,11 +1130,10 @@ namespace DSHHotplugHub
                         }
                         else if (message == "winClose")
                         {
-                            // 无边框自绘关闭按钮 → 与系统关闭一致：隐藏到托盘
-                            // 主窗 Hide 前先关闭 harness 子窗体（内嵌/跳出），否则它们会被顶到前台显示成纯色空窗
-                            try { if (_harnessEmbedForm != null && !_harnessEmbedForm.IsDisposed) _harnessEmbedForm.Close(); } catch { /* 有意吞掉 */ }
-                            try { if (_harnessPopoutForm != null && !_harnessPopoutForm.IsDisposed) _harnessPopoutForm.Close(); } catch { /* 有意吞掉 */ }
-                            HideMainSafely();
+                            // 无边框自绘关闭按钮 → 与系统关闭走同一条路径：Close() 触发 FormClosing
+                            // （统一：保存窗口状态 + 关闭 harness 子窗 + 隐藏到托盘）。
+                            // 修复旧实现直接 HideMainSafely 而跳过 SaveWindowState 的不一致。
+                            Close();
                         }
                         else if (message == "winMax")
                         {
@@ -2059,17 +2090,7 @@ namespace DSHHotplugHub
             {
                 try
                 {
-                    string text = File.ReadAllText(StatePath()).Trim();
-                    string[] parts = text.Split('|');
-                    if (parts.Length >= 2)
-                    {
-                        int w, h;
-                        if (int.TryParse(parts[0], out w) && int.TryParse(parts[1], out h) && w >= 640 && h >= 480)
-                        {
-                            int max = parts.Length >= 3 && parts[2] == "1" ? 1 : 0;
-                            return new int[] { w, h, max };
-                        }
-                    }
+                    return ShellContract.ParseWindowState(File.ReadAllText(StatePath()), 640, 480);
                 }
                 catch { /* 无记录则用默认尺寸 */ }
                 return null;
@@ -2080,11 +2101,14 @@ namespace DSHHotplugHub
                 try
                 {
                     // 记录还原尺寸（最大化/最小化时 RestoreBounds 才是用户拖到的大小）
-                    Rectangle r = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-                    if (r.Width < 640 || r.Height < 480) return;
+                    int[] s = ShellContract.ResolveWindowState(
+                        WindowState == FormWindowState.Normal,
+                        WindowState == FormWindowState.Maximized,
+                        Bounds.Width, Bounds.Height, RestoreBounds.Width, RestoreBounds.Height);
+                    if (s[0] < 640 || s[1] < 480) return;
                     string file = StatePath();
                     Directory.CreateDirectory(Path.GetDirectoryName(file));
-                    File.WriteAllText(file, r.Width + "|" + r.Height + "|" + (WindowState == FormWindowState.Maximized ? "1" : "0"));
+                    File.WriteAllText(file, ShellContract.SerializeWindowState(s[0], s[1], s[2] == 1));
                 }
                 catch { /* 有意吞掉 */ }
             }
@@ -2707,33 +2731,28 @@ namespace DSHHotplugHub
         {
             try
             {
-                string text = File.ReadAllText(WindowStatePath()).Trim();
-                string[] parts = text.Split('|');
-                if (parts.Length >= 2)
-                {
-                    int w, h;
-                    if (int.TryParse(parts[0], out w) && int.TryParse(parts[1], out h) && w >= 900 && h >= 600)
-                    {
-                        int max = parts.Length >= 3 && parts[2] == "1" ? 1 : 0;
-                        return new int[] { w, h, max };
-                    }
-                }
+                return ShellContract.ParseWindowState(File.ReadAllText(WindowStatePath()), 900, 600);
             }
             catch { /* 有意吞掉 */ }
             return null;
         }
 
-        // 记录窗口状态（关闭/退出时调用；仅记录非最大化状态下的尺寸）
+        // 记录窗口状态（关闭/退出时调用）：正常态取 Bounds，最大化/最小化取 RestoreBounds，
+        // 最大化另记 max=1。修复旧实现「最大化时跳过保存 + max 恒为 0」导致「恢复最大化」成为死代码。
+        // 仅窗口可见时保存：已隐藏到托盘后，HideMainSafely 已把状态规范化为 Normal，再保存会
+        // 用 Normal 尺寸覆盖掉隐藏前记录的 max=1 最大化标志——故隐藏态直接跳过（隐藏时已保存过）。
         private void SaveWindowState()
         {
             try
             {
-                if (WindowState != FormWindowState.Maximized)
-                {
-                    string file = WindowStatePath();
-                    Directory.CreateDirectory(Path.GetDirectoryName(file));
-                    File.WriteAllText(file, Width + "|" + Height + "|" + (WindowState == FormWindowState.Maximized ? "1" : "0"));
-                }
+                if (!Visible) return;
+                int[] s = ShellContract.ResolveWindowState(
+                    WindowState == FormWindowState.Normal,
+                    WindowState == FormWindowState.Maximized,
+                    Bounds.Width, Bounds.Height, RestoreBounds.Width, RestoreBounds.Height);
+                string file = WindowStatePath();
+                Directory.CreateDirectory(Path.GetDirectoryName(file));
+                File.WriteAllText(file, ShellContract.SerializeWindowState(s[0], s[1], s[2] == 1));
             }
             catch { /* 有意吞掉 */ }
         }

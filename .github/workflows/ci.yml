@@ -201,11 +201,19 @@ jobs:
           & $env:RUNNER_TEMP\PatchContractTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Compile & run ShellContract 契约测试（托盘常驻 / 窗口状态）
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\ShellContractTests.exe /reference:System.dll release\src\ShellContract.cs release\tests\ShellContractTests.cs
+          & $env:RUNNER_TEMP\ShellContractTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Compile Main.cs（WebView2 引用，语法完整性）
         shell: pwsh
         run: |
           $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\MainCheck.exe /reference:System.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:release\Microsoft.Web.WebView2.Core.dll" "/reference:release\Microsoft.Web.WebView2.WinForms.dll" release\src\PatchContract.cs release\src\Main.cs
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\MainCheck.exe /reference:System.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:release\Microsoft.Web.WebView2.Core.dll" "/reference:release\Microsoft.Web.WebView2.WinForms.dll" release\src\PatchContract.cs release\src\ShellContract.cs release\src\Main.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Working tree clean
