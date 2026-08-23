@@ -212,10 +212,11 @@ describe('infra/heal-verify.js verifyAction 全动作（C3：无恒通过）', (
 });
 
 describe('infra/heal-verify.js rollbackAction', () => {
-  it('无快照/rollback 标记跳过 → ok（不误伤）', async () => {
+  it('无快照/无 rollback 标记跳过 → ok（不误伤）', async () => {
     const r = await rollbackAction(makeCore(), { code: 'X', rollback: null }, { state: {} });
     expect(r.ok).toBe(true);
-    const r2 = await rollbackAction(makeCore(), { code: 'X', rollback: '恢复原 bundles 列表' }, { state: { rollback: { snapshot: { files: [] } } } });
+    // BUNDLE_MISCLASSIFY 恒跳过快照回滚（按 action.code 判定，非 rollback 文案魔法字符串）
+    const r2 = await rollbackAction(makeCore(), { code: 'BUNDLE_MISCLASSIFY', rollback: '恢复原 bundles 列表' }, { state: { rollback: { snapshot: { files: [] } } } });
     expect(r2.ok).toBe(true);
   });
   it('有快照 → restoreSnapshot 恢复内容（修改后被还原）', async () => {

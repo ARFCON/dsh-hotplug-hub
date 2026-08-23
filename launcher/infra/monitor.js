@@ -10,6 +10,7 @@
 // v5 去重：isValidUtf8 由 shared-core fs/utf8 单一真源提供（本文件曾自持副本，
 // 已收敛为再导出；字节一致断言由 check-vendored-shared 与 esm-shim 测试锁定）。
 const { isValidUtf8 } = require('@dsh/shared-core/fs/utf8');
+const { UTF8_CORRUPTION_MARKER } = require('../domain/classify');
 
 /**
  * 创建行解码器。
@@ -88,11 +89,12 @@ function pipeChildToLog(child, runLog, opts = {}) {
     stream.on('end', () => {
       for (const line of decoders[streamName].flush()) {
         if (line && line.__corrupt) {
-          // FIX-13：残缺多字节尾随 → 记录 UTF8_CORRUPTION 信号（不写 U+FFFD 内容）
-          const msg = '检测到 UTF-8 损坏（流结束时残缺多字节序列）';
+          // FIX-13：残缺多字节尾随 → 记录 UTF8_CORRUPTION 信号（不写 U+FFFD 内容）；
+          // 携带机器标记，classify 据此识别为 UTF8_CORRUPTION 自愈动作（契约统一）。
+          const msg = `${UTF8_CORRUPTION_MARKER} 检测到 UTF-8 损坏（流结束时残缺多字节序列）`;
           const r = runLog.append({ stream: 'error', line: msg });
           if (!r.ok && onLine) onLine('error', r.error.message);
-          if (onLine) onLine(streamName, `[UTF8_CORRUPTION] ${msg}`);
+          if (onLine) onLine(streamName, `${UTF8_CORRUPTION_MARKER} ${msg}`);
           continue;
         }
         const r = runLog.append({ stream: streamName, line });

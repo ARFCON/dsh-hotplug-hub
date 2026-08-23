@@ -12,6 +12,7 @@ const {
 } = require('./stages-util');
 const { stageCheck, stageStatus, stageLogs } = require('./stages-readonly');
 const { stageHeal, buildHealContext } = require('./stages-heal');
+const { UTF8_CORRUPTION_MARKER } = require('../domain/classify');
 
 // --- assemble：组装 + 校验 + 解析 + 冲突 + 生成 sandbox 产物 ---
 async function stageAssemble(core, state, args) {
@@ -175,7 +176,8 @@ async function stageLaunch(core, state, args) {
     if (!decoder) return;
     for (const line of decoder.flush()) {
       if (line && line.__corrupt) {
-        logAppend('error', `检测到 UTF-8 损坏（流结束时残缺多字节序列，stream=${streamName}）`);
+        // 携带机器标记，classify 据此识别为 UTF8_CORRUPTION 自愈动作（契约统一）
+        logAppend('error', `${UTF8_CORRUPTION_MARKER} 检测到 UTF-8 损坏（流结束时残缺多字节序列，stream=${streamName}）`);
       } else {
         logAppend(streamName, line);
       }
@@ -204,6 +206,10 @@ async function stageLaunch(core, state, args) {
       // classifyStateSignals 误判为"非零退出→CRASH_LOOP"（基础设施失败应走 HARNESS_FIX）。
       // null 与"detach 存活中 lastExit:null"语义一致，classifyStateSignals 视为无信号。
       lastExit: launched.error.childExitCode !== undefined ? launched.error.childExitCode : null,
+      // 自愈审计修复：spawn 失败持久化底层错误码（ENOENT/EACCES/EPERM/UNKNOWN），
+      // 供 classifyStateSignals 复用 spawn-error 分支 → HARNESS_FIX/INSTALL_FAIL 可达。
+      // 成功启动时 state.launch 重建会自然清除该字段。
+      spawnCode: launched.error.code === 'ERR_LAUNCH_SPAWN' ? (launched.error.cause && launched.error.cause.code) || null : null,
       retries: (state.launch.retries || 0) + 1,
       pid: null
     };
