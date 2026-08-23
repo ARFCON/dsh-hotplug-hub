@@ -53,7 +53,7 @@ try {
   await page.evaluateOnNewDocument(() => { window.__xss = 0; window.__b64 = (s) => new TextDecoder().decode(Uint8Array.from(atob(s), (c) => c.charCodeAt(0))) })
   await page.setViewport({ width: 1280, height: 860 })
   await page.goto('http://127.0.0.1:' + PORT + '/', { waitUntil: 'networkidle2', timeout: 30000 })
-  await page.click('#nav button[data-view="ai"]')
+  await page.evaluate(() => switchView('ai'))  // v1.2：女仆坞仅主页，经路由进入（回主页 + 展开）
   await new Promise((r) => setTimeout(r, 400))
 
   const send = async (text) => {
@@ -76,7 +76,7 @@ try {
   await page.evaluate(() => { localStorage.setItem('dshAiRoom', '{bad json!!') })
   await page.reload({ waitUntil: 'networkidle2' })
   await new Promise((r) => setTimeout(r, 400))
-  await page.click('#nav button[data-view="ai"]')
+  await page.evaluate(() => switchView('ai'))  // v1.2：女仆坞仅主页，经路由进入（回主页 + 展开）
   await new Promise((r) => setTimeout(r, 500))
   check('损坏存储 -> 干净空态 (无崩溃)', (await page.$('.ai-welcome')) !== null && (await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg').length)) === 0)
   await page.evaluate(() => { localStorage.removeItem('dshAiRoom') })
@@ -97,14 +97,14 @@ try {
   console.log('== D. 重复导入同一产物 ==')
   await send('帮我组一个剪辑包')
   const impBefore = await page.evaluate(() => state.imported.length)
-  await page.click('.ai-pack-card #importAiPack')
+  await page.click('.ai-pack-card .ai-act-import')
   await new Promise((r) => setTimeout(r, 400))
   const impMid = await page.evaluate(() => state.imported.length)
   check('首次导入入库', impMid === impBefore + 1, impBefore + ' -> ' + impMid)
   // 导入成功会按产品行为切到插件中枢视图 → 切回 AI 视图再点第二次
-  await page.click('#nav button[data-view="ai"]')
+  await page.evaluate(() => switchView('ai'))  // v1.2：女仆坞仅主页，经路由进入（回主页 + 展开）
   await new Promise((r) => setTimeout(r, 400))
-  await page.click('.ai-pack-card #importAiPack')
+  await page.click('.ai-pack-card .ai-act-import')
   await new Promise((r) => setTimeout(r, 400))
   const impAfter = await page.evaluate(() => state.imported.length)
   check('重复导入跳过 (已存在，不重复)', impAfter === impMid, impMid + ' -> ' + impAfter)

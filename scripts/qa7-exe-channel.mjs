@@ -42,7 +42,10 @@ if (literals.some((l) => l.includes('\\'))) { console.error('FAIL 注入脚本�
 let injectJs = literals.join('')
 injectJs = injectJs.replace('window.__apiConfig=', 'window.__apiConfig=') // configJson 占位（非字面量），下方替换
 const mockCfg = { apiKey: 'sk-mock', baseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat', models: [], temperature: 1.0 }
-const injectWith = (cfg) => injectJs.replace(/window\.__apiConfig=[^;]*;/, 'window.__apiConfig=' + JSON.stringify(cfg) + ';')
+const injectWith = (cfg) => injectJs
+  .replace(/window\.__apiConfig=[^;]*;/, 'window.__apiConfig=' + JSON.stringify(cfg) + ';')
+  // HAS_SHELL_KEY 由 C# 拼接（非字面量），提取时被丢弃——按 mock 配置回填
+  .replace(/var HAS_SHELL_KEY=[^;]*;/, 'var HAS_SHELL_KEY=' + (cfg.apiKey ? 'true' : 'false') + ';')
 
 // ---- 静态服务 ----
 const server = createServer((req, res) => {
@@ -84,7 +87,8 @@ const newPage = async () => {
 const gotoAi = async (page) => {
   await page.setViewport({ width: 1280, height: 860 })
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle2', timeout: 30000 })
-  await page.click('#nav button[data-view="ai"]')
+  // v1.2：经 switchView('ai') 路由进入（内部回主页 + 展开女仆坞；悬停态几何位移不适用坐标点击）
+  await page.evaluate(() => switchView('ai'))
   await new Promise((r) => setTimeout(r, 400))
 }
 const send = async (page, text) => {
@@ -171,11 +175,11 @@ try {
     return cards.length ? cards[1].textContent : ''
   })
   check('差异徽标（+新增 1 / -移除 1）', diffTxt.includes('新增 1') && diffTxt.includes('移除 1'), diffTxt.slice(0, 80))
-  await page.$$eval('.ai-pack-card #copyManifest', (els) => els[1].click())
+  await page.$$eval('.ai-pack-card .ai-act-copy-manifest', (els) => els[1].click())
   await new Promise((r) => setTimeout(r, 300))
   const copy2 = await page.evaluate(() => window.__copied || '')
   check('第二张卡复制 = 第二版（per-card）', copy2.includes('prettier') && !copy2.includes('format-md'))
-  await page.$$eval('.ai-pack-card #copyManifest', (els) => els[0].click())
+  await page.$$eval('.ai-pack-card .ai-act-copy-manifest', (els) => els[0].click())
   await new Promise((r) => setTimeout(r, 300))
   const copy1 = await page.evaluate(() => window.__copied || '')
   check('第一张卡复制 = 第一版（per-card）', copy1.includes('format-md') && !copy1.includes('prettier'))
@@ -212,23 +216,23 @@ try {
     return errs.length ? errs[errs.length - 1].textContent : ''
   })
   check('未配置 Key 明确提示（⚙ 模型）', dErr.includes('未配置 API Key') && dErr.includes('⚙ 模型'), dErr)
-  check('未配置 Key 不向 C# 发请求', (await page2.evaluate(() => window.__capturedAi.length)) === 0)
+  check('未配置 Key 不向 C# 发 AI 请求', (await page2.evaluate(() => window.__capturedAi.filter((m) => String(m).indexOf('ai:') === 0).length)) === 0)
   check('未配置 Key 后发送恢复可用', await page2.$eval('#composeBtn', (el) => !el.disabled))
   await page2.close()
 
   console.log('== E. 刷新（EXE 重新注入）后恢复与按钮可用 ==')
   await page.reload({ waitUntil: 'networkidle2' })
-  await page.click('#nav button[data-view="ai"]')
+  await page.evaluate(() => switchView('ai'))
   await new Promise((r) => setTimeout(r, 500))
   await page.evaluate(injectWith(mockCfg)) // 导航完成后 C# 再注入一次
   const restoredCards = (await page.$$('.ai-pack-card')).length
   check('刷新后产物卡恢复 ×2', restoredCards === 2, `cards=${restoredCards}`)
   const impBefore = await page.evaluate(() => (typeof state !== 'undefined' ? state.imported.length : -1))
-  await page.$$eval('.ai-pack-card #importAiPack', (els) => els[0].click())
+  await page.$$eval('.ai-pack-card .ai-act-import', (els) => els[0].click())
   await new Promise((r) => setTimeout(r, 300))
   const impAfter = await page.evaluate(() => (typeof state !== 'undefined' ? state.imported.length : -1))
   check('刷新后一键导入仍可用（per-card 持久化）', impAfter === impBefore + 1, `${impBefore} → ${impAfter}`)
-  await page.$$eval('.ai-pack-card #copyManifest', (els) => els[0].click())
+  await page.$$eval('.ai-pack-card .ai-act-copy-manifest', (els) => els[0].click())
   await new Promise((r) => setTimeout(r, 300))
   const copyR = await page.evaluate(() => window.__copied || '')
   check('刷新后复制第一张卡 = 第一版', copyR.includes('format-md') && !copyR.includes('prettier'))
