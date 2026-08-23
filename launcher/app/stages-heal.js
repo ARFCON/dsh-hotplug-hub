@@ -15,7 +15,8 @@ async function stageHeal(core, state, args) {
   // C3 修复（幻影自愈）：只分类最近一次启动（state.launch.lastStart）之后的日志行，
   // 陈旧故障行不再触发自愈动作（手册 P3 观察项落地）。
   const since = state.launch && state.launch.lastStart ? Date.parse(state.launch.lastStart) : 0;
-  const recentEntries = (Number.isNaN(since) ? runLog.list() : runLog.list().filter((e) => {
+  const entries = runLog.list();
+  const recentEntries = (Number.isNaN(since) ? entries : entries.filter((e) => {
     const et = e.t ? Date.parse(e.t) : NaN;
     return Number.isNaN(et) || et >= since;
   }));
@@ -63,8 +64,8 @@ async function stageHeal(core, state, args) {
 }
 
 // FIX-16/17：heal 上下文（quarantine 写 quarantined；onMirror 镜像重试）
-// C3 修复：quarantine 支持指定目标插件（disable-recent 需要禁用"最近变更插件"，
-// 而非无差别隔离最后一个）。
+// C3 修复：quarantine 支持指定目标插件（disable-recent 显式传入"解析序末位"插件，
+// 而非依赖 quarantine 的缺省末位逻辑——两者目标一致但路径显式、可测试）。
 function buildHealContext(core, state, id, profileDir) {
   // C6 修复：heal 上下文只含未被隔离的插件——INSTALL_FAIL 重装/LINK_FAIL 重建等
   // 动作不得把已隔离插件装回来（quarantine 消费一致性）。
@@ -82,9 +83,19 @@ function buildHealContext(core, state, id, profileDir) {
       return { ok: true };
     },
     onMirror: async (mirror) => {
-      const gh = plugins.find((p) => p.source && p.source.type === 'github');
-      if (!gh) return { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', '无 github 源插件可重试') };
-      return core.infra.install.installGithubPluginWithMirror(core, gh, profileDir, mirror);
+      // GITHUB_ACQUIRE_FAIL：重试所有"未落地"的 github 源插件（此前只克隆首个 github
+      // 插件，非首个失败时 verify 恒失败 → 假自愈）。已落地的跳过（幂等且省流量）。
+      const githubs = plugins.filter((p) => p.source && p.source.type === 'github');
+      if (githubs.length === 0) return { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', '无 github 源插件可重试') };
+      const fsPort = core.ports.fs;
+      const missing = githubs.filter((p) => !fsPort.existsSync(path.join(profileDir, 'node_modules', p.name, 'package.json')));
+      if (missing.length === 0) return { ok: true };
+      let lastErr = null;
+      for (const gh of missing) {
+        const r = await core.infra.install.installGithubPluginWithMirror(core, gh, profileDir, mirror);
+        if (!r.ok) { lastErr = r.error; break; }
+      }
+      return lastErr ? { ok: false, error: lastErr } : { ok: true };
     }
   };
 }

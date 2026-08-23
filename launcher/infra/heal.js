@@ -46,10 +46,12 @@ async function runHeal(core, actions, ctx, opts = {}) {
       const verify = await verifyAction(core, action, ctx);
       if (!verify.ok) {
         history.push({ at, code: action.code, action: action.code, verified: false, error: verify.error.message });
-        await rollbackAction(core, action, ctx);
+        // 自愈审计修复：回滚失败在此前被忽略（verify 失败路径仍继续重试），
+        // 回滚失败意味着当前状态已不可信，须与 exec 失败路径一致地视为终止。
+        const rb = await rollbackAction(core, action, ctx);
         retries += 1;
-        if (retries >= action.budget) {
-          return { ok: false, error: makeError('ERR_HEAL_BUDGET', `${action.code} 验证失败且重试超过预算（${action.budget}）`), result: { history } };
+        if (!rb.ok || retries >= action.budget) {
+          return { ok: false, error: makeError('ERR_HEAL_BUDGET', `${action.code} 验证失败且（回滚失败或重试超过预算 ${action.budget}）`), result: { history } };
         }
         continue;
       }

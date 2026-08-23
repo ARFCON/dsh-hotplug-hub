@@ -126,8 +126,10 @@ async function verifyAction(core, action, ctx) {
  * @returns {Promise<{ok: boolean, error?: Error}>}
  */
 async function rollbackAction(core, action, ctx) {
-  // 参考实现：回滚统一走快照恢复（若有）
-  if (action.rollback && action.rollback !== '恢复原 bundles 列表' && ctx.state && ctx.state.rollback && ctx.state.rollback.snapshot) {
+  // 参考实现：回滚统一走快照恢复（若有）。
+  // BUNDLE_MISCLASSIFY 的回滚是"恢复原 bundles 列表"（无快照语义），恒不做快照回滚；
+  // 按 action.code 判定（此前按 rollback 中文文案魔法字符串判定，文案一变即脱钩）。
+  if (action.code !== 'BUNDLE_MISCLASSIFY' && action.rollback && ctx.state && ctx.state.rollback && ctx.state.rollback.snapshot) {
     const { restoreSnapshot } = require('./snapshot');
     const r = restoreSnapshot(core.ports.fs, ctx.state.rollback.snapshot, ctx.profile);
     if (!r.ok) return { ok: false, error: makeError('ERR_HEAL_ROLLBACK', `回滚失败：${r.error.message}`) };

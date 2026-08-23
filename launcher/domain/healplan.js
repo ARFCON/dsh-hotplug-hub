@@ -50,7 +50,10 @@ const ACTIONS = {
   VERSION_CONFLICT: {
     code: 'VERSION_CONFLICT',
     trigger: '解析期 semver 冲突',
-    steps: [{ type: 'pin-compatible' }, { type: 'quarantine' }],
+    // 自愈审计修复：去掉 `quarantine` 步骤——executeAction 顺序执行且失败即返回，
+    // 使 quarantine 只在 pin-compatible 成功后运行（误隔离健康插件），而 pin-compatible
+    // 失败时永不运行（隔离冲突插件的本意落空）。重 pin 成功即无冲突，失败即诚实报错。
+    steps: [{ type: 'pin-compatible' }],
     verify: '重跑 resolve 无冲突',
     rollback: '恢复原 pin',
     budget: 2
@@ -59,7 +62,8 @@ const ACTIONS = {
     code: 'CRASH_LOOP',
     trigger: `启动后连续 ${CRASH_LOOP_THRESHOLD} 次非零退出`,
     steps: [{ type: 'rollback-snapshot' }, { type: 'disable-recent' }],
-    verify: '重启后存活时间显著增加',
+    // heal 不重启进程，故"存活时长"由下次 launch 验证；此处以"计数已重置"作为完成判据。
+    verify: '最近退出码/计数已重置（回滚+禁用后 fresh start）',
     rollback: '恢复被禁用插件',
     budget: 2
   },
@@ -74,10 +78,13 @@ const ACTIONS = {
   REGISTRY_UNAVAILABLE: {
     code: 'REGISTRY_UNAVAILABLE',
     trigger: 'registry 连接失败/超时',
-    steps: [{ type: 'mirror-retry', mirrors: GITHUB_MIRRORS }],
+    // 自愈审计修复：registry（npm）故障用 registry 探测重试，而非 mirror-retry
+    // （github 镜像克隆）——此前治 npm 故障却克隆 github 插件，语义错位且无 github
+    // 插件时恒失败。
+    steps: [{ type: 'reprobe-registry' }],
     verify: 'registry 探测成功',
-    rollback: '恢复原 registry 配置',
-    budget: GITHUB_MIRRORS.length
+    rollback: '无（只读探测）',
+    budget: DEFAULT_RETRY_BUDGET
   },
   HARNESS_FIX: {
     code: 'HARNESS_FIX',

@@ -28,8 +28,8 @@ async function executeAction(core, action, ctx) {
         break;
       }
       case 'disable-recent': {
-        // CRASH_LOOP 的实质修复步骤：禁用最近一次变更的插件
-        // （隔离进 state.heal.quarantined，由 quarantine 回调持久化）。
+        // CRASH_LOOP 的实质修复步骤：禁用"解析序末位"插件（无变更时间元数据时的
+        // 启发式近似"最近变更"；隔离进 state.heal.quarantined，由 quarantine 回调持久化）。
         const targets = ctx.plugins || [];
         const target = targets.length > 0 ? targets[targets.length - 1].name : null;
         if (!target) {
@@ -173,6 +173,22 @@ async function executeAction(core, action, ctx) {
           r = { ok: false, error: makeError('ERR_HARNESS_NOT_FOUND', `重新探测 harness 失败：${probe.error.message}`) };
         } else {
           r = { ok: true, result: { harness: probe.harness } };
+        }
+        break;
+      }
+      case 'reprobe-registry': {
+        // REGISTRY_UNAVAILABLE：重试 registry 探测（npm registry 故障用探测重试，
+        // 而非 github 镜像克隆；预算重试由 runHeal 编排）。
+        const reg = core.ports && core.ports.registry;
+        if (reg && typeof reg.availableVersions === 'function') {
+          try {
+            reg.availableVersions('__probe__');
+            r = { ok: true };
+          } catch (e) {
+            r = { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', `registry 探测失败：${e.message}`) };
+          }
+        } else {
+          r = { ok: true }; // 无 registry 端口（空实现）视为可用（与 verifyAction 语义一致）
         }
         break;
       }

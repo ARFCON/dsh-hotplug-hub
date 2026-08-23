@@ -176,7 +176,7 @@ describe('app/stages-heal.js buildHealContext', () => {
     const gh = { name: 'g', source: { type: 'github', ref: 'main' } };
     const state = { heal: {}, resolved: { plugins: [gh, { name: 'a', source: { type: 'npm' } }] } };
     const install = { installGithubPluginWithMirror: vi.fn(async () => ({ ok: true, channel: 'github', mirror: 'https://m' })) };
-    const core = { infra: { install } };
+    const core = { infra: { install }, ports: { fs: fsPort } };
     const c = buildHealContext(core, state, 'demo', '/p');
     const r = await c.onMirror('https://m');
     expect(r.ok).toBe(true);

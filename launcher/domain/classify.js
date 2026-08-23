@@ -5,6 +5,11 @@
 // 只接受结构化信号 {kind, ...}，且 stderr/log 规则全部锚定行首 Error: 前缀。
 const { GITHUB_MIRRORS, CRASH_LOOP_THRESHOLD } = require('../contracts/constants');
 
+// UTF-8 损坏信号的机器可识别标记（monitor/stages 写入 run.jsonl error 流时携带；
+// classify 据此识别——与 U+FFFD 内容检测互补，同一真源，杜绝"检测到却不识别"脱钩）。
+// 带方括号以区别于用户日志中普通提及 "UTF8_CORRUPTION" 词的情形。
+const UTF8_CORRUPTION_MARKER = '[UTF8_CORRUPTION]';
+
 // stderr 错误行规则：全部锚定 /^Error:/ 前缀，杜绝 INFO/AUTH/401 等正常内容误报
 const STREAM_RULES = [
   {
@@ -39,6 +44,11 @@ const STREAM_RULES = [
       /^remote:\s*Repository not found/.test(line)
   }
 ];
+
+/** 是否为 UTF-8 损坏信号（机器标记或 U+FFFD 替换符）。 */
+function isCorruptionLine(line) {
+  return line.includes(UTF8_CORRUPTION_MARKER) || line.includes('\uFFFD');
+}
 
 /**
  * 结构化信号分类。
@@ -77,6 +87,11 @@ function classifySignal(signal) {
     }
     case 'stderr': {
       const line = String(signal.line || '');
+      // 审计修复：stderr 输出含 U+FFFD 同样触发 UTF8_CORRUPTION（此前仅 error 流
+      // 检测，子进程自身输出损坏字节到 stderr 时被漏判）。
+      if (isCorruptionLine(line)) {
+        return { code: 'ERR_LOG_WRITE', action: 'UTF8_CORRUPTION', suggest: '检测到 UTF-8 损坏（U+FFFD），重新解码或重建产物' };
+      }
       for (const rule of STREAM_RULES) {
         if (rule.test(line)) return { code: rule.code, action: rule.action, suggest: rule.suggest };
       }
@@ -85,7 +100,7 @@ function classifySignal(signal) {
     case 'log': {
       if (signal.severity !== 'error') return null;
       const line = String(signal.message || '');
-      if (line.includes('\uFFFD')) {
+      if (isCorruptionLine(line)) {
         return { code: 'ERR_LOG_WRITE', action: 'UTF8_CORRUPTION', suggest: '检测到 UTF-8 损坏（U+FFFD），重新解码或重建产物' };
       }
       for (const rule of STREAM_RULES) {
@@ -142,6 +157,15 @@ function classifyStateSignals(state) {
   const out = [];
   const launch = state && state.launch;
   if (!launch) return out;
+  // HARNESS_FIX/INSTALL_FAIL 可达性（契约统一）：spawn 失败（ERR_LAUNCH_SPAWN 的
+  // 底层 code）此前不落 state，heal 无法分类——stageLaunch 失败路径现持久化
+  // launch.spawnCode，此处复用 classifySignal 的 spawn-error 分支，使 HARNESS_FIX
+  // 动作从真实信号可达（ENOENT=harness 缺失，EACCES/EPERM=权限不足）。
+  if (launch.spawnCode) {
+    const cls = classifySignal({ kind: 'spawn-error', err: { code: launch.spawnCode, message: launch.spawnCode } });
+    if (cls) out.push(cls);
+    return out; // spawn 失败与崩溃循环互斥：无退出码，不应叠加 CRASH_LOOP
+  }
   const lastExit = launch.lastExit;
   if (lastExit === null || lastExit === undefined) return out; // detach 存活中，无信号
   if (lastExit !== 0 && (launch.retries || 0) >= CRASH_LOOP_THRESHOLD) {
@@ -154,4 +178,4 @@ function classifyStateSignals(state) {
   return out;
 }
 
-module.exports = { classifySignal, classifyEntries, classifyStateSignals, STREAM_RULES };
+module.exports = { classifySignal, classifyEntries, classifyStateSignals, STREAM_RULES, UTF8_CORRUPTION_MARKER };
