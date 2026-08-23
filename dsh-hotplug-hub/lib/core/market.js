@@ -11,7 +11,7 @@
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import {
-  MARKET_CACHE_FILE, MARKET_DETAIL_CACHE_FILE, MARKET_DETAIL_CONCURRENCY, MARKET_FILE_BUDGET_MS,
+  MARKET_CACHE_FILE, MARKET_DETAIL_CACHE_FILE, MARKET_FILE_BUDGET_MS,
   MARKET_FILE_TIMEOUT_MS, MARKET_PAGE_SIZE, MARKET_PACK_CANDIDATES, MARKET_README_CANDIDATES,
   MARKET_TIMEOUT_MS, SOURCE_GITHUB, GITHUB_MIRRORS, VERSION, IS_WIN, CURL_BIN,
 } from './paths.js'
@@ -30,11 +30,47 @@ export function sanitizeTopic(topic) {
   return tokens.join(' ')
 }
 
+/**
+ * 按「码点」截断字符串（审计修复）：`String.slice` 按 UTF-16 码元截断，会在代理对
+ * （emoji 等增补平面字符）中间劈开，产生孤立高代理；随后 encodeURIComponent 对孤立
+ * 代理抛 URIError，市场搜索（marketList）被用户查询词击穿崩溃。此处以码点为界，
+ * 截断点永不落在代理对中间。
+ * @param {string} s
+ * @param {number} max 最大码点数
+ * @returns {string}
+ */
+export function truncateCodePoints(s, max) {
+  const str = String(s ?? '')
+  if (str.length <= max) return str
+  let end = 0
+  let count = 0
+  while (end < str.length && count < max) {
+    const c = str.charCodeAt(end)
+    end += (c >= 0xd800 && c <= 0xdbff && end + 1 < str.length) ? 2 : 1
+    count += 1
+  }
+  return str.slice(0, end)
+}
+
+/**
+ * 把孤立代理替换为 U+FFFD（审计修复）：截断只防「劈开」合法代理对，无法处理输入里
+ * 已存在的孤立高/低代理——encodeURIComponent 仍会对孤立代理抛 URIError。Node 18 无
+ * String.prototype.toWellFormed，故用等价正则（高代理后无低代理、低代理前无高代理）。
+ * @param {string} s
+ * @returns {string} 无孤立代理的良构字符串
+ */
+export function toWellFormed(s) {
+  return String(s ?? '').replace(
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+    '\uFFFD'
+  )
+}
+
 export function sanitizeMarketParams(params) {
   const p = params && typeof params === 'object' ? params : {}
   const topic = sanitizeTopic(p.topic ?? 'dsh-plugin')
   if (topic === null) return { ok: false, error: 'topic 只能是标签字符串（字母数字 . _ -，最长 32 字符，最多 4 个，逗号/空格分隔）' }
-  const q = typeof p.q === 'string' ? p.q.trim().slice(0, 80) : ''
+  const q = typeof p.q === 'string' ? truncateCodePoints(toWellFormed(p.q.trim()), 80) : ''
   const page = Math.min(Math.max(parseInt(String(p.page), 10) || 1, 1), 10)
   // 多选来源：sources = ['github', 'ghfast.top', 'gh-proxy.com', ...]；兼容旧单值 source(auto/github/mirror)
   const mirrorHosts = new Set(GITHUB_MIRRORS.map((m) => m.replace(/^https?:\/\//, '').replace(/\/+$/, '')))
@@ -77,6 +113,11 @@ export async function httpGet(url, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders =
   }
   const args = ['-fsSL', '--max-time', String(Math.ceil(timeoutMs / 1000)), '--retry', '1']
   if (IS_WIN) args.splice(1, 0, '--ssl-no-revoke')
+  // 审计修复：curl 兜底此前丢弃 extraHeaders（如搜索 API 的 Accept 头）与自定义 UA，
+  // 与 fetch 分支行为不一致；现透传（header 值为常量/白名单，无用户输入，无注入面）。
+  for (const [k, v] of Object.entries(headers)) {
+    args.push('-H', `${k}: ${v}`)
+  }
   args.push(url)
   const result = await runCli(CURL_BIN, args, timeoutMs + 5000, { cwd: tmpdir() })
   if (result.code === 0 && result.stdout !== '') return { ok: true, status: 200, text: result.stdout }
@@ -223,7 +264,7 @@ export function looksLikeNav(para) {
 }
 
 export function extractIntro(readmeText) {
-  const text = String(readmeText ?? '').replace(/^\uFEFF/, '')
+  const text = String(readmeText ?? '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
   const body = text.replace(/^#{1,6}\s+.*$/m, '').trim()
   const paras = body.split(/\n\s*\n/).map((s) => s.trim()).filter((s) => s !== '')
   const clean = (p) => p
@@ -245,7 +286,8 @@ export function extractIntro(readmeText) {
 }
 
 export function extractInstall(readmeText) {
-  const text = String(readmeText ?? '')
+  // 审计修复：CRLF 归一化为 LF——此前 split('\n') 后每行残留 '\r'，安装块输出含 \r\n。
+  const text = String(readmeText ?? '').replace(/\r\n/g, '\n')
   const lines = text.split('\n')
   const headingRe = /^#{2,4}\s*(安装|安装方法|安装与使用|Installation|Quick Start|快速开始|使用|Usage|Getting Started)/i
   const start = lines.findIndex((line) => headingRe.test(line))
@@ -330,7 +372,7 @@ export async function fetchRepoDetailFiles(repo, ref, sources) {
     pkgResTask,
     readmeScanTask,
   ])
-  return { alive: true, packScan, pkgRes, readmeScan }
+  return { packScan, pkgRes, readmeScan }
 }
 
 export function applyRepoDetailFiles(entry, files, repo, ref) {
@@ -399,11 +441,9 @@ export async function fetchRepoDetail(repo, ref, meta, sources) {
     manifest: null,
   }
   const files = await fetchRepoDetailFiles(repo, ref, sources)
-  if (!files.alive) {
-    entry.importable = false
-    entry.importError = '仓库不存在或已被删除/改名'
-    return entry
-  }
+  // 审计修复：删除死代码——fetchRepoDetailFiles 恒返回 {packScan,pkgRes,readmeScan}，
+  // 曾经的 alive 存活探测（v0.9.7 已移除）遗留 `if (!files.alive)` 恒为 false；
+  // 仓库不存在的真实判定由 applyRepoDetailFiles 兜底（无清单 → importable:false）。
   applyRepoDetailFiles(entry, files, repo, ref)
   return entry
 }
