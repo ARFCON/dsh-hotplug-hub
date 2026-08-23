@@ -184,12 +184,17 @@ namespace DSHHotplugHub
             }
         }
 
-        /// <summary>释放补丁锁（校验 token pid == 自己）。</summary>
+        /// <summary>释放补丁锁（校验 token pid == 自己；仅当拥有该锁时才删除锁文件）。
+        /// m7（安全审计）：此前把 File.Delete 放在 finally 里，导致"拒绝释放他人锁"
+        /// 的 return 分支仍会执行删除——进程 A 的陈旧锁被 B 接管后，A 若再调用本方法
+        /// 会误删 B 的有效锁，破坏跨进程互斥。现改为：token pid 不匹配时仅关闭自己
+        /// 的 fd，绝不删除锁文件（与 JS releaseLock 的"不匹配即拒绝 unlink"一致）。</summary>
         public static void ReleasePatchLock(FileStream handle, string profileDir)
         {
+            string lockPath = PatchLockPath(profileDir);
+            bool refuse = false;
             try
             {
-                string lockPath = PatchLockPath(profileDir);
                 if (File.Exists(lockPath))
                 {
                     string token = ReadTokenText(lockPath);
@@ -198,15 +203,15 @@ namespace DSHHotplugHub
                     {
                         int pid;
                         if (int.TryParse(parts[0].Trim(), out pid) && pid != Process.GetCurrentProcess().Id)
-                            return; // token pid 不匹配：拒绝释放他人锁
+                            refuse = true; // token pid 不匹配：拒绝释放他人锁
                     }
                 }
             }
             catch { /* 读取失败按可释放处理 */ }
-            finally
+            try { if (handle != null) handle.Close(); } catch { }
+            if (!refuse)
             {
-                try { if (handle != null) handle.Close(); } catch { }
-                try { File.Delete(PatchLockPath(profileDir)); } catch { }
+                try { File.Delete(lockPath); } catch { }
             }
         }
 
