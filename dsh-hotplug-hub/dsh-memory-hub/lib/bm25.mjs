@@ -153,7 +153,8 @@ export function freshnessOf(entry) {
   const days = (Date.now() - ref) / 86_400_000
   if (days <= window.fresh) return 'fresh'
   if (days <= window.current) return 'stale'
-  return 'stale'
+  // 超出 current 窗口：三档模型（fresh/stale/expired）里的过期档——recall 硬排除。
+  return 'expired'
 }
 
 function freshnessWindow(entry) {
