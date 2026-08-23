@@ -17,6 +17,42 @@ const stateMachine = require('../contracts/state-machine');
 
 const VALID_PHASES = new Set(Object.keys(stateMachine.STATES));
 
+// Windows 防病毒/过滤驱动可能瞬时占用刚重命名落盘的文件，readFileSync 抛以下
+// 错误码属瞬态（EPERM/EACCES/EBUSY/EAGAIN/EINTR），应重试而非误判"state 损坏"。
+const TRANSIENT_READ_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EAGAIN', 'EINTR']);
+
+function sleepSync(ms) {
+  // 主线程同步睡眠（Atomics.wait 在 Node 主线程可用，与 fs/lock.js 同源语义）
+  const arr = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(arr, 0, 0, ms);
+}
+
+/**
+ * 有界重试读取文件（仅针对瞬态 IO 错误码；确定性失败立即抛出，绝不掩盖）。
+ * @param {object} fsPort fs 端口
+ * @param {string} file 文件路径
+ * @param {string} [encoding] 编码（默认 utf8）
+ * @param {object} [opts]
+ * @param {number} [opts.maxAttempts] 最大尝试次数（默认 5）
+ * @param {number} [opts.baseDelayMs] 首次重试退避基数（默认 10ms，线性递增）
+ * @returns {string|Buffer} 文件内容
+ */
+function readFileSyncRetry(fsPort, file, encoding, opts = {}) {
+  const maxAttempts = opts.maxAttempts === undefined ? 5 : opts.maxAttempts;
+  const baseDelayMs = opts.baseDelayMs === undefined ? 10 : opts.baseDelayMs;
+  let lastErr;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      return fsPort.readFileSync(file, encoding);
+    } catch (e) {
+      lastErr = e;
+      if (!TRANSIENT_READ_CODES.has(e.code)) throw e;
+      if (i < maxAttempts - 1) sleepSync(baseDelayMs * (i + 1));
+    }
+  }
+  throw lastErr;
+}
+
 /**
  * 创建空 state。
  * @param {string} id
@@ -46,7 +82,7 @@ function readState(fsPort, stateFile) {
   if (!fsPort.existsSync(stateFile)) return { ok: true, state: null };
   let raw;
   try {
-    raw = JSON.parse(fsPort.readFileSync(stateFile, 'utf8'));
+    raw = JSON.parse(readFileSyncRetry(fsPort, stateFile, 'utf8'));
   } catch (e) {
     return { ok: false, error: makeError('ERR_ENV_UNSUPPORTED', `state.json 损坏：${e.message}`, { cause: e }) };
   }
