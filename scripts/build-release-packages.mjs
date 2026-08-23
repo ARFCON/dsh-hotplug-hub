@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..')
-const version = '1.0.3'
+const version = '1.0.1'
 const releaseDir = join(root, 'release')
 const distDir = join(releaseDir, 'dist')
 const uiFile = join(root, 'dsh-hotplug-hub', 'dsh-pack-hub', 'prototype.html')
