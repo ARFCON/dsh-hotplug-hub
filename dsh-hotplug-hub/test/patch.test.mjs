@@ -1,10 +1,10 @@
 // test/patch.test.mjs — patch 分节合并（R-v5-12）/ 四写者锁 / patch id 统一 / 挂载对称性（H-9）
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, lstatSync } from 'node:fs'
 import {
   patchInstanceId, patchMarker, buildPatchBlock, appendPatchBlock, removePatchBlock,
-  mountPack, unmountPack, patchLockPath,
+  mountPack, unmountPack, patchLockPath, linkEntryIntoProfile,
 } from '../lib/core/patch.js'
 import { applyIsolatedEnv, isolatedDsh, samplePack } from './helpers.mjs'
 
@@ -136,5 +136,44 @@ describe('mountPack / unmountPack 对称回滚（H-9，path 源，零 spawn）',
     const manifest = JSON.parse(readFileSync(join(iso.profile, 'package.json'), 'utf8'))
     expect(manifest.dependencies?.['pkg-ok']).toBeUndefined()
     expect(existsSync(join(iso.profile, 'node_modules', 'pkg-ok'))).toBe(false)
+  })
+
+  it('挂载失败回滚不误删 reused 的预存 npm 依赖（审计修复：只撤本次新装的包）', async () => {
+    // 预置 profile 既有依赖 foo@1.0.0（node_modules + manifest.dependencies 均存在）
+    const fooDir = join(iso.profile, 'node_modules', 'foo')
+    mkdirSync(fooDir, { recursive: true })
+    writeFileSync(join(fooDir, 'package.json'), JSON.stringify({ name: 'foo', version: '1.0.0' }))
+    const manifest = JSON.parse(readFileSync(join(iso.profile, 'package.json'), 'utf8'))
+    manifest.dependencies = { foo: '1.0.0' }
+    writeFileSync(join(iso.profile, 'package.json'), JSON.stringify(manifest, null, 2))
+    // pack：foo（npm，将 reused）+ bad（path 缺失 → 失败）
+    const pack = {
+      hotpack: '1.0', id: 'pack.b', name: 'B', version: '1.0.0',
+      plugins: [
+        { id: 'a', name: 'foo', source: { type: 'npm' }, version: '1.0.0', config: {} },
+        { id: 'bad', name: 'pkg-bad', source: { type: 'path', path: join(iso.dshHome, 'nope') }, config: {} },
+      ],
+    }
+    const m = await mountPack(pack)
+    expect(m.ok).toBe(false)
+    expect(m.steps[0].status).toBe('reused')
+    // reused 的 foo 不得被回滚删除（此前 unmountPack 会把 dependencies 里的 foo 一并 pnpm remove）
+    expect(existsSync(join(fooDir, 'package.json'))).toBe(true)
+    expect(JSON.parse(readFileSync(join(iso.profile, 'package.json'), 'utf8')).dependencies.foo).toBe('1.0.0')
+  })
+
+  it('linkEntryIntoProfile：真实目录占用 link 路径时先移除再建 junction（审计修复）', () => {
+    const target = join(iso.dshHome, 'plugin-src', 'pkg-b')
+    mkdirSync(target, { recursive: true })
+    writeFileSync(join(target, 'package.json'), JSON.stringify({ name: 'pkg-b', version: '1.0.0' }))
+    const linkPath = join(iso.profile, 'node_modules', 'pkg-b')
+    // 预置真实目录（非符号链接）占用 link 路径
+    mkdirSync(linkPath, { recursive: true })
+    writeFileSync(join(linkPath, 'package.json'), JSON.stringify({ name: 'pkg-b', version: '9.9.9' }))
+    const r = linkEntryIntoProfile({ name: 'pkg-b', source: { type: 'path', path: target } })
+    expect(r.ok).toBe(true)
+    // 旧真实目录被替换为 junction，指向 target
+    expect(lstatSync(linkPath).isSymbolicLink()).toBe(true)
+    expect(JSON.parse(readFileSync(join(linkPath, 'package.json'), 'utf8')).version).toBe('1.0.0')
   })
 })

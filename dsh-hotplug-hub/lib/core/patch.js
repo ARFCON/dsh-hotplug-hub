@@ -135,10 +135,15 @@ export function linkEntryIntoProfile(entry) {
   manifest.dependencies[entry.name] = `link:${target.replace(/\\/g, '/')}`
   writeJsonSafe(manifestPath(), manifest)
   const linkPath = npmModuleDir(entry.name)
-  if (!existsSync(linkPath)) {
-    mkdirSync(dirname(linkPath), { recursive: true })
-    symlinkSync(target, linkPath, 'junction')
-  }
+  // 审计修复：link 路径已存在真实目录（如残留 npm 包）时先移除再建 junction——
+  // 否则 manifest 声明 link: 但 node_modules 仍是旧真实目录，二者不一致却返回 ok。
+  // 符号链接只删链接自身（rmSync 不跟随），真实目录递归删除；不存在则忽略。
+  try {
+    if (lstatSync(linkPath).isSymbolicLink()) rmSync(linkPath, { force: true })
+    else rmSync(linkPath, { recursive: true, force: true })
+  } catch { /* linkPath 不存在（首次挂载）或不可删，忽略 */ }
+  mkdirSync(dirname(linkPath), { recursive: true })
+  symlinkSync(target, linkPath, 'junction')
   return { ok: true }
 }
 
@@ -215,25 +220,46 @@ export async function unmountPack(pack) {
 }
 
 /**
- * 回滚一次失败的挂载：以 unmountPack 作为逆操作（link / bundles / patch / npm 全撤销）。
- * 只撤销已写入的部分——unmountPack 各项均为"存在才移除"的幂等语义，故半挂载安全。
+ * 回滚一次失败的挂载：只撤销「本次挂载」写入的部分（patch 块 / bundles / link 依赖
+ * / junction / 本次新下载或替换的 npm 包）。审计修复：此前直接复用 unmountPack——
+ * unmountPack 会 `pnpm remove` 所有在 manifest.dependencies 里的 npm 插件名，把
+ * ensureNpm 判定为 reused（挂载前已存在的 profile 依赖）的包也一并删掉，回滚反而
+ * 破坏了既有状态；现只撤销 freshlyInstalled（status != 'reused' 的 npm 包名）。
  * @param {object} pack
+ * @param {string[]} freshlyInstalled 本次挂载新下载/替换的 npm 包名
  */
-async function rollbackMount(pack) {
-  try { await unmountPack(pack) } catch { /* 回滚失败不覆盖主错误（尽力而为） */ }
+async function rollbackMount(pack, freshlyInstalled = []) {
+  try {
+    removePatchBlock(pack.id)
+    removeBundles(bundlePkgNames(pack))
+    const manifest = readJson(manifestPath())
+    if (manifest !== null) {
+      let changed = false
+      for (const entry of pack.plugins.filter((item) => item.source.type !== 'npm')) {
+        changed = unlinkEntryFromProfile(entry, manifest) || changed
+      }
+      if (changed) writeJsonSafe(manifestPath(), manifest)
+    }
+    if (freshlyInstalled.length > 0) {
+      await runCli('pnpm', ['remove', ...freshlyInstalled], ENSURE_TIMEOUT_MS)
+    }
+  } catch { /* 回滚失败不覆盖主错误（尽力而为） */ }
 }
 
 export async function mountPack(pack) {
   const steps = []
+  // 本次挂载新下载/替换的 npm 包名（reused 不计入——回滚不得误删挂载前既有依赖）
+  const freshlyInstalled = []
   // 审计修复：挂载失败统一回滚（此前 gateway 只撤 patch+bundles，link: 依赖/junction
   // 与 ensureNpm 装入的 npm 包残留，形成半挂载）。现在 mount = 全有或全无。
   const fail = async (error) => {
-    await rollbackMount(pack)
+    await rollbackMount(pack, freshlyInstalled)
     return { ok: false, error, steps }
   }
   for (const entry of pack.plugins) {
     const ensured = await ensureEntry(entry)
     if (!ensured.ok) return fail(ensured.error)
+    if (entry.source.type === 'npm' && ensured.status !== 'reused') freshlyInstalled.push(entry.name)
     steps.push({ id: entry.id, name: entry.name, status: ensured.status, detail: ensured.detail })
   }
   const manifest = readJson(manifestPath())

@@ -16,8 +16,23 @@ import { runCli, tail } from './run-cli.js'
 export function npmModuleDir(pkgName) {
   return join(profileDir(), 'node_modules', ...pkgName.split('/'))
 }
+
+/**
+ * 把含 '/' 的 ref（H-10 起允许 feature/x）编码为单段文件名，避免与 `<name>@<ref>`
+ * 平铺键拼出层级目录：ref 'feature' 与 'feature/x' 若原样拼进路径会形成父子目录，
+ * ensureGithub 的 rmSync(dest, {recursive:true}) 会连带删除兄弟 ref 的缓存（数据丢失）。
+ * '%' 不在 name（PLUGIN_NAME_RE）与 ref（validateSourceRef 字符集 [0-9A-Za-z._-/]）中，
+ * 故 '%2F' 编码无碰撞、可逆；scoped 插件名 '@scope/name' 的 '/' 同理编码，保证
+ * store 键恒为单段（裸 '@scope' 永不成为缓存目标，纯父目录不会造成数据丢失）。
+ * @param {string} token name 或 ref（可能含 '/'）
+ * @returns {string} 单段安全文件名
+ */
+export function storeKeySegment(token) {
+  return String(token ?? '').replace(/\//g, '%2F')
+}
+
 export function storeDirOf(entry) {
-  if (entry.source.type === 'github') return join(storeRoot(), `${entry.name}@${entry.source.ref}`)
+  if (entry.source.type === 'github') return join(storeRoot(), `${storeKeySegment(entry.name)}@${storeKeySegment(entry.source.ref)}`)
   if (entry.source.type === 'path') return entry.source.path
   return npmModuleDir(entry.name)
 }
@@ -32,7 +47,9 @@ export function innerPackageName(dir) {
 
 export async function ensureNpm(entry) {
   const current = installedVersion(entry.name)
-  if (current === entry.version) {
+  // 审计修复：reused 判定补齐包名校验（与 ensurePath/ensureGithub 一致）——只比对版本
+  // 会放过 node_modules/<name> 下包名被篡改/串包但版本巧合相同的残留包，直接复用。
+  if (current === entry.version && innerPackageName(npmModuleDir(entry.name)) === entry.name) {
     return { ok: true, status: 'reused', path: npmModuleDir(entry.name), detail: `profile 已有 ${entry.name}@${entry.version}，直接调用` }
   }
   const spec = `${entry.name}@${entry.version}`
@@ -46,7 +63,11 @@ export async function ensureNpm(entry) {
   if (result.code === 0 && after === entry.version) {
     return { ok: true, status: current === null ? 'downloaded' : 'replaced', path: npmModuleDir(entry.name), detail: `pnpm add ${spec} 完成` }
   }
-  return { ok: false, status: 'error', error: `pnpm add ${spec} 失败（exit ${result.code}）：${tail(result.stderr || result.stdout)}` }
+  // 审计修复：区分「pnpm 退出非 0」与「退出 0 但版本不符」——后者此前误报「失败（exit 0）」。
+  const reason = result.code === 0
+    ? `pnpm add ${spec} 未得到预期版本（期望 ${entry.version}，实际 ${after ?? '无 package.json/version'}）`
+    : `pnpm add ${spec} 失败（exit ${result.code}）：${tail(result.stderr || result.stdout)}`
+  return { ok: false, status: 'error', error: reason }
 }
 
 export async function ensurePath(entry) {

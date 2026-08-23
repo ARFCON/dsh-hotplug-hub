@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { normalizeRpc } from '../lib/gateway.js'
 import { parseHotpack } from '../lib/core/hotpack.js'
-import { saveSession, loadSession, sessionsDir } from '../lib/core/ai-session.js'
+import { saveSession, loadSession, sessionsDir, sessionPath, deleteSession } from '../lib/core/ai-session.js'
 import { statusSync } from '../lib/core/status.js'
 import { applyIsolatedEnv, isolatedDsh } from './helpers.mjs'
 
@@ -69,6 +69,23 @@ describe('core/ai-session.saveSession：统一原子写（审计修复）', () =
     expect(loaded.messages[0].content).toBe('v2')
     expect(loaded.turn).toBe(2)
     expect(readdirSync(sessionsDir()).some((f) => f.endsWith('.tmp'))).toBe(false)
+  })
+})
+
+describe('core/ai-session.sessionPath：严格校验（审计修复：有损清洗 → 拒绝）', () => {
+  it('非法 id 拒绝：不落盘、不误删、不碰撞', () => {
+    // 'a/b' 与 'ab' 曾都清洗为 ab.json → 覆盖/误删/读不到；现拒绝非法 id
+    expect(sessionPath('a/b')).toBeNull()
+    expect(sessionPath('***')).toBeNull()
+    expect(sessionPath('a b')).toBeNull()
+    expect(saveSession({ id: 'a/b', messages: [] })).toBe(false)
+    expect(deleteSession('a/b')).toBe(false)
+    expect(loadSession('a/b')).toBeNull()
+    // 合法 id 正常工作
+    expect(sessionPath('ab')).toBe(join(sessionsDir(), 'ab.json'))
+    expect(saveSession({ id: 'ab', messages: [{ role: 'user', content: 'hi' }], turn: 1 })).toBe(true)
+    expect(loadSession('ab').id).toBe('ab')
+    expect(deleteSession('ab')).toBe(true)
   })
 })
 

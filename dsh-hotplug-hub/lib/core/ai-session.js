@@ -38,9 +38,20 @@ export function newSessionId() {
   return 'ai-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
 }
 
-/** 会话文件路径（id 白名单清洗，防路径穿越）。 */
+/** 会话 id 合法字符集：生成 id（ai-<ts>-<rand>）恒匹配；用户传入非安全 id 一律拒绝。 */
+const SESSION_ID_RE = /^[a-zA-Z0-9._-]+$/
+
+/**
+ * 会话文件路径。审计修复：改为「严格校验 + 拒绝」，不再有损清洗——
+ * 有损清洗非单射（'a/b' 与 'ab' 都落 ab.json），save 覆盖 / delete 误删 / load 读不到，
+ * 且 id 为 '***' 时清洗为空落成隐藏文件 .json（listSessions 不可见）。
+ * @param {unknown} id
+ * @returns {string|null} 路径；id 非法时 null
+ */
 export function sessionPath(id) {
-  return join(sessionsDir(), String(id).replace(/[^a-zA-Z0-9._-]/g, '') + '.json')
+  const s = typeof id === 'string' ? id : String(id ?? '')
+  if (s === '' || !SESSION_ID_RE.test(s)) return null
+  return join(sessionsDir(), s + '.json')
 }
 
 /**
@@ -69,7 +80,7 @@ export function trimMessages(messages) {
 export function loadSession(id) {
   if (typeof id !== 'string' || id.trim() === '') return null
   const file = sessionPath(id)
-  if (!existsSync(file)) return null
+  if (file === null || !existsSync(file)) return null
   try {
     const data = JSON.parse(readFileSync(file, 'utf8'))
     if (!data || typeof data.id !== 'string' || data.id !== id.trim()) return null
@@ -107,7 +118,9 @@ export function saveSession(session) {
       createdAt: session.createdAt,
       updatedAt: session.updatedAt || new Date().toISOString(),
     })
-    const r = writeFileAtomic(atomicFsPort, sessionPath(session.id), payload, { errorCode: 'ERR_LOG_WRITE' })
+    const file = sessionPath(session.id)
+    if (file === null) return false
+    const r = writeFileAtomic(atomicFsPort, file, payload, { errorCode: 'ERR_LOG_WRITE' })
     return r.ok
   } catch {
     return false
@@ -134,8 +147,10 @@ export function listSessions() {
 /** 删除会话。 */
 export function deleteSession(id) {
   if (typeof id !== 'string' || id.trim() === '') return false
+  const file = sessionPath(id)
+  if (file === null) return false
   try {
-    rmSync(sessionPath(id), { force: true })
+    rmSync(file, { force: true })
     return true
   } catch {
     return false

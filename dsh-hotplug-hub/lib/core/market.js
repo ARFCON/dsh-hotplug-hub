@@ -9,14 +9,16 @@
  * 需自定义 CA 的环境请经系统证书库 / NODE_EXTRA_CA_CERTS 配置，而非关闭校验。
  */
 import { tmpdir } from 'node:os'
+import { createHash } from 'node:crypto'
 import {
   MARKET_CACHE_FILE, MARKET_DETAIL_CACHE_FILE, MARKET_DETAIL_CONCURRENCY, MARKET_FILE_BUDGET_MS,
   MARKET_FILE_TIMEOUT_MS, MARKET_PAGE_SIZE, MARKET_PACK_CANDIDATES, MARKET_README_CANDIDATES,
-  MARKET_TIMEOUT_MS, SOURCE_GITHUB, GITHUB_MIRRORS, VERSION, IS_WIN, CURL_BIN, REF_RE, REPO_RE,
+  MARKET_TIMEOUT_MS, SOURCE_GITHUB, GITHUB_MIRRORS, VERSION, IS_WIN, CURL_BIN,
 } from './paths.js'
 import { readJson, writeJsonSafe } from './state.js'
 import { runCli } from './run-cli.js'
 import { parseHotpack, dshpackToHotpack } from './hotpack.js'
+import { validateSourceRef, validateSourceRepo, validateVersion } from '../../vendor-shared/index.mjs'
 
 export function sanitizeTopic(topic) {
   if (typeof topic !== 'string') return null
@@ -143,8 +145,9 @@ export async function raceFiles(urls, timeoutMs, extraHeaders, budgetMs = 0) {
       httpGet(url, timeoutMs, extraHeaders).then((res) => {
         if (settled) return
         if (res.ok) { done({ ...res, url, raced: true }); return }
-        // 确定性「不存在」→ 立即结算，不空等镜像
-        if (res.status && res.status !== 0 && res.status < 500) { done({ ...res, url, raced: false }); return }
+        // 确定性「不存在」→ 立即结算，不空等镜像。仅 404/403/410 视为确定性；
+        // 429（限流）/400/401 等非「不存在」不得提前结算，否则会丢弃镜像的合法 200。
+        if (res.status === 404 || res.status === 403 || res.status === 410) { done({ ...res, url, raced: false }); return }
         if (!firstFail) firstFail = res
         failures += 1
         if (failures === urls.length) done({ ok: false, status: firstFail ? firstFail.status : 0, url: firstFail ? firstFail.url : '', text: '' })
@@ -257,7 +260,21 @@ export function extractInstall(readmeText) {
   return block.length > 1200 ? block.slice(0, 1200) + '\n…' : block
 }
 
-export function packIdOf(repo) { return ('pack.' + repo).toLowerCase().replace(/[^a-z0-9._-]/g, '-').slice(0, 64) }
+/**
+ * 由仓库 owner/repo 派生包 id（`pack.<owner>-<repo>` + 8 位 sha1 短哈希后缀）。
+ * 审计修复：'/'→'-' 有损——`a-b/c` 与 `a/b-c` 清洗后同为 `pack.a-b-c`，不同仓库共享
+ * 一个 id（用作 packs/<id> 磁盘目录与身份键），导入即互相覆盖。追加由原 repo 派生的
+ * 短哈希使映射单射（哈希随 repo 稳定，跨导入一致；PACK_ID_RE 上限 64 满足）。
+ * @param {string} repo owner/repo
+ * @returns {string} 包 id（≤64）
+ */
+export function packIdOf(repo) {
+  const s = String(repo).toLowerCase()
+  const base = ('pack.' + s).replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '')
+  const digest = createHash('sha1').update(s).digest('hex').slice(0, 8)
+  const head = base.length <= 55 ? base : base.slice(0, 55)
+  return `${head}-${digest}`
+}
 
 /** 单插件 github 源 manifest：有 package.json 但仓库本身不是包集合时兜底生成。 */
 export function buildGithubPluginPack(repo, ref, npmName, version, meta) {
@@ -266,7 +283,7 @@ export function buildGithubPluginPack(repo, ref, npmName, version, meta) {
     hotpack: '1.0',
     id: packIdOf(repo),
     name: meta.name ?? repo,
-    version: /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(String(version ?? '')) ? version : '0.0.0',
+    version: typeof version === 'string' && validateVersion(version).ok ? version : '0.0.0',
     description: (meta.description ?? '').slice(0, 300),
     tags,
     plugins: [{ id: 'main', name: npmName, source: { type: 'github', repo, ref } }],
@@ -448,8 +465,12 @@ export async function marketListAsync(params) {
 export async function marketDetailAsync(params) {
   const p = params && typeof params === 'object' ? params : {}
   const repo = typeof p.repo === 'string' ? p.repo.trim() : ''
-  if (!REPO_RE.test(repo)) return { ok: false, error: 'repo 必须是 owner/repo 格式' }
-  const ref = typeof p.ref === 'string' && REF_RE.test(p.ref) ? p.ref : 'main'
+  // 审计修复：改用 vendor-shared 权威校验（validateSourceRepo/validateSourceRef）——
+  // 本地 REF_RE 曾不含 '/'（H-10 起 ref 允许 feature/x，default_branch 带 '/' 时被
+  // 错误回退 main）、本地 REPO_RE 曾接受 '.foo/bar' / '-x/y' 等 shared 拒绝的非法 repo，
+  // 造成契约漂移。现收敛到单一真源。
+  if (!validateSourceRepo(repo).ok) return { ok: false, error: 'repo 必须是 owner/repo 格式' }
+  const ref = typeof p.ref === 'string' && p.ref !== '' && validateSourceRef(p.ref).ok ? p.ref : 'main'
   const sources = sanitizeMarketParams({ sources: p.sources }).sources
   const cacheKey = repo + '@' + ref
   if (p.refresh !== true) {
