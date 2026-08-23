@@ -67,7 +67,7 @@ export const { writeFileAtomic } = mod
 
 // fs/lock
 export const {
-  acquireLock, releaseLock, readToken, parseToken, formatToken, rewriteToken, isStale, probePid, isDirectoryLock,
+  acquireLock, releaseLock, readToken, parseToken, formatToken, isStale, probePid, isDirectoryLock,
 } = mod
 
 // fs/snapshot

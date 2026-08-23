@@ -24,15 +24,14 @@
 // 的窗口（fd 复用竞态一并消除）。
 const { workerData } = require('worker_threads');
 const fs = require('fs');
-const { rewriteToken } = require('./lock');
 
 const { fd, pid, refreshMs, ctrl } = workerData;
 const c = new Int32Array(ctrl); // c[0]=停止请求（主线程写）；c[1]=已停止确认（本 Worker 写）
 
 while (Atomics.load(c, 0) === 0) {
   try {
-    // 原子重写：先覆盖后截断，读者任一时刻读到旧/新 token，绝不出现空文件窗口
-    rewriteToken(fd, pid, { fsImpl: fs });
+    fs.ftruncateSync(fd, 0);
+    fs.writeSync(fd, `${pid}\n${Date.now()}\n`, 0, 'utf8');
   } catch (_) { /* 刷新失败：下次重试；陈旧接管兜底 */ }
   // 阻塞至 refreshMs 或主线程请求停止（Atomics.notify 立即唤醒）
   Atomics.wait(c, 0, 0, refreshMs);
