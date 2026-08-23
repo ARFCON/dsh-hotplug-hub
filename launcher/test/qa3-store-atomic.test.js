@@ -105,6 +105,76 @@ describe('QA3 store/atomic 强化', () => {
     expect(r.state.schemaVersion).toBe(1);
   });
 
+  it('readState：Windows 防病毒瞬时占用（EPERM）→ 有界重试后成功读取（不误判损坏）', () => {
+    const dir = tmpDir();
+    const file = stateFilePath(dir, 'demo');
+    const state = createEmptyState('demo');
+    state.phase = 'CHECKED';
+    const w = writeState(fsPort, file, state);
+    expect(w.ok).toBe(true);
+    // 注入 fs 端口：前 2 次 readFileSync 抛 EPERM（模拟防病毒/过滤驱动瞬时占用刚落盘文件），之后放行
+    let reads = 0;
+    const flakyFs = {
+      ...fsPort,
+      readFileSync: (...args) => {
+        reads += 1;
+        if (reads <= 2) {
+          const e = new Error('EPERM: operation not permitted, open (antivirus transient lock)');
+          e.code = 'EPERM';
+          throw e;
+        }
+        return fs.readFileSync(...args);
+      }
+    };
+    const r = readState(flakyFs, file);
+    expect(r.ok).toBe(true);
+    expect(r.state.phase).toBe('CHECKED');
+    expect(r.state.schemaVersion).toBe(1);
+    expect(reads).toBe(3); // 2 次瞬态失败 + 1 次成功
+  });
+
+  it('readState：持久 EPERM → 有界重试耗尽后报错（不无限自旋，不掩盖损坏）', () => {
+    const dir = tmpDir();
+    const file = stateFilePath(dir, 'demo');
+    const state = createEmptyState('demo');
+    state.phase = 'CHECKED';
+    const w = writeState(fsPort, file, state);
+    expect(w.ok).toBe(true);
+    let reads = 0;
+    const stuckFs = {
+      ...fsPort,
+      readFileSync: () => {
+        reads += 1;
+        const e = new Error('EPERM: operation not permitted, open');
+        e.code = 'EPERM';
+        throw e;
+      }
+    };
+    const r = readState(stuckFs, file);
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe('ERR_ENV_UNSUPPORTED');
+    expect(reads).toBe(5); // 默认 maxAttempts=5，重试耗尽即返回，不无限自旋
+  });
+
+  it('readState：非瞬态读错误（EISDIR）→ 不重试、立即报错', () => {
+    const dir = tmpDir();
+    const file = path.join(dir, 'state.json');
+    fs.writeFileSync(file, '{}', 'utf8');
+    let reads = 0;
+    const dirFs = {
+      ...fsPort,
+      readFileSync: () => {
+        reads += 1;
+        const e = new Error('EISDIR: illegal operation on a directory, read');
+        e.code = 'EISDIR';
+        throw e;
+      }
+    };
+    const r = readState(dirFs, file);
+    expect(r.ok).toBe(false);
+    expect(reads).toBe(1); // 确定性错误绝不重试
+  });
+
   it('readState：state.json 损坏 → 报错不覆盖（N33 实证）', () => {
     const dir = tmpDir();
     const file = path.join(dir, 'state.json');
