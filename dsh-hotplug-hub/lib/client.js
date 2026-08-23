@@ -405,7 +405,7 @@ window.__ModuleLoader__.load({
 							return { ...prev, entries: [...prev.entries, ...listEntries.filter((e) => !seen.has(e.id))], total: result.total ?? prev.total };
 						});
 						// 列表已渲染；逐条并发抓详情，谁先返回谁先填进卡片，不等待其余。
-						hydrateMarketDetails(listEntries, result.sources ?? params.sources ?? null);
+						hydrateMarketDetails(listEntries, result.sources ?? params.sources ?? null, params.refresh === true);
 					} else {
 						setMarketError("marketList 返回异常");
 					}
@@ -416,7 +416,9 @@ window.__ModuleLoader__.load({
 				}
 			};
 			// 并发抓取每条详情（受限并发），返回即覆盖对应卡片；不阻塞列表展示。
-			const hydrateMarketDetails = (entries, sources) => {
+			// 审计修复：透传 refresh——此前刷新按钮只刷新列表元数据，详情（README/安装/manifest/
+			// importable）永远命中 MARKET_DETAIL_CACHE_FILE 缓存，直至 400 条 FIFO 淘汰。
+			const hydrateMarketDetails = (entries, sources, refresh) => {
 				const pending = entries.filter((e) => e && e.detailPending !== false);
 				if (pending.length === 0) return;
 				let index = 0;
@@ -424,7 +426,7 @@ window.__ModuleLoader__.load({
 					while (index < pending.length) {
 						const e = pending[index++];
 						try {
-							const result = unwrap(await api.marketDetail({ repo: e.repo, ref: e.ref, sources, meta: e }));
+							const result = unwrap(await api.marketDetail({ repo: e.repo, ref: e.ref, sources, meta: e, refresh }));
 							const entry = result && result.entry;
 							if (!entry) continue;
 							setMarketData((prev) => {

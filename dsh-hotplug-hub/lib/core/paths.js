@@ -42,7 +42,8 @@ export const MARKET_CACHE_FILE = () => join(hotplugRoot(), 'market-cache.json')
 // 单仓库详情缓存：marketDetail 逐条抓取后单独缓存，命中即秒回（上游 v0.9.7 对齐）
 export const MARKET_DETAIL_CACHE_FILE = () => join(hotplugRoot(), 'market-detail-cache.json')
 export const MARKET_PAGE_SIZE = 10
-export const MARKET_DETAIL_CONCURRENCY = 6
+// 注：详情并发抓取上限由客户端 hydrateMarketDetails 自行限制（client.js MARKET_DETAIL_CONCURRENCY），
+// 后端 marketDetailAsync 每个请求独立、不做并发限制，故此处不设同名常量（审计修复：删除死常量防漂移）。
 export const MARKET_TIMEOUT_MS = 15000
 // 单个原始文件（README/package.json/hotpack）抓取更短超时：文件通常很小，
 // 官方通道几秒内即可返回；设太大会让不可达通道的 curl 兜底拖慢整页。

@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   sanitizeTopic, sanitizeMarketParams, candidatesFromSources, apiSearchUrls, rawFileUrls,
   looksLikeNav, extractIntro, extractInstall, packIdOf, buildGithubPluginPack, hostOf,
+  truncateCodePoints, toWellFormed,
 } from '../lib/core/market.js'
 
 describe('sanitizeTopic / sanitizeMarketParams', () => {
@@ -42,6 +43,36 @@ describe('sanitizeTopic / sanitizeMarketParams', () => {
     const r = sanitizeMarketParams({ topic: 'x'.repeat(33) })
     expect(r.ok).toBe(false)
     expect(r.error).toContain('topic')
+  })
+
+  it('truncateCodePoints：按码点截断，不劈开代理对（审计修复：emoji 边界不再抛 URIError）', () => {
+    const emoji = '😀'
+    // 79 个 ASCII + 1 个 emoji（2 码元）= 80 码点；旧 slice(0,80) 会劈出孤立高代理
+    const q = 'a'.repeat(79) + emoji
+    const r = sanitizeMarketParams({ q })
+    expect(r.ok).toBe(true)
+    expect(r.q.endsWith(emoji)).toBe(true)
+    // 关键回归：apiSearchUrls 对截断后的 q 不抛 URIError（此前 encodeURIComponent 抛异常）
+    expect(() => apiSearchUrls('dsh-plugin', r.q, 1, ['github'])).not.toThrow()
+    // 单元边界
+    expect(truncateCodePoints('a'.repeat(80), 80)).toBe('a'.repeat(80))
+    expect(truncateCodePoints('a'.repeat(79) + emoji, 80)).toBe('a'.repeat(79) + emoji)
+    expect(truncateCodePoints('hello', 80)).toBe('hello')
+    expect(truncateCodePoints('a'.repeat(81), 80).length).toBe(80)
+  })
+
+  it('toWellFormed：输入中已存在的孤立代理替换为 U+FFFD（encodeURIComponent 不再抛）', () => {
+    // 孤立高代理 / 孤立低代理 / 合法代理对不动
+    expect(toWellFormed('\uD83D')).toBe('\uFFFD')
+    expect(toWellFormed('\uDE00')).toBe('\uFFFD')
+    expect(toWellFormed('a\uD83Db')).toBe('a\uFFFDb')
+    expect(toWellFormed('😀')).toBe('😀') // 合法代理对不动
+    // 关键回归：q 含孤立代理时不抛 URIError
+    for (const bad of ['\uD83D', '\uDE00', 'a\uD83D', '\uD83D' + 'x']) {
+      const r = sanitizeMarketParams({ q: bad })
+      expect(r.ok).toBe(true)
+      expect(() => apiSearchUrls(r.topic, r.q, 1, ['github'])).not.toThrow()
+    }
   })
 })
 
@@ -85,6 +116,15 @@ describe('README 提取', () => {
   it('looksLikeNav：语言切换短段判为导航', () => {
     expect(looksLikeNav('[English](README.md) 中文')).toBe(true)
     expect(looksLikeNav('这是一段足够长的普通介绍文字，超过三十个字符的阈值，因此不会被误判为导航')).toBe(false)
+  })
+
+  it('CRLF 归一化（审计修复）：extractIntro/extractInstall 不再残留 \\r', () => {
+    const crlf = '# Title\r\n\r\n[English](README.md) 中文\r\n\r\n这是介绍。\r\n\r\n## 安装\r\nnpm i x\r\nnpm i y\r\n'
+    expect(extractIntro(crlf)).toBe('这是介绍。')
+    const install = extractInstall(crlf)
+    expect(install).toContain('npm i x')
+    expect(install).not.toContain('\r')
+    expect(install).toBe('npm i x\nnpm i y')
   })
 })
 
