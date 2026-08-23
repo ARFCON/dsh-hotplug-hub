@@ -184,6 +184,24 @@ namespace DSHHotplugHub
             Check(!SafeArg("", "tag"), "拒绝空串");
             Check(!SafeArg(new string('x', 257), "tag"), "拒绝超长");
 
+            // ⑦ 版本比较契约（自检/更新检测单一真源）
+            Console.WriteLine("-- ⑦ CompareVersions / IsNewerVersion（自检/更新检测单一真源） --");
+            Check(PatchContract.CompareVersions("1.0.0", "1.0.0") == 0, "1.0.0 == 1.0.0");
+            Check(PatchContract.CompareVersions("0.9.8", "0.9.7") > 0, "0.9.8 > 0.9.7");
+            Check(PatchContract.CompareVersions("0.9.7", "0.9.8") < 0, "0.9.7 < 0.9.8");
+            Check(PatchContract.CompareVersions("v1.2.3", "1.2.3") == 0, "前导 v 视为相同");
+            Check(PatchContract.CompareVersions("1.0.10", "1.0.9") > 0, "多位数段 10 > 9（非字符串比较）");
+            Check(PatchContract.CompareVersions("1", "1.0.0") == 0, "缺失段按 0");
+            Check(PatchContract.CompareVersions("1.0.0-alpha.1", "1.0.0") == 0, "pre 后缀整版本剥离（alpha.1 不再当第 4 段）");
+            Check(PatchContract.CompareVersions("1.0.0+build.5", "1.0.0") == 0, "build 元数据剥离");
+            Check(PatchContract.IsNewerVersion("0.9.8", "0.9.7"), "IsNewer 0.9.8>0.9.7");
+            Check(!PatchContract.IsNewerVersion("1.0.0-alpha.1", "1.0.0"), "IsNewer pre 不误判 > release");
+            Check(!PatchContract.IsNewerVersion("1.0.0", "1.0.0"), "IsNewer 相等 false");
+            Check(!PatchContract.IsNewerVersion("0.9.7", "0.9.8"), "IsNewer 落后 false");
+            Check(!PatchContract.IsNewerVersion("", "1.0.0"), "IsNewer 空 candidate false");
+            Check(!PatchContract.IsNewerVersion("1.0.0", ""), "IsNewer 空 current false");
+            Check(!PatchContract.IsNewerVersion(null, "1.0.0"), "IsNewer null candidate false");
+
             Directory.Delete(dir, true);
 
             Console.WriteLine("== 结果：PASS=" + _passes + " FAIL=" + _failures + " ==");

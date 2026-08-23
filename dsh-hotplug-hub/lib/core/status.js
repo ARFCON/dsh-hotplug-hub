@@ -3,12 +3,27 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { VERSION, homeDir, packsDir, patchPath, profileDir, profileName, storeRoot } from './paths.js'
+import { VERSION, homeDir, memoryDir, packsDir, patchPath, profileDir, profileName, storeRoot } from './paths.js'
 import { readJson, readPackManifest, listPackIds, readState, writeJsonSafe } from './state.js'
 import { runCli } from './run-cli.js'
 import { parseHotpack } from './hotpack.js'
 import { installedVersion, npmModuleDir, storeDirOf } from './ensure.js'
 import { findPatchBlock } from '../../vendor-shared/index.mjs'
+
+/** 取某包「最近一次」activate 事件的时间戳（反向遍历，避免 find 命中历史里最早一次激活）。
+ *  审计修复：此前 `state.history?.find?.(...)?.at` 只取第一次 activate——包经历
+ *  激活→卸载→再激活后，activatedAt 返回的是最早那次，属陈旧数据；且 `?.at` 与
+ *  Array.prototype.at 同名易误读。 */
+function lastActivationAt(state, id) {
+  const history = Array.isArray(state?.history) ? state.history : []
+  for (let i = history.length - 1; i >= 0; i--) {
+    const item = history[i]
+    if (item && item.packId === id && item.event === 'activate') {
+      return typeof item.at === 'string' ? item.at : null
+    }
+  }
+  return null
+}
 
 export function statusSync() {
   const state = readState()
@@ -23,7 +38,7 @@ export function statusSync() {
       description: manifest.description ?? '',
       tags: manifest.tags ?? [],
       active: state.activePack === id,
-      activatedAt: state.history?.find?.((item) => item.packId === id && item.event === 'activate')?.at ?? null,
+      activatedAt: lastActivationAt(state, id),
       plugins: (manifest.plugins ?? []).map((entry) => {
         const dir = storeDirOf(entry)
         const present = existsSync(join(dir, 'package.json'))
@@ -57,6 +72,7 @@ export function statusSync() {
     activePatchOk: state.activePack ? findPatchBlock(patchText, 'hotplug', state.activePack).found : true,
     packs,
     store: { dir: storeRoot(), entries: storeEntries },
+    memoryDir: memoryDir(),
   }
 }
 
@@ -155,6 +171,6 @@ export async function checkAsync() {
     activePack: state.activePack,
     packCount: status.packs.length,
     storeCount: status.store.entries.length,
-    memoryDir: join(homeDir(), 'memory-hub'),
+    memoryDir: memoryDir(),
   }
 }
