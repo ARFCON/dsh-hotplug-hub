@@ -19,17 +19,17 @@
   --muted: #6b7280;
   --line: #e6e8ec;
 
-  /* 默认主题强调色（切主题时被 THEME_PRESETS 覆盖） */
-  --teal: #2563eb;
-  --teal-dark: #1e293b;
-  --teal-soft: #eff4ff;
-  --teal-hover: #1d4ed8;
+  /* 默认主题强调色（PCL 草绿；切主题时被 THEME_PRESETS 覆盖） */
+  --teal: #43a047;
+  --teal-dark: #2e7d32;
+  --teal-soft: #e8f5e9;
+  --teal-hover: #388e3c;
 
-  /* PCL 启动绿：启动主键专用（草方块绿的现代化，比 --green 更明亮、带亲和力） */
-  --launch: #43a047;
-  --launch-hover: #388e3c;
-  --launch-soft: #e8f5e9;
-  --launch-deep: #2e7d32;
+  /* PCL 启动绿：启动主键专用（与 --teal 同源，语义化别名） */
+  --launch: var(--teal);
+  --launch-hover: var(--teal-hover);
+  --launch-soft: var(--teal-soft);
+  --launch-deep: var(--teal-dark);
 
   --amber: #d97706;
   --amber-soft: #fdf3e3;
@@ -953,6 +953,34 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .maid-dock.open:not(.hidden) ~ .maid-scrim { display: block; left: 400px; }
 
 /* v3：旧插件更新格（.home-update）已由 .home-update-card 取代 */
+
+/* ===== v3 PCL 全视图组件精修（统一视觉语言：绿强调 + 卡片质感 + 标题竖条） ===== */
+/* 统计卡（插件中枢首页）：顶部绿色渐变条 + 绿色数字 + 图标着色 */
+.stat { position: relative; overflow: hidden; padding: 16px; box-shadow: var(--shadow-card); }
+.stat::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--teal), var(--teal-hover)); }
+.stat .label svg { color: var(--teal); }
+.stat .num { font-size: 28px; font-weight: 700; color: var(--teal-dark); margin-top: 10px; }
+/* 区块标题：左侧绿色竖条（所有视图统一） */
+.section-head h2 { position: relative; padding-left: 13px; font-size: 16px; }
+.section-head h2::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 4px; height: 18px; border-radius: 2px; background: var(--teal); }
+/* 提示条（Skill/MCP 分类引导）：绿色浅底亲和 */
+.guide-hint { background: var(--teal-soft); border-color: color-mix(in srgb, var(--teal) 28%, var(--line)); color: var(--teal-dark); }
+/* 自检行 / 折叠卡 / 工具栏：卡片阴影统一 */
+.check-row, .fold, .toolbar { box-shadow: var(--shadow-card); }
+/* 折叠卡悬停：左侧绿色刻度 + 阴影浮起 */
+.fold { transition: box-shadow var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.fold:hover { border-color: color-mix(in srgb, var(--teal) 35%, var(--line)); box-shadow: var(--shadow-card-hover); }
+.fold-head:hover { background: var(--teal-soft); }
+/* 图标块：柔和投影提升质感 */
+.pack-icon { box-shadow: 0 2px 6px rgba(17,24,39,.14); }
+/* 对话框：PCL 弹窗（顶部绿色条 + 大圆角 + 深投影） */
+.dialog { border-radius: var(--rad-lg); box-shadow: 0 24px 60px rgba(17,24,39,.28); border-top: 3px solid var(--teal); }
+.dialog h3 { color: var(--teal-dark); }
+/* 主题卡：阴影 + 选中绿色描边加粗 */
+.skin-card { box-shadow: var(--shadow-card); }
+.skin-card.active { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft); }
+/* 市场标签计数：去硬编码蓝，走主题变量 */
+.mkt-tags-count { background: var(--teal-soft); color: var(--teal-dark); }
 
 /* 无障碍：用户系统开启「减弱动态效果」时，收掉过渡与动画（保留状态切换本身） */
 @media (prefers-reduced-motion: reduce) {
@@ -2196,11 +2224,11 @@ const THEME_VARS = [
 ];
 
 const THEME_PRESETS = [
-  { id: 'default', name: '默认', swatch: ['#f6f7f9', '#ffffff', '#2563eb'] },
-  { id: 'dark', name: '深色', swatch: ['#111827', '#1f2937', '#60a5fa'], vars: {
+  { id: 'default', name: '默认', swatch: ['#f2f3f5', '#ffffff', '#43a047'] },
+  { id: 'dark', name: '深色', swatch: ['#111827', '#1f2937', '#4caf50'], vars: {
     '--bg': '#111827', '--panel': '#1f2937', '--ink': '#f3f4f6', '--muted': '#9ca3af',
-    '--line': '#374151', '--teal': '#60a5fa', '--teal-dark': '#0b1120', '--teal-soft': '#1e3a5f',
-    '--teal-hover': '#3b82f6', '--amber': '#f59e0b', '--amber-soft': '#3a2d12', '--red': '#f87171',
+    '--line': '#374151', '--teal': '#4caf50', '--teal-dark': '#1b3b1f', '--teal-soft': '#14301a',
+    '--teal-hover': '#43a047', '--amber': '#f59e0b', '--amber-soft': '#3a2d12', '--red': '#f87171',
     '--red-soft': '#3a1d1d', '--green': '#34d399', '--sidebar-ink': '#f3f4f6', '--nav-ink': '#9ca3af',
     '--surface-dark': '#0b1120', '--surface-dark-ink': '#d1d5db', '--green-soft': '#123325', '--neutral-soft': '#2b3544',
     '--launch': '#4caf50', '--launch-hover': '#43a047', '--launch-soft': '#14301a', '--launch-deep': '#2e7d32'
@@ -2297,7 +2325,7 @@ function renderTheme() {
     </div>`).join('');
   const customCards = state.theme.skins.map((s) => {
     const sid = 'custom:' + s.name;
-    const sw = [s.vars['--bg'] || '#fff', s.vars['--panel'] || '#fff', s.vars['--teal'] || '#2563eb'];
+    const sw = [s.vars['--bg'] || '#fff', s.vars['--panel'] || '#fff', s.vars['--teal'] || '#43a047'];
     return `
     <div class="skin-card ${active === sid ? 'active' : ''}" data-skin="${esc(sid)}">
       <div class="skin-swatch">${sw.map((c) => `<i style="background:${c}"></i>`).join('')}</div>
@@ -2716,7 +2744,7 @@ function packCard(p, showManage = false) {
     ? (conflict ? '<span class="status-dot err" title="冲突"></span>' : '<span class="status-dot ok" title="健康"></span>')
     : '<span class="status-dot neutral" title="未安装"></span>';
   const letter = (p.name || '包').trim().slice(0, 1);
-  const accent = p.accent || '#2563eb';
+  const accent = p.accent || 'var(--teal)';
   const nBundles = (p.bundles || []).length;
   return `
     <div class="fold" data-fold>
@@ -2831,7 +2859,7 @@ function marketInstallSpec(e) {
   return "";
 }
 function renderMarketCard(e) {
-  const accent = '#2563eb';
+  const accent = 'var(--teal)';
   const letter = (e.name || e.repo).trim().slice(0, 1);
   const pending = e.detailPending === true;
   const metaBits = [];
@@ -3982,7 +4010,7 @@ function renderSkills() {
           ${filtered.length ? filtered.map((s) => `
             <div class="fold" data-fold>
               <div class="fold-head" data-fold-toggle>
-                <div class="pack-icon" style="background:#2563eb">${esc((s.name || 'S').slice(0, 1))}</div>
+                <div class="pack-icon" style="background:var(--teal)">${esc((s.name || 'S').slice(0, 1))}</div>
                 <div class="fold-main">
                   <div class="pack-title"><h3>${esc(s.name)}</h3><div class="meta">${esc(s.desc || '')}</div></div>
                 </div>
@@ -4049,7 +4077,7 @@ function mcpRowHtml(m) {
   return `
     <div class="fold" data-fold>
       <div class="fold-head" data-fold-toggle>
-        <div class="pack-icon" style="background:#1d5f9e">${esc((m.name || 'M').slice(0, 1))}</div>
+        <div class="pack-icon" style="background:var(--teal-dark)">${esc((m.name || 'M').slice(0, 1))}</div>
         <div class="fold-main">
           <div class="pack-title">
             <h3>${esc(m.name)}</h3>
