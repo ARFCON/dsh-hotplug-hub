@@ -5,6 +5,9 @@
 // 执行，直接调用其真实函数：LLM 响应分类、会话恢复与 msgSeq 重算（产物卡错绑
 // 修复）、connNote 转义（XSS 修复）、本地模拟产物的插件 id 合法性（mock pid 修复）、
 // 空态人设持久化、纯函数与后端契约一致性、compose 守卫。
+// v4（一体总控台大面板）契约：AI 装配间常驻主页左栏 #homeAiPanel（renderAi 的
+// 渲染容器），产物卡事件委托挂静态外壳 #view-home（renderHome 只重建 innerHTML
+// 不换节点，绑定一次永不失效），switchView('ai') 转义回主页。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -31,8 +34,12 @@ function makeEl(id = '') {
     scrollTop: 0,
     scrollHeight: 100,
     clientHeight: 100,
-    addEventListener() {},
-    removeEventListener() {},
+    _listeners: {},
+    addEventListener(type, fn) { (el._listeners[type] = el._listeners[type] || []).push(fn) },
+    removeEventListener(type, fn) {
+      el._listeners[type] = (el._listeners[type] || []).filter((f) => f !== fn)
+    },
+    dispatch(type, ev) { for (const fn of el._listeners[type] || []) fn(ev) },
     appendChild(c) { el.children.push(c); return c },
     removeChild(c) { el.children = el.children.filter((x) => x !== c) },
     remove() {},
@@ -67,7 +74,8 @@ function loadPrototype(storageData = new Map()) {
       if (!elements.has(id)) elements.set(id, makeEl(id))
       return elements.get(id)
     },
-    querySelector: () => null,
+    // renderShell 会取 .topbar 写入标题——桩按需供给，其余选择器维持 null
+    querySelector: (sel) => (sel === '.topbar' ? documentStub.getElementById('topbar') : null),
     querySelectorAll: () => [],
     createElement: (t) => makeEl(t),
     body: makeEl('body'),
@@ -81,6 +89,11 @@ function loadPrototype(storageData = new Map()) {
     navigator: { clipboard: { writeText: async () => {} }, userAgent: 'vitest' },
     confirm: () => true,
     requestAnimationFrame: (fn) => fn(),
+    scrollTo: () => {},
+    // 市场视图自动抓取（switchView('market') 触发）所需的浏览器 API 桩：fetch 立即拒绝，
+    // 走市场错误分支（确定性，不产生未处理拒绝）
+    AbortController,
+    fetch: () => Promise.reject(new Error('fetch disabled in vm stub')),
     // 动态转发到宿主 setTimeout：vi.useFakeTimers 的桩对 vm 内代码同样生效
     setTimeout: (fn, ms, ...a) => setTimeout(fn, ms, ...a),
     clearTimeout: (t) => clearTimeout(t),
@@ -172,7 +185,7 @@ describe('connNote 转义（XSS 修复）', () => {
   it('模型名注入标记 → renderAi 输出被转义（无 <img/onerror 原文）', () => {
     ctx.g.aiModelMem = '"><img src=x onerror=alert(1)>'
     ctx.g.renderAi()
-    const out = ctx.elements.get('view-ai').innerHTML
+    const out = ctx.elements.get('homeAiPanel').innerHTML
     // 安全属性：注入内容中没有原生标签起始（<img 被转义为 &lt;img，成为惰性文本）
     expect(out).toContain('&lt;img')
     expect(out).not.toContain('<img')
@@ -182,7 +195,7 @@ describe('connNote 转义（XSS 修复）', () => {
     ctx.g.aiProviderSel = 'opencode'
     ctx.g.aiModelMem = 'deepseek-v4-flash'
     ctx.g.renderAi()
-    const out = ctx.elements.get('view-ai').innerHTML
+    const out = ctx.elements.get('homeAiPanel').innerHTML
     expect(out).toContain('deepseek-v4-flash')
     expect(out).toContain('OpenCode')
   })
@@ -224,7 +237,7 @@ describe('空态人设持久化（修复：会话未建时切换不再丢失）'
     ctx.g.setAiPersonaSel('neko')
     expect(ctx.storage.get('dshAiPersona')).toBe('neko')
     ctx.g.renderAi()
-    expect(ctx.elements.get('view-ai').innerHTML).toContain('咪咪') // neko 欢迎语
+    expect(ctx.elements.get('homeAiPanel').innerHTML).toContain('咪咪') // neko 欢迎语
   })
 })
 
@@ -296,5 +309,138 @@ describe('compose 守卫', () => {
     ctx.g.compose()
     expect(ctx.g.aiMessages).toHaveLength(0)
     expect(ctx.g.aiSession).toBeNull()
+  })
+})
+
+/* ================ v4 一体总控台大面板契约（本轮审计新增） ================ */
+
+describe('v4 导航契约：switchView 与旧状态迁移', () => {
+  it("switchView('ai') 转义为主页（AI 装配间常驻主页，不再是独立视图）", () => {
+    ctx.g.switchView('ai')
+    expect(ctx.g.currentView).toBe('home')
+    expect(ctx.storage.get('dsh-pack-hub-prototype')).toContain('"currentView":"home"')
+  })
+
+  it('旧会话残留在 ai 视图 → 迁移回主页，且女仆坞时代的 maidDockOpen 键被清理', () => {
+    const legacy = loadPrototype(new Map([['dsh-pack-hub-prototype', JSON.stringify({ currentView: 'ai', maidDockOpen: true })]]))
+    expect(legacy.g.currentView).toBe('home')
+    // save() 全量序列化 state：死键若不迁移将永久残留 localStorage
+    legacy.g.save()
+    expect(JSON.parse(legacy.storage.get('dsh-pack-hub-prototype')).maidDockOpen).toBeUndefined()
+  })
+})
+
+describe('v4 主页大面板：renderHome 内嵌渲染 AI 常驻舱', () => {
+  it('renderHome 产出 .home-console + #homeAiPanel，并立即填充 AI 装配间（renderAi 容器契约）', () => {
+    ctx.g.renderHome()
+    const home = ctx.elements.get('view-home').innerHTML
+    expect(home).toContain('home-console')
+    expect(home).toContain('id="homeAiPanel"')
+    // renderHome 末尾调用 renderAi：左栏被填充为装配间（工具栏/输入坞/滚动区）
+    const panel = ctx.elements.get('homeAiPanel').innerHTML
+    expect(panel).toContain('ai-zone')
+    expect(panel).toContain('id="reqInput"')
+    expect(panel).toContain('id="composeBtn"')
+    expect(panel).toContain('id="aiScroll"')
+  })
+
+  it('重复 renderHome 每次都重新填充左栏（切回主页/插件回推重绘语义）', () => {
+    ctx.g.renderHome()
+    ctx.elements.get('homeAiPanel').innerHTML = '' // 模拟旧内容被丢弃
+    ctx.g.renderHome()
+    expect(ctx.elements.get('homeAiPanel').innerHTML).toContain('ai-zone')
+  })
+})
+
+describe('v4 产物卡事件委托：挂静态 #view-home，重绘不丢（本轮审计修复）', () => {
+  /** 构造一条带产物的消息并渲染，返回可点击的事件目标桩（closest 命中所属卡片）。 */
+  const seedCard = () => {
+    const manifest = {
+      packId: 'pack.ai.deleg', name: '委托测试包', version: '0.1.0', tags: ['t'],
+      bundles: [{ name: 'dsh-notes', version: '1.0.0', role: 'note' }],
+    }
+    ctx.g.aiMessages = [{ role: 'assistant', text: 'ok', uid: 'm1', persona: 'maid', pack: null, result: { manifest, readme: '# r' } }]
+    ctx.g.aiSession = { id: 's1', persona: 'maid', messages: [], pack: null }
+    ctx.g.renderHome() // renderHome → renderAi → bindResultActions
+  }
+  const clickCardBtn = (cls) => {
+    const zone = ctx.elements.get('view-home')
+    const card = { getAttribute: () => 'm1' }
+    let captured = ''
+    const target = { closest: (sel) => (sel === '.ai-pack-card' ? card : (sel === cls ? {} : null)) }
+    ctx.g.navigator.clipboard.writeText = async (t) => { captured = t }
+    zone.dispatch('click', { target })
+    return captured
+  }
+
+  it('委托绑定在静态 view-home 上（而非会被 renderHome 重建的 homeAiPanel）', () => {
+    seedCard()
+    expect(ctx.g.aiActionsBound).toBe(true)
+    // ≥1：静态外壳上存在委托（未来若有第二个合法委托不受限）；homeAiPanel 上必须为 0（真契约）
+    expect((ctx.elements.get('view-home')._listeners.click || []).length).toBeGreaterThanOrEqual(1)
+    expect((ctx.elements.get('homeAiPanel')._listeners.click || []).length).toBe(0)
+  })
+
+  it('renderHome 重建 #homeAiPanel 后，产物卡按钮仍经委托生效（修复：二次进主页不失效）', () => {
+    seedCard()
+    ctx.g.switchView('hub')   // 离开主页
+    ctx.g.switchView('home')  // 回主页：view-home innerHTML 重建，homeAiPanel 换新节点
+    const copied = clickCardBtn('.ai-act-copy-manifest')
+    expect(copied).toContain('packId')
+    expect(copied).toContain('pack.ai.deleg')
+  })
+
+  it('委托链导入按钮全链路：点击 ai-act-import → importPacks 入库（confirm 桩接受）', () => {
+    seedCard()
+    ctx.g.switchView('market')
+    ctx.g.switchView('home')
+    const zone = ctx.elements.get('view-home')
+    const card = { getAttribute: () => 'm1' }
+    zone.dispatch('click', { target: { closest: (sel) => (sel === '.ai-pack-card' ? card : (sel === '.ai-act-import' ? {} : null)) } })
+    expect(ctx.g.state.imported.length).toBe(1)
+    expect(ctx.g.state.imported[0].id).toBe('pack.ai.deleg') // importPacks 入库形态：{ id, name, bundles… }
+    expect(ctx.g.state.imported[0].bundles.length).toBe(1)
+  })
+
+  it('无匹配消息 uid 的卡片点击 → 明确提示数据缺失（不抛错、不误操作）', () => {
+    seedCard()
+    const zone = ctx.elements.get('view-home')
+    const card = { getAttribute: () => 'm-not-exist' }
+    let toasted = ''
+    ctx.g.toast = (t) => { toasted = t }
+    zone.dispatch('click', { target: { closest: (sel) => (sel === '.ai-pack-card' ? card : (sel === '.ai-act-copy-manifest' ? {} : null)) } })
+    expect(toasted).toContain('缺失')
+  })
+})
+
+describe('v4 顶部横排主导航（renderMainNav 契约）', () => {
+  it('渲染 9 个视图项（AI 装配间不入主导航），当前项高亮', () => {
+    ctx.g.switchView('home')
+    const nav = ctx.elements.get('mainNav').innerHTML
+    expect((nav.match(/class="nav-item /g) || []).length).toBe(9)
+    expect(nav).toContain('data-view="home"')
+    expect(nav).toContain('data-view="theme"')
+    expect(nav).not.toContain('data-view="ai"')
+    expect(nav.match(/nav-item active/) !== null).toBe(true)
+  })
+})
+
+describe('v4 布局契约（CSS 静态断言；真实几何由 scripts/qa11/qa12 浏览器验收）', () => {
+  it('AI 常驻舱 sticky 化 + 总控台不再裁剪滚动（根治工具栏被吸顶头埋没）', () => {
+    const cols = html.match(/\.home-ai-col\s*\{[^}]*\}/g) || []
+    // 桌面主规则：sticky + 视口锚定高度（断言与格式无关，空白容忍；真实几何由 qa11/qa12 验收）
+    expect(cols.some((c) => c.includes('position: sticky') && /height:\s*calc\(100vh/.test(c))).toBe(true)
+    const consoleRule = html.match(/\.home-console\s*\{[^}]*\}/)[0]
+    expect(consoleRule).not.toContain('overflow: hidden')
+  })
+
+  it('≤720px 断点：总控台纵向堆叠（.pcl-home 死规则已清理）+ 窄屏标题对齐', () => {
+    const medias = html.match(/@media \(max-width: 720px\)\s*\{[\s\S]*?\n\}/g) || []
+    expect(medias.length).toBeGreaterThan(0)
+    expect(medias.some((m) => /\.home-console\s*\{\s*grid-template-columns:\s*1fr;?\s*\}/.test(m)), '末尾响应块须含总控台堆叠').toBe(true)
+    expect(medias.some((m) => m.includes('.pcl-home')), '.pcl-home 死规则应已清理').toBe(false)
+    expect(medias.some((m) => m.includes('body.on-home .topbar')), '窄屏标题对齐规则').toBe(true)
+    // 桌面断点：主页标题与大面板左缘对齐（44 = wrap 22 + shell 22）
+    expect(html).toMatch(/body\.on-home\s+\.topbar\s*\{\s*padding-left:\s*44px;?\s*\}/)
   })
 })

@@ -19,11 +19,13 @@
 import { launch } from 'puppeteer-core'
 import { createServer } from 'node:http'
 import { readFileSync, existsSync, writeFileSync, mkdtempSync } from 'node:fs'
-import { join, extname, resolve } from 'node:path'
+import { join, extname, resolve, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
-const STATIC_ROOT = resolve('dsh-hotplug-hub/dsh-pack-hub')
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const STATIC_ROOT = join(ROOT, 'dsh-hotplug-hub', 'dsh-pack-hub')
 const PORT = 3981
 const OUT = mkdtempSync(join(tmpdir(), 'qa6-ui-'))
 
@@ -51,15 +53,16 @@ const shot = async (page, name) => {
   return f
 }
 
-// v1.1 导航契约：普通视图经顶部折叠菜单跳转；AI 装配间 = 展开左侧女仆坞
-// v1.2：女仆坞仅存在于主页——switchView('ai') 内部先回主页再展开；悬停改变头像几何，测试用 JS 路由保证确定性
+// v4 导航契约：AI 装配间常驻主页大面板左栏（#homeAiPanel），不再是独立视图/女仆坞；
+// switchView('ai') 转义回主页（契约由 qa10 覆盖），此处用 switchView 直达目标视图
 const isAiOpen = async (page) => page.evaluate(() => {
-  const d = document.getElementById('maidDock')
-  const v = document.getElementById('view-ai')
-  return !!(d && v && d.classList.contains('open') && !v.classList.contains('hidden') && !d.classList.contains('hidden'))
+  const panel = document.getElementById('homeAiPanel')
+  const home = document.getElementById('view-home')
+  const zone = panel && panel.querySelector('.ai-zone')
+  return !!(panel && home && zone && !home.classList.contains('hidden') && document.querySelector('.home-ai-col'))
 })
 const gotoView = async (page, id) => {
-  // v3：顶部横排菜单导航（契约由 qa10 覆盖），此处用 switchView 直达目标视图
+  // v4：顶部横排主导航（契约由 qa10 覆盖），此处用 switchView 直达目标视图（'ai' 转义回主页）
   await page.evaluate((x) => switchView(x), id)
   await new Promise((r) => setTimeout(r, 350))
 }
@@ -81,7 +84,7 @@ try {
   await page.setViewport({ width: 1280, height: 860 })
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle2', timeout: 30000 })
 
-  // 1) 导航进入（v1.1：AI 装配间住进左侧女仆坞）
+  // 1) 导航进入（v4：AI 装配间常驻主页大面板左栏）
   await gotoView(page, 'ai')
   await new Promise((r) => setTimeout(r, 400))
   check('空态欢迎卡可见', await page.$('.ai-welcome .greet') !== null)
@@ -89,10 +92,15 @@ try {
   check('顶部工具栏（人设/设置/新会话）', await page.$('#aiPersona') !== null && await page.$('#aiSettingsBtn') !== null && await page.$('#aiNewSessionBtn') !== null)
   check('配置入口合并（顶栏唯一「⚙ 模型」，无重复「连接设置」）', (await page.$eval('#aiSettingsBtn', (el) => el.textContent.trim())) === '⚙ 模型')
   check('输入坞存在（textarea+发送圆形按钮）', await page.$('#reqInput') !== null && await page.$('#composeBtn') !== null)
-  // 女仆坞契约：AI 装配间随坞展开（dock.open + view-ai 可见），聊天区占满坞体高度
-  check('AI 装配间移入女仆坞（dock.open + view-ai 可见）', await isAiOpen(page))
-  check('女仆坞头部（小织 · DeepSeek Harness 女仆）', await page.$eval('.maid-name', (el) => el.textContent.includes('小织')))
-  check('聊天区占满女仆坞高度', await page.evaluate(() => { const z = document.querySelector('.ai-zone'); const d = document.getElementById('maidDock'); return z && d && z.getBoundingClientRect().height >= d.getBoundingClientRect().height - 130 }))
+  // v4 大面板契约：女仆坞已移除，AI 装配间常驻主页左栏
+  check('女仆坞已移除（无 maidDock/maidScrim）', await page.evaluate(() => !document.getElementById('maidDock') && !document.getElementById('maidScrim')))
+  check('AI 装配间常驻主页大面板左栏（home-ai-col + homeAiPanel）', await isAiOpen(page))
+  check('大面板头部（小织 · DeepSeek Harness 女仆）', await page.$eval('.maid-name', (el) => el.textContent.includes('小织')))
+  check('聊天区在大面板左栏内（不溢出舱体）', await page.evaluate(() => {
+    const z = document.querySelector('#homeAiPanel .ai-zone')
+    const c = document.querySelector('.home-ai-col')
+    return z && c && z.getBoundingClientRect().height <= c.getBoundingClientRect().height + 1
+  }))
   await shot(page, '01-empty')
 
   // 2) 示例按钮预填
@@ -179,11 +187,12 @@ try {
   await page.click('#aiSettingsBtn')
   await new Promise((r) => setTimeout(r, 200))
 
-  // 5) 发送流程（本地模拟，无 Key）
+  // 5) 发送流程（本地模拟，无 Key）——确定性等待产物卡（5×420ms 定时器链，固定睡眠在慢机下会截断）
   await page.evaluate(() => { try { document.getElementById('aiProvider').value = 'deepseek' } catch (_) {} })
   await page.type('#reqInput', '帮我组一个视频剪辑加字幕的包')
   await page.keyboard.press('Enter')
-  await new Promise((r) => setTimeout(r, 2600))
+  await page.waitForFunction(() => document.querySelectorAll('.ai-pack-card').length === 1, { timeout: 8000, polling: 250 })
+  await new Promise((r) => setTimeout(r, 250))
   check('用户气泡出现', await page.$eval('#aiCol', (el) => el.textContent.includes('帮我组一个视频剪辑加字幕的包')))
   check('打字指示器已消失（完成后）', await page.$('#aiTyping') === null)
   check('助手祝贺气泡', await page.$('.ai-msg.assistant .ai-bubble') !== null)
@@ -246,7 +255,9 @@ try {
   // 10) 人设切换 → 标题联动 + 新消息头像用新人设（历史消息头像保持发信时的）
   await page.evaluate(() => { document.getElementById('reqInput').value = '帮我组一个笔记包' })
   await page.keyboard.press('Enter')
-  await new Promise((r) => setTimeout(r, 2600))
+  // 确定性等待第二轮完成：第 1 轮 user+assistant(产物) + 第 2 轮 user+assistant(错误) = 4 条
+  await page.waitForFunction(() => document.querySelectorAll('#aiCol .ai-msg').length === 4, { timeout: 8000, polling: 250 })
+  await new Promise((r) => setTimeout(r, 200))
   await page.select('#aiPersona', 'butler')
   await new Promise((r) => setTimeout(r, 200))
   const titleNow = await page.$eval('#aiTitleName', (el) => el.textContent)
@@ -287,15 +298,15 @@ try {
   check('刷新后一键导入真实入列（per-card）', importedAfter === importedBefore + 1, `${importedBefore} → ${importedAfter}`)
   await shot(page, '04-restored-session')
 
-  // 12) 快速视图切换：AI → 市场 → AI，会话保留；v1.2 女仆坞仅主页（切走隐藏、回主页恢复）
-  // 顶栏是应用骨架永远可点：装配间展开时点菜单 → 小织自动让位缩回，菜单正常打开
+  // 12) 快速视图切换：AI（=主页）→ 市场 → AI，会话保留；v4 装配间常驻主页左栏（切走隐藏、回主页恢复）
   await gotoView(page, 'market')
   await new Promise((r) => setTimeout(r, 300))
-  check('切走主页 → 女仆坞隐藏（仅主页保留）', await page.evaluate(() => document.getElementById('maidDock').classList.contains('hidden')))
+  check('切走主页 → 主页视图隐藏（市场显示）', await page.evaluate(() =>
+    document.getElementById('view-home').classList.contains('hidden') && !document.getElementById('view-market').classList.contains('hidden')))
   check('主区已切换到插件市场', await page.evaluate(() => !document.getElementById('view-market').classList.contains('hidden')))
   await gotoView(page, 'ai')
   await new Promise((r) => setTimeout(r, 500))
-  check('回主页 → 女仆坞恢复展开', await isAiOpen(page))
+  check('回主页 → AI 装配间常驻左栏（v4）', await isAiOpen(page))
   const keptMsgs = await page.evaluate(() => document.querySelectorAll('#aiCol .ai-msg').length)
   check('视图切换后会话保留', keptMsgs >= 2, `msgs=${keptMsgs}`)
 
