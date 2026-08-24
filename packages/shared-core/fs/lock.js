@@ -342,7 +342,40 @@ function acquireLock(fsPort, lockPath, opts = {}) {
           continue;
         }
       }
-      // 接管：unlink 后重试（重试前二次确认防竞态——unlink 失败按错误返回）
+      // 接管：unlink 后重试。R3（二次确认，兑现注释声称的防竞态）：决策（readToken
+      // → isStale）与 unlink 之间，另一等待者可能已完成接管并写入新 token——此时
+      // unlink 删掉的是【活锁】（双持有者窗口）。unlink 前重读 token，与决策时
+      // 完全一致（pid + at）才执行；不一致（已被人接管/刷新）则回到循环按新状态
+      // 重新判定。token 缺失走 mtime 回退的路径同理：重读可解析（新持有者已落
+      // token）或 mtime 已刷新时同样不接管。
+      const again = readToken(fsPort, lockPath);
+      // 审查修复（防忙转）：重判 continue 前睡一个 poll 周期——持续 token 抖动
+      //（对抗性/极端竞态）时不得以全速 open+read 自旋占满 CPU。
+      if (token && !again) {
+        sleepSync(pollMs);
+        continue; // token 瞬时不可解析（并发重写窗口）：重新判定，不盲目接管
+      }
+      if (token && again && (again.pid !== token.pid || again.at !== token.at)) {
+        sleepSync(pollMs);
+        continue; // token 已变：按新持有者重新走等待/接管判定
+      }
+      if (!token && again) {
+        sleepSync(pollMs);
+        continue; // mtime 回退路径上出现可解析 token：同上，重新判定
+      }
+      if (!token) {
+        // mtime 回退路径：mtime 已被刷新（新持有者 touch）则不接管
+        try {
+          const st2 = fsPort.statSync(lockPath);
+          if (now() - st2.mtimeMs <= staleMs) { sleepSync(pollMs); continue; }
+        } catch (_) {
+          if (now() >= deadline) {
+            return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `等待锁超时（${waitMs}ms）：${lockPath}`) };
+          }
+          sleepSync(pollMs);
+          continue;
+        }
+      }
       try {
         fsPort.unlinkSync(lockPath);
       } catch (unlinkErr) {

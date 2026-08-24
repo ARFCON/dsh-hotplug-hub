@@ -166,7 +166,7 @@ describe('infra/heal-steps.js executeAction 全步骤（FIX-16：不静默 ok）
       expect(r.ok).toBe(false);
       expect(r.error.code).toBe('ERR_INSTALL_DEP');
     });
-    it('目标存在 → 建链接目录并复制 package.json', async () => {
+    it('目标存在 → 重建真实链接（junction/symlink，R3 起与 installPathPlugin 同源）', async () => {
       const root = tempDir('hs-rl-');
       const target = path.join(root, 'srcp');
       const profile = path.join(root, 'profile');

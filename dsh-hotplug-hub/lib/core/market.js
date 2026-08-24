@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import {
   closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync,
-  renameSync, unlinkSync, writeFileSync, statSync, lstatSync, rmSync, readdirSync, copyFileSync,
+  renameSync, rmdirSync, unlinkSync, writeFileSync, statSync, lstatSync, rmSync, readdirSync, copyFileSync,
 } from 'node:fs'
 import {
   MARKET_CACHE_FILE, MARKET_DETAIL_CACHE_FILE, MARKET_FILE_BUDGET_MS,
@@ -30,9 +30,10 @@ import { join } from 'node:path'
 
 // 跨进程缓存写锁端口（与 patch.js nodeFsPort 同源契约；detail 缓存是 read-modify-write，
 // 须防两个 Node 宿主进程并发写同一 market-detail-cache.json 时互相覆盖丢条目）。
+// rmdirSync：fs/lock 的 v1 目录锁迁移需要（R3 审计修复，同 patch.js）。
 const fsPort = {
   readFileSync, writeFileSync, existsSync, mkdirSync, statSync, lstatSync, openSync,
-  closeSync, fsyncSync, renameSync, unlinkSync, rmSync, readdirSync, copyFileSync,
+  closeSync, fsyncSync, renameSync, unlinkSync, rmSync, readdirSync, copyFileSync, rmdirSync,
 }
 
 /** 详情缓存写锁路径（<hotplug-hub>/market-detail-cache.lock；与 patch 四写者锁同协议）。 */
@@ -162,7 +163,9 @@ export async function httpGet(url, timeoutMs = MARKET_TIMEOUT_MS, extraHeaders =
   }
   args.push(url)
   const result = await runCli(CURL_BIN, args, timeoutMs + 5000, { cwd: tmpdir(), maxOutput: MARKET_MAX_BODY_CHARS })
-  if (result.code === 0 && result.stdout !== '') return { ok: true, status: 200, text: truncateCodePoints(result.stdout, MARKET_MAX_BODY_CHARS) }
+  // R3：curl -f 语义下 exit 0 即成功——空 stdout 是合法的空 200 响应体（空文件），
+  // 此前 `stdout !== ''` 把它误判为失败（与 fetch 分支行为漂移）。
+  if (result.code === 0) return { ok: true, status: 200, text: truncateCodePoints(result.stdout, MARKET_MAX_BODY_CHARS) }
   return { ok: false, status: 0, text: '' }
 }
 
@@ -480,6 +483,14 @@ export async function fetchRepoDetailFiles(repo, ref, sources) {
 
 export function applyRepoDetailFiles(entry, files, repo, ref) {
   const { packScan, pkgRes, readmeScan } = files
+  // R3（缓存卫生）：「非确定性结论」标记——package.json 通道既没成功也不是明确的
+  // 404/410（网络瞬断/超时/限流/预算到期）时，importable:false 只是「暂时拿不到」，
+  // 不是「仓库不是包」的确定性判定。此标记供 marketDetailAsync 跳过缓存写入
+  // （此前一次网络抖动被负缓存 1 小时，refresh 前不可恢复）。
+  // 审查补充：200 但 JSON 解析失败（镜像返回损坏体/错误页）同样视为非确定——
+  // 落缓存会把镜像故障钉死 1 小时。
+  const pkgUndetermined = (!packScan && (!pkgRes || !pkgRes.ok) && pkgRes?.status !== 404 && pkgRes?.status !== 410)
+  let pkgParseFailed = false
   // 1) 包 manifest：repo 本身就是包集合 → 直接作为导入对象
   if (packScan) {
     entry.hasPack = true
@@ -494,7 +505,10 @@ export function applyRepoDetailFiles(entry, files, repo, ref) {
       const pkg = JSON.parse(pkgRes.text)
       if (typeof pkg.name === 'string') entry.npmName = entry.npmName ?? pkg.name
       if (typeof pkg.version === 'string') entry.version = entry.version ?? pkg.version
-    } catch { /* 有意吞掉：package.json 解析失败不影响其他候选文件 */ }
+    } catch {
+      pkgParseFailed = true
+      /* 有意吞掉：package.json 解析失败不影响其他候选文件（经 pkgParseFailed 记入非确定） */
+    }
   }
   // 3) README：提取介绍（首段）与安装方法（## 安装 / Installation / 快速开始 等小节）
   if (readmeScan) {
@@ -510,6 +524,10 @@ export function applyRepoDetailFiles(entry, files, repo, ref) {
       })
       if (built.ok) entry.manifest = built.pack
       else { entry.importable = false; entry.importError = built.error }
+    } else if (pkgUndetermined || pkgParseFailed) {
+      entry.importable = false
+      entry.inconclusive = true
+      entry.importError = '网络不可用或返回了无法解析的内容，未能获取仓库文件（未缓存，稍后会自动重试）'
     } else {
       entry.importable = false
       entry.importError = '未找到 package.json 或 hotpack/.dshpack 清单，无法生成导入包'
@@ -541,6 +559,7 @@ export async function fetchRepoDetail(repo, ref, meta, sources) {
     readmeUrl: null,
     importable: true,
     importError: null,
+    inconclusive: false,
     manifest: null,
   }
   const files = await fetchRepoDetailFiles(repo, ref, sources)
@@ -692,9 +711,14 @@ export async function marketDetailAsync(params) {
       ...base,
       npmName: null, version: null, hasPack: false, packKind: null,
       intro: '', install: '', readmeUrl: null,
-      importable: false, importError: String(error.message ?? error), manifest: null,
+      importable: false, importError: String(error.message ?? error),
+      inconclusive: true, manifest: null,
     }
   }
+  // R3（缓存卫生）：非确定性结论（inconclusive：网络瞬断/限流/预算到期/抓取异常）
+  // 不落缓存——负缓存 1 小时会让一次抖动把仓库「锁死」为不可导入；确定性结论
+  // （含合法的「不是包」判定）照常缓存。
+  if (entry.inconclusive === true) return { ok: true, cached: false, entry }
   try {
     const lockPath = marketDetailLockPath()
     // 审计修复（审查轮）：acquireLock 是同步阻塞实现（sleepSync/Atomics.wait）——waitMs 5s

@@ -31,16 +31,29 @@ const CHILD_ENV_BLOCKLIST = [
 
 /**
  * 净化子进程环境变量：删除可削弱 TLS / 可注入 Node 行为的变量。
+ * R3（Windows 大小写）：env 名在 Windows OS 层大小写不敏感，而 `{...env}` 展开保留
+ * 原始大小写、精确大小写 delete 会漏掉 `node_options` / `git_ssh_command` 等变体
+ * （封锁清单可被绕过）。win32 下按「大写化比较」剥离全部大小写变体；POSIX env
+ * 大小写敏感（`node_options` 是另一个变量），保持精确匹配语义不变。
  * @param {object} env 源环境（通常 process.env）
  * @param {object} [opts]
  * @param {boolean} [opts.keepNodeOptions] 保留 NODE_OPTIONS（仅限已验证的 DSH
  *   harness 场景——launcher launch.js：harness 经 N44 校验且本就执行 profile
  *   代码，NODE_OPTIONS 透传无边际风险，且 QA 录制器（DoD-2 recorder）依赖该
- *   注入通道；npm/git/dsh 等包管理子进程一律全量剥离）
+ *   注入通道；npm/git/dsh 等包管理子进程一律全量剥离；win32 下大小写变体同样保留）
  * @returns {object} 净化后的副本
  */
 function sanitizeChildEnv(env = {}, opts = {}) {
   const out = { ...env };
+  if (process.platform === 'win32') {
+    const blocked = new Set(CHILD_ENV_BLOCKLIST.map((k) => k.toUpperCase()));
+    for (const key of Object.keys(out)) {
+      const upper = key.toUpperCase();
+      if (upper === 'NODE_OPTIONS' && opts.keepNodeOptions === true) continue;
+      if (blocked.has(upper)) delete out[key];
+    }
+    return out;
+  }
   for (const key of CHILD_ENV_BLOCKLIST) {
     if (key === 'NODE_OPTIONS' && opts.keepNodeOptions === true) continue;
     delete out[key];

@@ -11,7 +11,7 @@
  */
 import {
   existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, copyFileSync,
-  openSync, writeFileSync, closeSync, fsyncSync, renameSync, unlinkSync, statSync, readdirSync,
+  openSync, writeFileSync, closeSync, fsyncSync, renameSync, unlinkSync, statSync, readdirSync, rmdirSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
@@ -23,10 +23,12 @@ import { readJson, writeJsonSafe } from './state.js'
 import { runCli, tail } from './run-cli.js'
 import { ensureEntry, npmModuleDir, storeDirOf } from './ensure.js'
 
-// node:fs 直连端口（merge/lock 契约需要的方法）
+// node:fs 直连端口（merge/lock 契约需要的方法）。
+// rmdirSync：fs/lock 的 v1 目录锁迁移需要（R3 审计修复——缺失时残留 v1 目录锁
+// 会让补丁锁永远不可得，appendPatchBlock/removePatchBlock 每次阻塞满 waitMs 后失败）。
 const nodeFsPort = {
   readFileSync, writeFileSync, existsSync, mkdirSync, statSync, lstatSync, openSync,
-  closeSync, fsyncSync, renameSync, unlinkSync, rmSync, readdirSync, copyFileSync,
+  closeSync, fsyncSync, renameSync, unlinkSync, rmSync, readdirSync, copyFileSync, rmdirSync,
 }
 
 /** 四写者共用的补丁锁（<profile>/.dsh-patch.lock）。 */
@@ -142,6 +144,24 @@ export function bundlePkgNames(pack) {
   const names = []
   for (const entry of pack.plugins) {
     const meta = readJson(join(storeDirOf(entry), 'package.json'))
+    // R3：显式 true 才登记（与 launcher domain/manifest.js 的 === true、heal-verify 的
+    // 「=== false 仍在 bundles = 验证失败」同一生态契约）——此前 !== undefined 把
+    // 显式 false（作者明确退出 bundle patch）也当入选。
+    if (meta?.dsh?.bundle?.patch === true) names.push(entry.name)
+  }
+  return names
+}
+
+/**
+ * 卸载时的 bundles 移除集（审查修复：迁移自愈）——「字段存在」即移除（⊇ 登记集
+ * === true）。旧版（!== undefined 语义）登记过的显式 false / 非布尔值条目也能在
+ * 卸载时清掉，不留违反生态契约的残留（launcher heal-verify：显式 false 留在
+ * bundles = 验证失败）；对未登记的名字 removeBundles 是无副作用 no-op。
+ */
+function bundleRemovalNames(pack) {
+  const names = []
+  for (const entry of pack.plugins) {
+    const meta = readJson(join(storeDirOf(entry), 'package.json'))
     if (meta?.dsh?.bundle?.patch !== undefined) names.push(entry.name)
   }
   return names
@@ -229,8 +249,8 @@ export function removeBundles(names) {
 export async function unmountPack(pack, opts = {}) {
   const removed = removePatchBlock(pack.id)
   if (!removed.ok) return { ok: false, error: removed.error }
-  const bundleNames = bundlePkgNames(pack)
-  removeBundles(bundleNames)
+  // 移除集 ⊇ 登记集（bundleRemovalNames）：含旧语义登记的残留，迁移自愈
+  removeBundles(bundleRemovalNames(pack))
   const manifest = readJson(manifestPath())
   const linkEntries = pack.plugins.filter((entry) => entry.source.type !== 'npm')
   if (manifest !== null) {
@@ -265,7 +285,7 @@ export async function unmountPack(pack, opts = {}) {
 async function rollbackMount(pack, freshlyInstalled = []) {
   try {
     removePatchBlock(pack.id)
-    removeBundles(bundlePkgNames(pack))
+    removeBundles(bundleRemovalNames(pack))
     const manifest = readJson(manifestPath())
     if (manifest !== null) {
       let changed = false
@@ -290,21 +310,28 @@ export async function mountPack(pack) {
     await rollbackMount(pack, freshlyInstalled)
     return { ok: false, error, steps }
   }
-  for (const entry of pack.plugins) {
-    const ensured = await ensureEntry(entry)
-    if (!ensured.ok) return fail(ensured.error)
-    if (entry.source.type === 'npm' && ensured.status !== 'reused') freshlyInstalled.push(entry.name)
-    steps.push({ id: entry.id, name: entry.name, status: ensured.status, detail: ensured.detail })
+  // R3（异常安全）：此前只处理 {ok:false} 返回值——ensureEntry / linkEntryIntoProfile /
+  // writeJsonSafe 的同步【异常】（EACCES/ENOTDIR/EPERM 等）穿透挂载循环，回滚完全不
+  // 执行。现任何异常都转化为 fail()（回滚 + 结构化失败），mountPack 绝不裸抛。
+  try {
+    for (const entry of pack.plugins) {
+      const ensured = await ensureEntry(entry)
+      if (!ensured.ok) return fail(ensured.error)
+      if (entry.source.type === 'npm' && ensured.status !== 'reused') freshlyInstalled.push(entry.name)
+      steps.push({ id: entry.id, name: entry.name, status: ensured.status, detail: ensured.detail })
+    }
+    const manifest = readJson(manifestPath())
+    if (manifest === null) return fail('profile package.json 不可读')
+    for (const entry of pack.plugins.filter((item) => item.source.type !== 'npm')) {
+      const linked = linkEntryIntoProfile(entry)
+      if (!linked.ok) return fail(linked.error)
+    }
+    addBundles(bundlePkgNames(pack))
+    const patched = appendPatchBlock(pack)
+    if (!patched.ok) return fail(patched.error)
+    // installedNpm = 本次挂载实际安装/替换的 npm 包名（供激活方持久化，卸载时只撤这些）
+    return { ok: true, steps, restartNeeded: true, installedNpm: freshlyInstalled }
+  } catch (e) {
+    return fail(`挂载异常（已回滚）：${e && e.message ? e.message : String(e)}`)
   }
-  const manifest = readJson(manifestPath())
-  if (manifest === null) return fail('profile package.json 不可读')
-  for (const entry of pack.plugins.filter((item) => item.source.type !== 'npm')) {
-    const linked = linkEntryIntoProfile(entry)
-    if (!linked.ok) return fail(linked.error)
-  }
-  addBundles(bundlePkgNames(pack))
-  const patched = appendPatchBlock(pack)
-  if (!patched.ok) return fail(patched.error)
-  // installedNpm = 本次挂载实际安装/替换的 npm 包名（供激活方持久化，卸载时只撤这些）
-  return { ok: true, steps, restartNeeded: true, installedNpm: freshlyInstalled }
 }

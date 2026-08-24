@@ -14,6 +14,22 @@ const { makeError } = require('../contracts/errors');
 const { CMD_EXE_SPECIAL_RE } = require('./cmd-special');
 
 /**
+ * 解析 cmd.exe 解释器绝对路径（R3：与 infra/launch.js、hotplug run-cli.js 同一加固）。
+ * 优先级：注入 env 的 ComSpec → process.env.ComSpec（机器级常量，测试注入的 env
+ * 快照可能丢失）→ SystemRoot\System32\cmd.exe 绝对路径（PATH 被隔离时仍可用）→
+ * 裸 'cmd.exe'（极端缺 SystemRoot 的最后兜底，交由 CreateProcess 系统目录搜索）。
+ * @param {object} core
+ * @returns {string}
+ */
+function resolveCmdBin(core) {
+  const env = core.config.env || {};
+  if (env.ComSpec) return env.ComSpec;
+  if (process.env.ComSpec) return process.env.ComSpec;
+  const sysroot = env.SystemRoot || process.env.SystemRoot;
+  return sysroot ? path.join(sysroot, 'System32', 'cmd.exe') : 'cmd.exe';
+}
+
+/**
  * 定位 dsh CLI。
  * 优先：1) DSH Desktop 内置 bin.js；2) ~/.dsh 内置 bin.js；3) PATH 上的 dsh。
  * @param {object} core
@@ -41,13 +57,13 @@ function findDshCli(core, opts = {}) {
     return { ok: true, bin: process.execPath, args: [alt, 'plugin', '--profile', profile, 'add'] };
   }
 
-  // 3) PATH 上的 dsh（Windows 用 cmd.exe /c）
+  // 3) PATH 上的 dsh（Windows 经 cmd.exe /c 包装；解释器走 ComSpec 绝对路径）
   if (platform === 'win32') {
     // C6 修复：profile 是已校验 id（白名单无特殊字符）；防御性拒绝异常值
     if (CMD_EXE_SPECIAL_RE.test(String(profile))) {
       return { ok: false, error: makeError('ERR_ARG_BAD_OPTION', `profile 含 cmd 特殊字符，拒绝经 cmd 执行：${profile}`) };
     }
-    return { ok: true, bin: 'cmd.exe', args: ['/c', 'dsh', 'plugin', '--profile', profile, 'add'] };
+    return { ok: true, bin: resolveCmdBin(core), args: ['/c', 'dsh', 'plugin', '--profile', profile, 'add'] };
   }
   return { ok: true, bin: 'dsh', args: ['plugin', '--profile', profile, 'add'] };
 }
@@ -72,4 +88,4 @@ function pluginAddCommand(core, opts) {
   return { ok: true, bin: base.bin, args: [...base.args, spec] };
 }
 
-module.exports = { findDshCli, pluginAddCommand, CMD_EXE_SPECIAL_RE };
+module.exports = { findDshCli, pluginAddCommand, resolveCmdBin, CMD_EXE_SPECIAL_RE };
