@@ -80,7 +80,7 @@ function loadClient(remoteFace, opts = {}) {
       setItem: (k, v) => storage.set(k, String(v)),
       removeItem: (k) => storage.delete(k),
     },
-    confirm: () => opts.confirm ?? true,
+    confirm: (msg) => (typeof opts.confirm === 'function' ? opts.confirm(msg) : (opts.confirm ?? true)),
     fetch: opts.fetch,
   }
   globalThis.window = windowStub
@@ -273,47 +273,279 @@ describe('来源多选（审计修复：全取消回退默认，不再产生空�
   })
 })
 
-describe('AI 连接测试超时（审计修复：挂起 fetch 使按钮永久禁用）', () => {
-  it('fetch 挂起 → 15s 超时后 aiTesting 复位（按钮恢复可用）', async () => {
+describe('AI 连接测试（网关 aiTest 通道）', () => {
+  const openAiSettings = async () => {
+    const aiTab = handle.walk(handle.tree.current).find((n) => n.type === 'button' && textOf(n).includes('AI 装配间'))
+    aiTab.props.onClick()
+    await flushMicro()
+    const gearBtn = handle.walk(handle.tree.current).find((n) => n.type === 'button' && textOf(n).includes('模型'))
+    gearBtn.props.onClick()
+    await flushMicro()
+  }
+  const findTestBtn = () => handle.walk(handle.tree.current).find((n) => n.type === 'button' && /测试(连接|中)/.test(textOf(n)))
+  const setProviderAndModel = async (providerId) => {
+    const selects = handle.walk(handle.tree.current).filter((n) => n.type === 'select')
+    const providerSelect = selects.find((n) => (n.props.children || []).some((c) => c.props && c.props.value === providerId))
+    providerSelect.props.onChange({ target: { value: providerId } })
+    await flushMicro()
+  }
+
+  it('RPC 桥挂起 → 20s 客户端看门狗后 aiTesting 复位（按钮不永久禁用）', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
-      const pendingFetch = (url, opts) => new Promise((resolve, reject) => {
-        if (opts && opts.signal) opts.signal.addEventListener('abort', () => reject(new Error('aborted')))
-      })
-      handle = loadClient(remoteOk(), { fetch: pendingFetch })
-      // 打开 AI 页签 + 设置面板
-      const aiTab = handle.walk(handle.tree.current).find((n) => n.type === 'button' && textOf(n).includes('AI 装配间'))
-      aiTab.props.onClick()
-      await flushMicro()
-      const gearBtn = handle.walk(handle.tree.current).find((n) => n.type === 'button' && textOf(n).includes('模型'))
-      gearBtn.props.onClick()
-      await flushMicro()
-      // 填 key 与合法 baseURL 后点「测试连接」
+      handle = loadClient(remoteOk({ aiTest: () => new Promise(() => {}) }))
+      await openAiSettings()
       const inputs = handle.walk(handle.tree.current).filter((n) => n.type === 'input')
-      const keyInput = inputs.find((n) => n.props.type === 'password')
-      keyInput.props.onChange({ target: { value: 'sk-test' } })
-      const baseInput = inputs.find((n) => (n.props.placeholder || '').includes('Base URL'))
-      baseInput.props.onChange({ target: { value: 'https://api.deepseek.com' } })
+      inputs.find((n) => n.props.type === 'password').props.onChange({ target: { value: 'sk-test' } })
       await flushMicro()
-      const testBtn = () => handle.walk(handle.tree.current).find((n) => n.type === 'button' && /测试(连接|中)/.test(textOf(n)))
-      testBtn().props.onClick()
+      findTestBtn().props.onClick()
       await flushMicro()
-      expect(testBtn().props.disabled).toBe(true) // 测试中
-      await vi.advanceTimersByTimeAsync(15_000 + 100)
+      expect(findTestBtn().props.disabled).toBe(true) // 测试中
+      await vi.advanceTimersByTimeAsync(20_000 + 100)
       await flushMicro()
-      expect(testBtn().props.disabled).toBe(false) // 超时复位
+      expect(findTestBtn().props.disabled).toBe(false) // 看门狗超时复位
     } finally {
       vi.useRealTimers()
     }
   })
+
+  it('成功：经网关 aiTest 返回 provider/model/延迟，提示含模型名', async () => {
+    const calls = []
+    handle = loadClient(remoteOk({
+      aiTest: async (p) => { calls.push(p); return { ok: true, value: { ok: true, code: 'OK', data: { provider: 'opencode', model: 'deepseek-v4-flash', latencyMs: 321 } } } },
+    }))
+    await openAiSettings()
+    await setProviderAndModel('opencode')
+    findTestBtn().props.onClick()
+    await flushMicro()
+    expect(calls[0].provider).toBe('opencode')
+    const notice = handle.walk(handle.tree.current).find((n) => (n.props.className || '').includes('hp_notice'))
+    expect(textOf(notice)).toContain('deepseek-v4-flash')
+    expect(textOf(notice)).toContain('321')
+  })
+
+  it('失败：服务端错误信息透出（key 脱敏由服务端完成）', async () => {
+    handle = loadClient(remoteOk({ aiTest: async () => ({ ok: false, message: 'AI 服务 HTTP 401：invalid key' }) }))
+    await openAiSettings()
+    findTestBtn().props.onClick()
+    await flushMicro()
+    const notice = handle.walk(handle.tree.current).find((n) => (n.props.className || '').includes('hp_notice'))
+    expect(textOf(notice)).toContain('401')
+  })
+
+  it('老中枢无 aiTest 面 → 友好降级提示（不裸抛 TypeError）', async () => {
+    handle = loadClient(remoteOk({
+      aiTest: async () => { throw new TypeError('face.aiTest is not a function') },
+    }))
+    await openAiSettings()
+    findTestBtn().props.onClick()
+    await flushMicro()
+    const notice = handle.walk(handle.tree.current).find((n) => (n.props.className || '').includes('hp_notice'))
+    expect(textOf(notice)).toContain('不支持连接测试')
+  })
 })
 
 describe('REMOTE 描述符与注入面对齐', () => {
-  it('injected() 暴露全部 11 个 RPC 方法（含 aiAssemble，与 gateway/typert 三处同步）', () => {
+  it('injected() 暴露全部 12 个 RPC 方法（含 aiTest，与 gateway/typert 三处同步）', () => {
     handle = loadClient(remoteOk())
     const api = handle.api
-    for (const m of ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check', 'marketList', 'marketDetail', 'aiAssemble', 'aiChat']) {
+    for (const m of ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check', 'marketList', 'marketDetail', 'aiAssemble', 'aiChat', 'aiTest']) {
       expect(typeof api[m], m).toBe('function')
     }
+  })
+})
+
+/* ---------------- AI 装配间 UI（doAiSend / 人设 / 产物卡 / 轮次徽标） ---------------- */
+const PACK_A = {
+  hotpack: '1.0', id: 'pack.ai.a', name: '包A', version: '0.1.0', description: 'd', tags: ['x'],
+  plugins: [{ id: 'pa', name: 'dsh-a', version: '1.0.0', source: { type: 'npm' }, config: {} }],
+}
+const PACK_B = {
+  hotpack: '1.0', id: 'pack.ai.b', name: '包B', version: '0.1.0', description: 'd', tags: ['x'],
+  plugins: [
+    { id: 'pa', name: 'dsh-a', version: '1.0.0', source: { type: 'npm' }, config: {} },
+    { id: 'pb', name: 'dsh-b', version: '2.0.0', source: { type: 'npm' }, config: {} },
+  ],
+}
+const aiChatReply = (pack, over = {}) => ({
+  ok: true,
+  value: {
+    ok: true, code: 'OK',
+    data: {
+      session: { id: 'ai-s1', persona: 'maid', turn: pack ? 1 : 2, pack: pack || null, history: [] },
+      reply: pack ? '主人，已为您织好：' + pack.name : '好的主人～',
+      pack: pack || null,
+      readme: pack ? '# ' + pack.name : null,
+      manifest: pack || null,
+      diff: pack ? { added: pack.plugins, removed: [], changed: [] } : null,
+      firstTurn: !!pack,
+      ...over,
+    },
+  },
+})
+
+const openAiTab = async () => {
+  const aiTab = handle.walk(handle.tree.current).find((n) => n.type === 'button' && textOf(n).includes('AI 装配间'))
+  aiTab.props.onClick()
+  await flushMicro()
+}
+const aiTextarea = () => handle.walk(handle.tree.current).find((n) => n.type === 'textarea')
+const sendBtn = () => handle.walk(handle.tree.current).find((n) => (n.props.className || '').includes('hp_aiSend'))
+const sendAi = async (text) => {
+  aiTextarea().props.onChange({ target: { value: text } })
+  await flushMicro()
+  sendBtn().props.onClick()
+  await flushMicro()
+}
+const openAiSettings = async () => {
+  const gearBtn = handle.walk(handle.tree.current).find((n) => n.type === 'button' && textOf(n).includes('模型'))
+  gearBtn.props.onClick()
+  await flushMicro()
+}
+
+describe('AI 装配间：doAiSend 全流程', () => {
+  it('成功：user + assistant（产物卡）消息追加，sessionId/turn 徽标来自服务端会话', async () => {
+    handle = loadClient(remoteOk({ aiChat: async () => aiChatReply(PACK_A) }))
+    await openAiTab()
+    await sendAi('我要做笔记')
+    const msgs = handle.walk(handle.tree.current).filter((n) => (n.props.className || '').includes('hp_aiMsg'))
+    expect(msgs.length).toBe(2)
+    expect(textOf(msgs[0])).toContain('我要做笔记')
+    expect(textOf(msgs[1])).toContain('已为您织好')
+    expect(handle.walk(handle.tree.current).some((n) => (n.props.className || '').includes('hp_aiPack'))).toBe(true)
+    const badge = handle.walk(handle.tree.current).find((n) => (n.props.className || '').includes('hp_aiTurn'))
+    expect(textOf(badge)).toContain('第 1 轮')
+  })
+
+  it('失败：错误气泡展示（服务端 message 透出）', async () => {
+    handle = loadClient(remoteOk({ aiChat: async () => ({ ok: false, message: 'AI 服务 HTTP 500：boom' }) }))
+    await openAiTab()
+    await sendAi('做笔记')
+    const msgs = handle.walk(handle.tree.current).filter((n) => (n.props.className || '').includes('hp_aiMsg'))
+    expect(textOf(msgs[1])).toContain('500')
+    expect(textOf(msgs[1])).toContain('装配失败')
+  })
+
+  it('老中枢无 aiChat 面（face TypeError）→ 友好提示（不裸抛）', async () => {
+    handle = loadClient(remoteOk({
+      aiChat: async () => { throw new TypeError('face.aiChat is not a function') },
+    }))
+    await openAiTab()
+    await sendAi('做笔记')
+    const msgs = handle.walk(handle.tree.current).filter((n) => (n.props.className || '').includes('hp_aiMsg'))
+    expect(textOf(msgs[1])).toContain('不支持 aiChat')
+  })
+
+  it('provider 必随请求上送（选 OpenCode 预设不再静默落到 DeepSeek）', async () => {
+    const calls = []
+    handle = loadClient(remoteOk({ aiChat: async (p) => { calls.push(p); return aiChatReply(PACK_A) } }))
+    await openAiTab()
+    await openAiSettings()
+    const selects = handle.walk(handle.tree.current).filter((n) => n.type === 'select')
+    selects.find((n) => (n.props.children || []).some((c) => c.props && c.props.value === 'opencode'))
+      .props.onChange({ target: { value: 'opencode' } })
+    await flushMicro()
+    await sendAi('做笔记')
+    expect(calls[0].provider).toBe('opencode')
+    // 预设未改动时不重复送 baseURL/model（去重逻辑保留）
+    expect(calls[0].baseURL).toBeUndefined()
+    expect(calls[0].model).toBeUndefined()
+  })
+
+  it('custom 预设：provider 不送（服务端按 baseURL 解析），自填端点/模型/Key 上送', async () => {
+    const calls = []
+    handle = loadClient(remoteOk({ aiChat: async (p) => { calls.push(p); return aiChatReply(PACK_A) } }))
+    await openAiTab()
+    await openAiSettings()
+    const selects = handle.walk(handle.tree.current).filter((n) => n.type === 'select')
+    selects.find((n) => (n.props.children || []).some((c) => c.props && c.props.value === 'custom'))
+      .props.onChange({ target: { value: 'custom' } })
+    await flushMicro()
+    const inputs = handle.walk(handle.tree.current).filter((n) => n.type === 'input')
+    inputs.find((n) => (n.props.placeholder || '').includes('Base URL')).props.onChange({ target: { value: 'https://my.llm/v1' } })
+    inputs.find((n) => (n.props.placeholder || '').includes('模型名')).props.onChange({ target: { value: 'my-model' } })
+    inputs.find((n) => n.props.type === 'password').props.onChange({ target: { value: 'sk-custom' } })
+    await flushMicro()
+    await sendAi('做笔记')
+    expect(calls[0].provider).toBeUndefined()
+    expect(calls[0].baseURL).toBe('https://my.llm/v1')
+    expect(calls[0].model).toBe('my-model')
+    expect(calls[0].apiKey).toBe('sk-custom')
+  })
+
+  it('人设下拉切换 → 下一次请求 persona 用新值（服务端确认后回写）', async () => {
+    const calls = []
+    handle = loadClient(remoteOk({ aiChat: async (p) => { calls.push(p); return aiChatReply(PACK_A) } }))
+    await openAiTab()
+    const personaSelect = handle.walk(handle.tree.current).find((n) => n.type === 'select' && (n.props.children || []).some((c) => c.props && c.props.value === 'butler'))
+    personaSelect.props.onChange({ target: { value: 'butler' } })
+    await flushMicro()
+    await sendAi('做笔记')
+    expect(calls[0].persona).toBe('butler')
+  })
+
+  it('运行中重复发送被拦截（aiRunning 互斥）', async () => {
+    let release
+    const gate = new Promise((r) => { release = r })
+    handle = loadClient(remoteOk({ aiChat: async () => { await gate; return aiChatReply(PACK_A) } }))
+    await openAiTab()
+    aiTextarea().props.onChange({ target: { value: '第一条' } })
+    await flushMicro()
+    sendBtn().props.onClick()
+    await flushMicro()
+    expect(sendBtn().props.disabled).toBe(true)
+    release()
+    await flushMicro()
+    await flushMicro()
+    // 请求完成后按钮恢复可用（先填入内容：disabled = aiRunning || 空输入）
+    aiTextarea().props.onChange({ target: { value: '下一条' } })
+    await flushMicro()
+    expect(sendBtn().props.disabled).toBe(false)
+  })
+})
+
+describe('AI 装配间：产物卡按钮作用于该卡自身产物', () => {
+  it('两轮产物后，点第一张卡的「一键导入」导入的是第一轮的包', async () => {
+    const imports = []
+    let turn = 0
+    handle = loadClient(remoteOk({
+      aiChat: async () => { turn += 1; return aiChatReply(turn === 1 ? PACK_A : PACK_B) },
+      importPack: async (text) => { imports.push(text); return { ok: true, value: { ok: true, pack: { name: 'P' } } } },
+    }))
+    await openAiTab()
+    await sendAi('做笔记')
+    await sendAi('再加一个')
+    const cards = handle.walk(handle.tree.current).filter((n) => (n.props.className || '').includes('hp_aiPack'))
+    expect(cards.length).toBe(2)
+    const importBtns = handle.walk(cards[0]).filter((n) => n.type === 'button' && /一键导入/.test(textOf(n)))
+    importBtns[0].props.onClick()
+    await flushMicro()
+    expect(imports.length).toBe(1)
+    expect(JSON.parse(imports[0]).id).toBe('pack.ai.a')
+  })
+})
+
+describe('AI 装配间：新会话与轮次徽标', () => {
+  it('服务端 turn 驱动徽标（闲聊轮 turn=2，刷新恢复场景不漂移）', async () => {
+    handle = loadClient(remoteOk({ aiChat: async () => aiChatReply(null) }))
+    await openAiTab()
+    await sendAi('你好')
+    const badge = handle.walk(handle.tree.current).find((n) => (n.props.className || '').includes('hp_aiTurn'))
+    expect(textOf(badge)).toContain('第 2 轮')
+  })
+
+  it('新会话：confirm 后清空消息与轮次徽标', async () => {
+    let confirmed = false
+    handle = loadClient(remoteOk({ aiChat: async () => aiChatReply(PACK_A) }), { confirm: () => { confirmed = true; return true } })
+    await openAiTab()
+    await sendAi('做笔记')
+    const newBtn = handle.walk(handle.tree.current).find((n) => n.type === 'button' && /新会话/.test(textOf(n)))
+    newBtn.props.onClick()
+    await flushMicro()
+    expect(confirmed).toBe(true)
+    const msgs = handle.walk(handle.tree.current).filter((n) => (n.props.className || '').includes('hp_aiMsg'))
+    expect(msgs.length).toBe(0)
+    const badge = handle.walk(handle.tree.current).find((n) => (n.props.className || '').includes('hp_aiTurn'))
+    expect(textOf(badge)).toBe('')
   })
 })

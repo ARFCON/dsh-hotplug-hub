@@ -5,8 +5,10 @@
  * hotpack 结构规则。4 个内置人设可切换（默认女仆「小爱」），任意人设都可
  * 经 buildSystemPrompt 生成组装轮/对话轮 system prompt。
  *
- * 情绪价值准则（用户点名的核心诉求）：成功祝贺、失败安慰、重试鼓励——
- * 与现有重试逻辑互文（炼丹失败就重炼，女仆失败就重新来过）。
+ * 情绪价值准则（用户点名的核心诉求）：成功祝贺（personaReaction 'success'）、
+ * 零变更说明（'nochange'，对话轮回显当前清单时的守卫回复）；失败安慰/重试鼓励由
+ * 前端按人设包装错误文案（aiErrorText），服务端错误保持中性结构化以便诊断——
+ * 语气归人设，事实归校验。
  */
 
 /** hotpack 1.0 结构规则（组装轮与对话轮共用；LLM 输出不可信，仍须权威校验）。 */
@@ -106,8 +108,11 @@ export function buildSystemPrompt(personaId, mode = 'assembly') {
 
 /**
  * 人设情绪价值反应（服务端补语：首轮/修改轮 LLM 只输出 JSON，由本函数补祝贺）。
+ * kind：'success'=产出新产物；'nochange'=对话轮回显了当前清单（等价守卫命中，
+ * 产物零变更——回复说明清单未变，避免把原始 JSON 当闲聊展示）。失败场景由调用方
+ * 以结构化 error 返回（错误信息保持中性，不套人设语气以免遮蔽诊断信息）。
  * @param {object} persona PERSONAS 条目
- * @param {'success'} kind
+ * @param {'success'|'nochange'} kind
  * @param {object} [pack]
  * @returns {string}
  */
@@ -116,16 +121,41 @@ export function personaReaction(persona, kind, pack) {
   const name = pack && pack.name ? pack.name : ''
   const suffix = name ? `${name}（${n} 个插件）` : `${n} 个插件`
   const map = {
-    maid: { success: `主人，插件已经为您织好啦：${suffix}，请过目～` },
-    butler: { success: `装配完成，先生：${suffix}，清单如下，请您审阅。` },
-    neko: { success: `主人好厉害喵！${suffix}已经做好啦喵~` },
-    assistant: { success: `装配完成：${suffix}。` },
+    maid: {
+      success: `主人，插件已经为您织好啦：${suffix}，请过目～`,
+      nochange: `主人，清单和现在的一模一样呢～有想调整的地方随时吩咐小织！`,
+    },
+    butler: {
+      success: `装配完成，先生：${suffix}，清单如下，请您审阅。`,
+      nochange: `先生，本次回复的清单与当前装配完全一致，无需变更。若有新吩咐，请随时告知。`,
+    },
+    neko: {
+      success: `主人好厉害喵！${suffix}已经做好啦喵~`,
+      nochange: `清单和现在的一样喵，没有变化～主人想改哪里，跟咪咪说喵！`,
+    },
+    assistant: {
+      success: `装配完成：${suffix}。`,
+      nochange: '当前清单未发生变化。',
+    },
   }
-  return (map[persona.id] || map.assistant)[kind] || ''
+  const byKind = map[persona.id] || map.assistant
+  return byKind[kind] || ''
+}
+
+/** config 规范化比较（键序无关：按键名递归排序后序列化）。 */
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort()
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
 }
 
 /**
  * 计算新旧产物差异（按插件 id 匹配；id 在清单内唯一）。
+ * changed 条目在 name/version 变化时携带 from/to；纯 config 变化额外携带
+ * configChanged:true（否则 from/to 版本相同，UI 会渲染成无信息的"幽灵调整"）。
  * @param {object|null} oldPack
  * @param {object} newPack
  * @returns {{added: object[], removed: object[], changed: object[], kept: object[]}}
@@ -142,8 +172,10 @@ export function diffPacks(oldPack, newPack) {
   for (const p of newList) {
     const prev = oldById.get(p.id)
     if (!prev) { added.push(p); continue }
-    if (prev.name !== p.name || prev.version !== p.version || JSON.stringify(prev.config ?? {}) !== JSON.stringify(p.config ?? {})) {
-      changed.push({ id: p.id, from: { name: prev.name, version: prev.version }, to: { name: p.name, version: p.version } })
+    const specChanged = prev.name !== p.name || prev.version !== p.version
+    const configChanged = canonicalJson(prev.config ?? {}) !== canonicalJson(p.config ?? {})
+    if (specChanged || configChanged) {
+      changed.push({ id: p.id, from: { name: prev.name, version: prev.version }, to: { name: p.name, version: p.version }, ...(configChanged ? { configChanged: true } : {}) })
     } else {
       kept.push(p)
     }

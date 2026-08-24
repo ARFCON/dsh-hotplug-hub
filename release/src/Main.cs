@@ -693,7 +693,7 @@ namespace DSHHotplugHub
         private const int WM_NCHITTEST = 0x84;
         private const int resizeBorder = 6; // 边缘 6px 视为调整大小区
 
-        private const string APP_VERSION = "1.0.1";
+        private const string APP_VERSION = "1.0.2";
         private const string PROJECT_REPO = "ARFCON/dsh-hotplug-hub";
         private const string PANEL_VERSION = "0.8.1-pre"; // 内置 Skill/MCP 管理器（dseam-skillmcp）当前版本
         private const string MEMORY_HUB_VERSION = "0.8.0-pre"; // 内置全局记忆插件（dsh-memory-hub）当前版本
@@ -5329,40 +5329,87 @@ namespace DSHHotplugHub
                 if (!string.IsNullOrEmpty(packJson))
                     userContent = "当前已装配的 hotpack 1.0 清单：\n" + packJson + "\n\n用户新指令：" + userText;
                 msgs.Add("{\"role\":\"user\",\"content\":" + JsString(userContent) + "}");
-                string body = "{\"model\":" + JsString(model) +
-                    ",\"messages\":[" + string.Join(",", msgs) +
-                    "],\"temperature\":" + cfg.temperature.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) +
-                    ",\"max_tokens\":4096}";
 
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(endpoint);
-                request.Method = "POST";
-                request.ContentType = "application/json";
-                request.Accept = "application/json";
-                request.Headers["Authorization"] = "Bearer " + apiKey;
-                request.Timeout = 120000;
-                byte[] data = Encoding.UTF8.GetBytes(body);
-                request.ContentLength = data.Length;
-                using (Stream stream = request.GetRequestStream())
+                // 厂商温度差异自适应：部分目录（如 OpenCode Go）仅接受 temperature=1，
+                // 4xx 响应体含 "temperature" 时以 1.0 重试一次（与 lib/core/ai.js 同策略）。
+                Func<double, string> requestOnce = (temperature) =>
                 {
-                    stream.Write(data, 0, data.Length);
+                    string body = "{\"model\":" + JsString(model) +
+                        ",\"messages\":[" + string.Join(",", msgs) +
+                        "],\"temperature\":" + temperature.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) +
+                        ",\"max_tokens\":4096}";
+                    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(endpoint);
+                    request.Method = "POST";
+                    request.ContentType = "application/json";
+                    request.Accept = "application/json";
+                    request.Headers["Authorization"] = "Bearer " + apiKey;
+                    request.Timeout = 120000;
+                    byte[] data = Encoding.UTF8.GetBytes(body);
+                    request.ContentLength = data.Length;
+                    using (Stream stream = request.GetRequestStream())
+                    {
+                        stream.Write(data, 0, data.Length);
+                    }
+                    using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                    using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                    {
+                        string responseText = reader.ReadToEnd();
+                        JavaScriptSerializer ser = new JavaScriptSerializer();
+                        Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(responseText);
+                        if (root == null || !root.ContainsKey("choices")) return null;
+                        object[] choices = (object[])root["choices"];
+                        if (choices.Length == 0) return null;
+                        Dictionary<string, object> choice = (Dictionary<string, object>)choices[0];
+                        Dictionary<string, object> message = (Dictionary<string, object>)choice["message"];
+                        return Convert.ToString(message["content"]);
+                    }
+                };
+
+                double baseTemp = cfg.temperature;
+                if (baseTemp <= 0) baseTemp = 0.8;
+                try
+                {
+                    return requestOnce(baseTemp);
                 }
-                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                catch (WebException wex)
                 {
-                    string responseText = reader.ReadToEnd();
-                    JavaScriptSerializer ser = new JavaScriptSerializer();
-                    Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(responseText);
-                    if (root == null || !root.ContainsKey("choices")) return null;
-                    object[] choices = (object[])root["choices"];
-                    if (choices.Length == 0) return null;
-                    Dictionary<string, object> choice = (Dictionary<string, object>)choices[0];
-                    Dictionary<string, object> message = (Dictionary<string, object>)choice["message"];
-                    return Convert.ToString(message["content"]);
+                    // 读取错误正文判定是否温度不兼容（正文在 Response 流里，Message 不含）；
+                    // 消费后的流交给格式化器时传预读文本，避免二次读取拿到空。
+                    string probe = "";
+                    try
+                    {
+                        if (wex.Response != null)
+                        {
+                            using (StreamReader sr = new StreamReader(wex.Response.GetResponseStream(), Encoding.UTF8))
+                            {
+                                probe = sr.ReadToEnd();
+                            }
+                        }
+                    }
+                    catch { /* 正文读取失败按无正文处理 */ }
+                    if (baseTemp != 1.0 && probe.IndexOf("temperature", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        try { return requestOnce(1.0); }
+                        catch (WebException wex2) { throw BuildLlmHttpError(wex2, apiKey, null); }
+                    }
+                    throw BuildLlmHttpError(wex, apiKey, probe);
                 }
             }
-            catch (WebException we)
+            catch (Exception ex)
             {
-                string detail = "";
+                // 内层已按 "AI 服务 HTTP …" 格式化的错误不再二次包裹前缀
+                if (ex.Message != null && ex.Message.StartsWith("AI 服务 HTTP")) throw;
+                throw new Exception("AI 请求失败：" + ex.Message, ex);
+            }
+        }
+
+        /** LLM HTTP 错误统一格式化（状态 + 前 300 字正文 + key 全量脱敏；正文可预读传入）。 */
+        private static Exception BuildLlmHttpError(WebException we, string apiKey, string preloadedDetail)
+        {
+            string detail = preloadedDetail;
+            if (detail == null)
+            {
+                detail = "";
                 try
                 {
                     if (we.Response != null)
@@ -5370,20 +5417,16 @@ namespace DSHHotplugHub
                         using (StreamReader sr = new StreamReader(we.Response.GetResponseStream(), Encoding.UTF8))
                         {
                             detail = sr.ReadToEnd();
-                            if (detail.Length > 300) detail = detail.Substring(0, 300);
-                            if (!string.IsNullOrEmpty(apiKey)) detail = detail.Replace(apiKey, "***");
                         }
                     }
                 }
                 catch { /* 错误正文读取失败时忽略 */ }
-                HttpWebResponse resp = we.Response as HttpWebResponse;
-                int status = (resp != null) ? (int)resp.StatusCode : 0;
-                throw new Exception("AI 服务 HTTP " + status + (detail.Length > 0 ? "：" + detail : "：" + we.Message), we);
             }
-            catch (Exception ex)
-            {
-                throw new Exception("AI 请求失败：" + ex.Message, ex);
-            }
+            if (detail.Length > 300) detail = detail.Substring(0, 300);
+            if (!string.IsNullOrEmpty(apiKey)) detail = detail.Replace(apiKey, "***");
+            HttpWebResponse resp = we.Response as HttpWebResponse;
+            int status = (resp != null) ? (int)resp.StatusCode : 0;
+            return new Exception("AI 服务 HTTP " + status + (detail.Length > 0 ? "：" + detail : "：" + we.Message), we);
         }
 
         [DllImport("user32.dll")]

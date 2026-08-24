@@ -56,7 +56,7 @@ namespace DseamWorldSetup
 
         private void BuildUi()
         {
-            Text = "Dseam世界 DSH-Hotplug-Hub v1.0.1 安装程序";
+            Text = "Dseam世界 DSH-Hotplug-Hub v1.0.2 安装程序";
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -65,7 +65,7 @@ namespace DseamWorldSetup
             Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
 
             Label title = new Label();
-            title.Text = "Dseam世界 DSH-Hotplug-Hub v1.0.1";
+            title.Text = "Dseam世界 DSH-Hotplug-Hub v1.0.2";
             title.Font = new Font("Microsoft YaHei UI", 14F, FontStyle.Bold, GraphicsUnit.Point);
             title.Location = new Point(24, 18);
             title.AutoSize = true;

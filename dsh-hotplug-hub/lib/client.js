@@ -110,7 +110,7 @@ window.__ModuleLoader__.load({
 			aiKeyPlaceholder: "API Key（可留空，走服务端对应环境变量）",
 			aiBaseUrlPlaceholder: "Base URL（OpenAI 兼容，如 https://api.deepseek.com）",
 			aiModelPlaceholder: "模型名（如 deepseek-chat / deepseek-v4-flash / kimi-k3）",
-			aiKeyHint: "支持 DeepSeek / OpenCode（hy3、Kimi 等）/ OpenRouter / 硅基流动 / Moonshot / 智谱 GLM / MiniMax 及任意 OpenAI 兼容端点。Key 仅本次会话内存使用，不持久化、不上传日志；建议通过服务端环境变量（DSH_*_API_KEY）配置。",
+			aiKeyHint: "支持 DeepSeek / OpenCode（hy3、Kimi 等）/ OpenRouter / 硅基流动 / Moonshot / 智谱 GLM / MiniMax 及任意 OpenAI 兼容端点。Key 仅本次会话内存使用，不持久化、不上传日志；建议通过服务端环境变量（DSH_*_API_KEY）配置。安全规则：环境变量里的 Key 只发往内置服务商端点；自定义 Base URL 需在本面板同时填写 Key。",
 			aiPersonaHint: "人设只影响语气与情绪价值，不影响装配质量与安全。",
 			aiCompose: "开始组装",
 			aiComposing: "组装中…",
@@ -193,7 +193,8 @@ window.__ModuleLoader__.load({
 				descriptor("marketList", ["params"]),
 				descriptor("marketDetail", ["params"]),
 				descriptor("aiAssemble", ["params"]),
-				descriptor("aiChat", ["params"])
+				descriptor("aiChat", ["params"]),
+				descriptor("aiTest", ["params"])
 			]
 		};
 		function unwrap(result) {
@@ -285,16 +286,23 @@ window.__ModuleLoader__.load({
 			const [marketTopic, setMarketTopic] = useState("dsh-plugin");
 			const [marketPage, setMarketPage] = useState(1);
 			const [marketOpen, setMarketOpen] = useState(null);
-			const [aiInput, setAiInput] = useState("");
-			const [aiProvider, setAiProvider] = useState("deepseek");
-			const [aiKey, setAiKey] = useState(""); // 仅内存，不持久化（key 安全）
-			const [aiBaseURL, setAiBaseURL] = useState(AI_PROVIDER_OPTIONS[0].baseURL);
-			const [aiModel, setAiModel] = useState(AI_PROVIDER_OPTIONS[0].model);
-			const [aiPersona, setAiPersona] = useState("maid"); // 小织女仆（默认）
-			const [aiSessionId, setAiSessionId] = useState(() => {
-				// 会话 id 无敏感信息，可入 localStorage（key 绝不落盘）；恢复续接
-				try { return window.localStorage.getItem("dshHotplug.aiSessionId") || ""; } catch { return ""; }
-			});
+				const [aiInput, setAiInput] = useState("");
+				const [aiProvider, setAiProvider] = useState("deepseek");
+				const [aiKey, setAiKey] = useState(""); // 仅内存，不持久化（key 安全）
+				const [aiBaseURL, setAiBaseURL] = useState(AI_PROVIDER_OPTIONS[0].baseURL);
+				const [aiModel, setAiModel] = useState(AI_PROVIDER_OPTIONS[0].model);
+				// 人设与会话轮次随 sessionId 一起续接（刷新后徽标/下拉与服务端会话对齐；
+				// 均无敏感信息，可入 localStorage——key 绝不落盘）
+				const [aiPersona, setAiPersona] = useState(() => {
+					try { return window.localStorage.getItem("dshHotplug.aiPersona") || "maid"; } catch { return "maid"; }
+				});
+				const [aiSessionId, setAiSessionId] = useState(() => {
+					// 会话 id 无敏感信息，可入 localStorage（key 绝不落盘）；恢复续接
+					try { return window.localStorage.getItem("dshHotplug.aiSessionId") || ""; } catch { return ""; }
+				});
+				const [aiTurn, setAiTurn] = useState(() => {
+					try { return parseInt(window.localStorage.getItem("dshHotplug.aiTurn") || "0", 10) || 0; } catch { return 0; }
+				});
 			const [aiMessages, setAiMessages] = useState([]); // {role: 'user'|'assistant', text, pack?, diff?, error?}
 			const [aiPack, setAiPack] = useState(null); // {name, tags, pack, readme, diff}
 			const [aiSettingsOpen, setAiSettingsOpen] = useState(false); // 连接设置折叠面板
@@ -477,6 +485,8 @@ window.__ModuleLoader__.load({
 			// 首轮=需求→装配；后续轮=对话式增量修改（服务端 diff 新增/移除/调整）。
 			// 产物已由服务端权威 parseHotpack 校验，此处仅兜底断言。
 			// key 安全：aiKey 仅内存 state（不持久化）；留空时服务端读 DSH_*_API_KEY。
+			// 审计修复：provider 必须随请求上送——此前只送 baseURL/model（且仅在与预设
+			// 不同时），选 OpenCode 等预设实际仍打到 DeepSeek 端点（底栏显示与真实调用不符）。
 			const doAiSend = () => {
 				if (!aiInput.trim() || aiRunning) return;
 				const text = aiInput.trim();
@@ -485,9 +495,15 @@ window.__ModuleLoader__.load({
 				setAiTyping(true);
 				setAiRunning(true);
 				const task = () => {
-					if (typeof api.aiChat !== "function") return Promise.reject(new Error(t("aiNoGatewayChat")));
 					const preset = AI_PROVIDER_OPTIONS.find((p) => p.id === aiProvider);
-					const params = { input: text, persona: aiPersona, sessionId: aiSessionId || undefined, apiKey: aiKey.trim() || undefined };
+					const params = {
+						input: text,
+						persona: aiPersona,
+						sessionId: aiSessionId || undefined,
+						apiKey: aiKey.trim() || undefined,
+						// custom 无注册表条目（服务端按 baseURL 解析），其余预设显式点名
+						provider: aiProvider !== "custom" ? aiProvider : undefined
+					};
 					if (aiBaseURL.trim() !== "" && aiBaseURL.trim() !== (preset && preset.baseURL)) params.baseURL = aiBaseURL.trim();
 					if (aiModel.trim() !== "" && aiModel.trim() !== (preset && preset.model)) params.model = aiModel.trim();
 					return api.aiChat(params).then(unwrap).then((r) => {
@@ -503,52 +519,71 @@ window.__ModuleLoader__.load({
 							setAiSessionId(sess.id);
 							try { window.localStorage.setItem("dshHotplug.aiSessionId", sess.id); } catch { /* 尽力而为 */ }
 						}
-						// 刷新恢复/续接场景：人设下拉与服务端会话 persona 对齐（会话为准）
-						if (sess.persona) setAiPersona(sess.persona);
+						// 服务端会话为权威：人设（显式切换已生效）与轮次对齐，并随会话 id 续接
+						if (sess.persona) {
+							setAiPersona(sess.persona);
+							try { window.localStorage.setItem("dshHotplug.aiPersona", sess.persona); } catch { /* 尽力而为 */ }
+						}
+						if (typeof sess.turn === "number") {
+							setAiTurn(sess.turn);
+							try { window.localStorage.setItem("dshHotplug.aiTurn", String(sess.turn)); } catch { /* 尽力而为 */ }
+						}
+						if (d && d.warning) say("error", d.warning);
 						const reply = d && d.reply ? String(d.reply) : "";
 						const pack = d && d.pack ? d.pack : null;
 						const diff = (d && d.diff) || null;
+						const readme = (d && d.readme) || "";
 						if (reply !== "" || pack) {
-							setAiMessages((prev) => [...prev, { role: "assistant", text: reply !== "" ? reply : (t("aiDone") + pack.name), persona: aiPersona, pack, diff, error: false }]);
+							// 产物卡数据随消息保存（含 readme）：多轮后每张卡的按钮作用于该卡自身的产物
+							setAiMessages((prev) => [...prev, { role: "assistant", text: reply !== "" ? reply : (t("aiDone") + pack.name), persona: sess.persona || aiPersona, pack, diff, readme, error: false }]);
 						}
 						if (pack) {
-							setAiPack({ name: pack.name, tags: pack.tags || [], pack, readme: (d && d.readme) || "", diff });
+							setAiPack({ name: pack.name, tags: pack.tags || [], pack, readme, diff });
 						}
 					})
 					.catch((e) => {
-						const msg = String(e && e.message ? e.message : e);
+						// 老中枢无 aiChat 面：注入包装恒为函数，真实失败点在 face 调用——
+						// 把底层 TypeError 翻译成可读提示而非裸 "face.aiChat is not a function"
+						const raw = String((e && e.message) || e);
+						const msg = /aiChat[\s\S]*is not a function/.test(raw) ? t("aiNoGatewayChat") : raw;
 						setAiMessages((prev) => [...prev, { role: "assistant", text: t("aiFail") + msg, persona: aiPersona, pack: null, diff: null, error: true }]);
 					})
 					.finally(() => { setAiTyping(false); setAiRunning(false); });
 			};
+			// 连接测试：经网关 aiTest 走服务端（与装配同一解析链路）——浏览器直连
+			// 既过不了厂商 CORS，也测不到服务端 env key 配置；服务端 env key 只发
+			// 注册表端点，自定义端点必须同时填 Key（网关侧安全规则）。
 			const doAiTest = () => {
 				if (aiTesting) return;
 				const preset = AI_PROVIDER_OPTIONS.find((p) => p.id === aiProvider);
-				const baseURL = (aiBaseURL.trim() || (preset && preset.baseURL) || "").trim();
-				const model = (aiModel.trim() || (preset && preset.model) || "").trim();
-				const key = aiKey.trim();
-				if (!key) { say("warn", "未填写 API Key：无法测试（留空走服务端环境变量）"); return; }
-				if (!/^https:\/\//i.test(baseURL)) { say("warn", "Base URL 必须以 https:// 开头（TLS 铁律）"); return; }
+				const params = { provider: aiProvider !== "custom" ? aiProvider : undefined, apiKey: aiKey.trim() || undefined };
+				if (aiBaseURL.trim() !== "" && aiBaseURL.trim() !== (preset && preset.baseURL)) params.baseURL = aiBaseURL.trim();
+				if (aiModel.trim() !== "" && aiModel.trim() !== (preset && preset.model)) params.model = aiModel.trim();
 				setAiTesting(true);
-				// 审计修复：连接测试加超时——此前 fetch 挂起则 aiTesting 永久为 true、
-				// 按钮永久禁用（prototype 端同功能一直有 15s 超时，两端安全网不一致）。
-				const ctrl = new AbortController();
-				const timer = setTimeout(() => ctrl.abort(), 15000);
-				fetch(baseURL.replace(/\/+$/, "") + "/chat/completions", {
-					method: "POST",
-					headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-					body: JSON.stringify({ model, messages: [{ role: "user", content: "ping" }], max_tokens: 8, temperature: 0 }),
-					signal: ctrl.signal
-				})
-					.then(async (res) => {
-						if (res.ok) say("ok", "✓ 连接成功：" + model);
-						else {
-							const t = await res.text().catch(() => "");
-							say("error", "连接失败 HTTP " + res.status + "：" + t.slice(0, 120));
-						}
+				// 客户端看门狗（20s > 服务端 15s 超时 + 余量）：RPC 桥异常挂起时按钮也不永久禁用
+				let settled = false;
+				const finish = (report) => () => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					report();
+					setAiTesting(false);
+				};
+				const timer = setTimeout(() => finish(() => say("error", "连接失败：超时（20s）"))(), 20000);
+				Promise.resolve()
+					.then(() => api.aiTest(params))
+					.then(unwrap)
+					.then((r) => {
+						const d = (r && r.data) || r;
+						const model = (d && d.model) || aiModel.trim() || (preset && preset.model) || "";
+						const latency = d && typeof d.latencyMs === "number" ? "（" + d.latencyMs + "ms）" : "";
+						finish(() => say("success", "✓ 连接成功：" + model + latency))();
 					})
-					.catch((e) => say("error", "连接失败：" + (ctrl.signal.aborted ? "超时（15s）" : String((e && e.message) || e))))
-					.finally(() => { clearTimeout(timer); setAiTesting(false); });
+					.catch((e) => {
+						const raw = String((e && e.message) || e);
+						const msg = /aiTest[\s\S]*(is not a function|unavailable)/.test(raw) ? "当前中枢不支持连接测试（需较新版本中枢）" : raw;
+						finish(() => say("error", "连接失败：" + msg))();
+					});
 			};
 			const doAiNewSession = () => {
 				if (aiMessages.length === 0 && !aiSessionId) return;
@@ -557,13 +592,20 @@ window.__ModuleLoader__.load({
 				setAiMessages([]);
 				setAiPack(null);
 				setAiInput("");
-				try { window.localStorage.removeItem("dshHotplug.aiSessionId"); } catch { /* 尽力而为 */ }
+				setAiTurn(0);
+				try {
+					window.localStorage.removeItem("dshHotplug.aiSessionId");
+					window.localStorage.removeItem("dshHotplug.aiTurn");
+				} catch { /* 尽力而为 */ }
 			};
-			const doAiImport = () => {
-				if (!aiPack || !aiPack.pack) return;
-				run("import", () => api.importPack(JSON.stringify(aiPack.pack))).then((result) => {
+			// 一键导入：作用于"该产物卡"的清单（多轮会话中每张卡导入自己的版本，
+			// 而非恒定导入最新一轮——此前旧卡按钮会导入新包，与用户所见不符）
+			const doAiImport = (pack) => {
+				const target = pack || (aiPack && aiPack.pack);
+				if (!target) return;
+				run("import", () => api.importPack(JSON.stringify(target))).then((result) => {
 					if (result && result.ok) {
-						say("success", t("importDone") + aiPack.name);
+						say("success", t("importDone") + (target.name || target.id));
 						setTab("hub");
 					} else {
 						// 修复：导入失败显式反馈（此前静默）
@@ -576,7 +618,14 @@ window.__ModuleLoader__.load({
 				const rows = [];
 				(diff.added || []).forEach((p) => rows.push({ kind: "added", text: (p.name || p.id) + "@" + (p.version || "?") }));
 				(diff.removed || []).forEach((p) => rows.push({ kind: "removed", text: (p.name || p.id) + "@" + (p.version || "?") }));
-				(diff.changed || []).forEach((c) => rows.push({ kind: "changed", text: (c.id || "?") + ": " + ((c.from && c.from.version) || "?") + " → " + ((c.to && c.to.version) || "?") }));
+				(diff.changed || []).forEach((c) => {
+					// 纯 config 调整（版本未变）显示"配置调整"，避免渲染成无信息的 "1.0.0 → 1.0.0"
+					const sameVersion = (c.from && c.to && c.from.version === c.to.version);
+					const text = c.configChanged && sameVersion
+						? (c.id || "?") + ": 配置调整"
+						: (c.id || "?") + ": " + ((c.from && c.from.version) || "?") + " → " + ((c.to && c.to.version) || "?");
+					rows.push({ kind: "changed", text });
+				});
 				if (rows.length === 0) return null;
 				const color = { added: "var(--dsw-alias-state-success-primary)", removed: "var(--dsw-alias-state-error-primary)", changed: "var(--dsw-alias-state-business-primary)" };
 				const label = { added: "+ " + t("aiDiffAdded"), removed: "- " + t("aiDiffRemoved"), changed: "~ " + t("aiDiffChanged") };
@@ -776,10 +825,10 @@ window.__ModuleLoader__.load({
 						h("div", { className: "hp_aiBub" }, m.text)
 					);
 				}
-				return h("div", { key: index, className: "hp_aiMsg" + (m.error ? " err" : ""), style: m.pack ? { marginBottom: 0 } : null },
+				return h("div", { key: index, className: "hp_aiMsg" + (m.error ? " err" : ""), style: m.pack ? { marginBottom: 0 } : null, role: m.error ? "alert" : null },
 					h("div", { className: "hp_aiAv" + (m.error ? " av-err" : "") }, m.error ? "!" : (AI_PERSONA_BADGE[m.persona || aiPersona] || "助")),
 					h("div", { className: "hp_aiBub" }, fmtText(m.text)),
-					m.pack ? renderPackCard(m.pack, m.diff) : null
+					m.pack ? renderPackCard(m.pack, m.diff, m.readme) : null
 				);
 			};
 			// 助理文本轻渲染（先转义语义后渲染：代码围栏 > 行内代码 > 加粗；链接剥为纯文本）
@@ -803,7 +852,7 @@ window.__ModuleLoader__.load({
 				}
 				return nodes;
 			};
-			const renderPackCard = (pack, diff) => {
+			const renderPackCard = (pack, diff, readme) => {
 				const d = diff || { added: [], removed: [], changed: [] };
 				const diffEl = (d.added.length + d.removed.length + d.changed.length) > 0
 					? h("div", { className: "hp_aiDiff" },
@@ -824,9 +873,9 @@ window.__ModuleLoader__.load({
 						)
 					)),
 					h("div", { className: "acts" },
-						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: doAiImport }, t("aiImport")),
+						h("button", { className: "hp_btn hp_primary", disabled: busy, onClick: () => doAiImport(pack) }, t("aiImport")),
 						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(JSON.stringify(pack, null, 2)); } catch { /* 尽力而为 */ } } }, t("aiCopyManifest")),
-						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(aiPack && aiPack.readme || ""); } catch { /* 尽力而为 */ } } }, t("aiCopyReadme"))
+						h("button", { className: "hp_btn", onClick: () => { try { navigator.clipboard.writeText(readme || ""); } catch { /* 尽力而为 */ } } }, t("aiCopyReadme"))
 					)
 				);
 			};
@@ -835,11 +884,14 @@ window.__ModuleLoader__.load({
 				h("div", { className: "hp_aiTop" },
 					h("div", { className: "hp_aiTitle" }, h("span", { className: "hp_aiMark" }, "织"), h("span", null, AI_PERSONA_NAME[aiPersona] || "小织女仆"), h("span", null, "· 装配间")),
 					h("div", { className: "hp_aiSpacer" }),
-					h("select", { className: "hp_input", style: { width: "auto" }, value: aiPersona, title: "切换装配女仆", onChange: (e) => setAiPersona(e.target.value) },
+					h("select", { className: "hp_input", style: { width: "auto" }, value: aiPersona, title: "切换装配女仆", onChange: (e) => {
+						setAiPersona(e.target.value);
+						try { window.localStorage.setItem("dshHotplug.aiPersona", e.target.value); } catch { /* 尽力而为 */ }
+					} },
 						AI_PERSONA_OPTIONS.map(([id, label]) => h("option", { key: id, value: id }, label))
 					),
 					h("button", { className: "hp_btn", onClick: () => setAiSettingsOpen(!aiSettingsOpen) }, "⚙ 模型"),
-					h("span", { className: "hp_aiTurn" }, aiSessionId ? t("aiTurn") + String(Math.max(1, aiMessages.filter((m) => m.role === "user").length)) + t("aiTurnEnd") : ""),
+					h("span", { className: "hp_aiTurn" }, aiSessionId ? t("aiTurn") + String(Math.max(aiTurn || 1, 1)) + t("aiTurnEnd") : ""),
 					h("button", { className: "hp_btn", disabled: busy || (aiMessages.length === 0 && !aiSessionId), onClick: doAiNewSession }, t("aiNewSession"))
 				),
 				aiSettingsOpen ? h("div", { className: "hp_settings" },
@@ -864,7 +916,7 @@ window.__ModuleLoader__.load({
 					h("p", { className: "hp_info" }, t("aiKeyHint")),
 					h("p", { className: "hp_info" }, t("aiPersonaHint"))
 				) : null,
-				h("div", { className: "hp_aiChat" },
+				h("div", { className: "hp_aiChat", "aria-live": "polite" },
 					aiMessages.length === 0
 						? h("div", { className: "hp_welcome" },
 							h("div", { className: "g" }, AI_PERSONA_GREET[aiPersona] || t("aiWelcomeTitle")),
@@ -1039,7 +1091,8 @@ window.__ModuleLoader__.load({
 				marketList: (params) => remote().then((face) => face.marketList(params)),
 				marketDetail: (params) => remote().then((face) => face.marketDetail(params)),
 				aiAssemble: (params) => remote().then((face) => face.aiAssemble(params)),
-				aiChat: (params) => remote().then((face) => face.aiChat(params))
+				aiChat: (params) => remote().then((face) => face.aiChat(params)),
+				aiTest: (params) => remote().then((face) => (typeof face.aiTest === "function" ? face.aiTest(params) : Promise.reject(new Error("aiTest unavailable"))))
 			});
 			ctx.slots.inject("settings.section", () => ctx.slots.register({
 				name: "settings.section",

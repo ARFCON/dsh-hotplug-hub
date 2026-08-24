@@ -13,12 +13,18 @@ import {
 } from './core/state.js'
 import { statusSync, importPackSync, previewPack, checkAsync } from './core/status.js'
 import { marketListAsync, marketDetailAsync } from './core/market.js'
-import { aiAssemble, aiChat as aiChatCore } from './core/ai.js'
+import { aiAssemble, aiChat as aiChatCore, aiTestConnection } from './core/ai.js'
 import { mountPack, unmountPack, removePatchBlock } from './core/patch.js'
 import { exitCodeForCode } from '../vendor-shared/index.mjs'
 
 /** 网关通用失败码（RPC 域，非 CLI ERROR_CODES 表）。 */
 export const RPC_ERROR_CODE = 'ERR_HOTPLUG_FAILED'
+/** AI 装配专用失败码：与通用包管理错误区分（UI 可按码给出 AI 专属提示）。 */
+export const AI_ERROR_CODE = 'ERR_AI_ASSEMBLE'
+
+/** AI 参数超时钳制范围：过小必超时、过大卡死会话，1s–300s 之间交由核心默认 90s。 */
+const AI_TIMEOUT_MIN_MS = 1000
+const AI_TIMEOUT_MAX_MS = 300000
 
 /**
  * RPC 结果归一化：失败统一 {ok:false, code, message, exitCode}；
@@ -56,7 +62,7 @@ class HotplugGateway extends TypertRemoteService {
   constructor(ctx) {
     super(ctx, 'dshHotplug')
     // 与 lib/typert.js、lib/client.js REMOTE.descriptors 三处同步。
-    const methods = ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check', 'marketList', 'marketDetail', 'aiAssemble', 'aiChat']
+    const methods = ['status', 'importPack', 'preview', 'activate', 'deactivate', 'removePack', 'check', 'marketList', 'marketDetail', 'aiAssemble', 'aiChat', 'aiTest']
     for (const method of methods) {
       const decorator = Remote(method)
       decorator(HotplugGateway.prototype[method], {
@@ -226,59 +232,98 @@ class HotplugGateway extends TypertRemoteService {
     return marketDetailAsync(params).then(normalizeRpc)
   }
 
+  /**
+   * AI RPC 公共参数归一化。
+   * 安全铁律（key 外传防护）：服务端环境变量里的 key 只发往内置注册表端点——
+   * 客户端自定义 baseURL 只有在同时显式携带 apiKey 时才透传；否则丢弃 baseURL，
+   * 按注册表（provider 或默认 deepseek）端点解析。防止"无 key 客户端把 baseURL
+   * 指向自己服务器，服务端把 env key 用 Bearer 送过去"的外传面。
+   */
+  aiRpcParams(p) {
+    const q = p && typeof p === 'object' ? p : {}
+    const hasApiKey = typeof q.apiKey === 'string' && q.apiKey.trim() !== ''
+    const out = {
+      provider: typeof q.provider === 'string' && q.provider !== '' ? q.provider : undefined,
+      model: typeof q.model === 'string' && q.model !== '' ? q.model : undefined,
+      apiKey: hasApiKey ? q.apiKey : undefined,
+      baseURL: (typeof q.baseURL === 'string' && q.baseURL !== '' && hasApiKey) ? q.baseURL : undefined,
+    }
+    if (q.timeoutMs !== undefined) {
+      const n = Number(q.timeoutMs)
+      if (Number.isFinite(n) && n > 0) {
+        out.timeoutMs = Math.min(Math.max(Math.round(n), AI_TIMEOUT_MIN_MS), AI_TIMEOUT_MAX_MS)
+      }
+    }
+    return out
+  }
+
+  /** AI 失败统一信封：AI 专用错误码 + 意外异常兜底（不裸抛穿透 RPC 传输层）。 */
+  aiFail(error) {
+    return normalizeRpc({ ok: false, error: typeof error === 'string' ? error : String((error && error.message) || error), code: AI_ERROR_CODE })
+  }
+
   // AI 组装（v5 阶段 5）：需求 → LLM → 权威校验产物。
-  // 多平台：默认 deepseek；可传 provider/baseURL/model 接任意 OpenAI 兼容端点
-  // （如 deepseek-v4-flash：provider='opencode'）。
+  // 多平台：默认 deepseek；可传 provider 接内置注册表 / baseURL+apiKey 接任意
+  // OpenAI 兼容端点（如 deepseek-v4-flash：provider='opencode'）。
   // 安全：apiKey 仅内存传递（不落盘、不进日志/序列化）；缺省读服务端
-  // DSH_AI_API_KEY / DSH_DEEPSEEK_API_KEY / DSH_OPENCODE_API_KEY 环境变量。
-  // 响应仅含 {ok, pack, readme}，绝不含 key。
+  // DSH_AI_API_KEY / DSH_DEEPSEEK_API_KEY / DSH_OPENCODE_API_KEY 等环境变量，
+  // env key 只发注册表端点。响应含 {pack, readme, manifest, raw}，绝不含 key。
   aiAssemble(params) {
-    const p = params && typeof params === 'object' ? params : {}
-    const input = typeof p.input === 'string' ? p.input : ''
-    return aiAssemble(input, {
-      provider: typeof p.provider === 'string' && p.provider !== '' ? p.provider : undefined,
-      baseURL: typeof p.baseURL === 'string' && p.baseURL !== '' ? p.baseURL : undefined,
-      model: typeof p.model === 'string' && p.model !== '' ? p.model : undefined,
-      apiKey: typeof p.apiKey === 'string' && p.apiKey.trim() !== '' ? p.apiKey : undefined,
-    }).then((r) => {
-      if (!r.ok) return normalizeRpc({ ok: false, error: r.error, code: RPC_ERROR_CODE })
-      return { ok: true, code: 'OK', data: { pack: r.pack, readme: r.readme }, exitCode: 0 }
-    })
+    const input = params && typeof params === 'object' && typeof params.input === 'string' ? params.input : ''
+    return aiAssemble(input, this.aiRpcParams(params))
+      .then((r) => {
+        if (!r.ok) return this.aiFail(r.error)
+        return { ok: true, code: 'OK', data: { pack: r.pack, readme: r.readme, manifest: r.manifest, raw: r.raw }, exitCode: 0 }
+      })
+      .catch((e) => this.aiFail(e))
   }
 
   // AI 装配间会话（v5 阶段 5 增强）：人设化对话式装配。
   // 首轮（无 sessionId）= 需求 → 装配；后续轮（带 sessionId）= 对话式增量修改/闲聊，
   // 产物相对上一轮返回 diff（新增/移除/调整）。会话本地持久化（ai-sessions/，
   // 不含任何 key）。persona：maid 小织女仆（默认）/ butler 执事管家 / neko 咪咪猫娘 /
-  // assistant 标准助手——只改语气与情绪价值，契约与校验不变。
+  // assistant 标准助手——只改语气与情绪价值，契约与校验不变；显式传入即切换。
   // 安全：apiKey 仅内存传递；响应（含消息历史）统一脱敏（key→***），绝不含 key。
   aiChat(params) {
     const p = params && typeof params === 'object' ? params : {}
     const input = typeof p.input === 'string' ? p.input : ''
-    return aiChatCore(input, {
-      provider: typeof p.provider === 'string' && p.provider !== '' ? p.provider : undefined,
-      baseURL: typeof p.baseURL === 'string' && p.baseURL !== '' ? p.baseURL : undefined,
-      model: typeof p.model === 'string' && p.model !== '' ? p.model : undefined,
-      apiKey: typeof p.apiKey === 'string' && p.apiKey.trim() !== '' ? p.apiKey : undefined,
+    const opts = {
+      ...this.aiRpcParams(p),
       persona: typeof p.persona === 'string' && p.persona !== '' ? p.persona : undefined,
       sessionId: typeof p.sessionId === 'string' && p.sessionId !== '' ? p.sessionId : undefined,
-    }).then((r) => {
-      if (!r.ok) return normalizeRpc({ ok: false, error: r.error, code: RPC_ERROR_CODE })
-      return {
-        ok: true,
-        code: 'OK',
-        data: {
-          session: r.session,
-          reply: r.reply,
-          pack: r.pack ?? null,
-          readme: r.readme ?? null,
-          manifest: r.manifest ?? null,
-          diff: r.diff ?? null,
-          firstTurn: r.firstTurn === true,
-        },
-        exitCode: 0,
-      }
-    })
+    }
+    return aiChatCore(input, opts)
+      .then((r) => {
+        if (!r.ok) return this.aiFail(r.error)
+        return {
+          ok: true,
+          code: 'OK',
+          data: {
+            session: r.session,
+            reply: r.reply,
+            pack: r.pack ?? null,
+            readme: r.readme ?? null,
+            manifest: r.manifest ?? null,
+            diff: r.diff ?? null,
+            firstTurn: r.firstTurn === true,
+            ...(r.warning ? { warning: r.warning } : {}),
+          },
+          exitCode: 0,
+        }
+      })
+      .catch((e) => this.aiFail(e))
+  }
+
+  // AI 连接测试：服务端视角验证 provider 端点/模型/key（env key 也可测——浏览器
+  // 直连既过不了 CORS 也测不到服务端配置）。最小 ping 请求，与装配同一解析链路。
+  aiTest(params) {
+    return Promise.resolve()
+      .then(() => aiTestConnection(this.aiRpcParams(params)))
+      .then((r) => {
+        if (!r.ok) return this.aiFail(r.error)
+        return { ok: true, code: 'OK', data: { provider: r.provider, model: r.model, latencyMs: r.latencyMs }, exitCode: 0 }
+      })
+      .catch((e) => this.aiFail(e))
   }
 }
 

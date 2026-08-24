@@ -39,7 +39,8 @@ export const TYPERT = {
     inv('marketList', ['params']),
     inv('marketDetail', ['params']),
     inv('aiAssemble', ['params']),
-    inv('aiChat', ['params'])
+    inv('aiChat', ['params']),
+    inv('aiTest', ['params'])
   ],
   model: { services: [], events: [], objects: [] }
 }

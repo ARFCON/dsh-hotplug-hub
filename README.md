@@ -1,7 +1,7 @@
 > 面向 AI 编程协作者：开始任何工作前，请先阅读本目录的 `AI_AGENTS.md`，并遵循其中的同步/检查/上报流程。
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.0.1-6c5ce7" alt="version" />
+  <img src="https://img.shields.io/badge/version-v1.0.2-6c5ce7" alt="version" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2d3436" alt="platform" />
   <img src="https://img.shields.io/badge/license-MIT-00b894" alt="license" />
   <img src="https://img.shields.io/badge/stack-WebView2%20%2B%20C%23%20WinForms-0984e3" alt="stack" />
@@ -27,14 +27,14 @@ A hot-plug package manager for [DeepSeek Harness (dsh)](https://github.com/deeps
 
 | | |
 |---|---|
-| **Release** | **v1.0.1** |
-| Releases page | <https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v1.0.1> |
-| Windows installer | `DSH-Hotplug-Hub-win-x64-setup-v1.0.1.exe` |
-| Windows portable | `DSH-Hotplug-Hub-win-x64-portable-v1.0.1.zip` |
-| Linux installer | `DSH-Hotplug-Hub-linux-x64-setup-v1.0.1.sh` |
-| Linux portable | `DSH-Hotplug-Hub-linux-x64-portable-v1.0.1.tar.gz` |
-| macOS installer | `DSH-Hotplug-Hub-macos-x64-setup-v1.0.1.command` |
-| macOS portable | `DSH-Hotplug-Hub-macos-x64-portable-v1.0.1.zip` |
+| **Release** | **v1.0.2** |
+| Releases page | <https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v1.0.2> |
+| Windows installer | `DSH-Hotplug-Hub-win-x64-setup-v1.0.2.exe` |
+| Windows portable | `DSH-Hotplug-Hub-win-x64-portable-v1.0.2.zip` |
+| Linux installer | `DSH-Hotplug-Hub-linux-x64-setup-v1.0.2.sh` |
+| Linux portable | `DSH-Hotplug-Hub-linux-x64-portable-v1.0.2.tar.gz` |
+| macOS installer | `DSH-Hotplug-Hub-macos-x64-setup-v1.0.2.command` |
+| macOS portable | `DSH-Hotplug-Hub-macos-x64-portable-v1.0.2.zip` |
 
 ## Key Features
 
@@ -61,22 +61,22 @@ A hot-plug package manager for [DeepSeek Harness (dsh)](https://github.com/deeps
 
 ### Option 1 — Installer (recommended)
 
-1. Download `DSH-Hotplug-Hub-win-x64-setup-v1.0.1.exe` from the Releases page.
+1. Download `DSH-Hotplug-Hub-win-x64-setup-v1.0.2.exe` from the Releases page.
 2. Double-click and choose an install location (default `%LOCALAPPDATA%\Programs\DseamWorld`).
 3. The installer auto-creates desktop / start-menu shortcuts and launches when finished.
 
 Silent install:
 
 ```powershell
-DSH-Hotplug-Hub-win-x64-setup-v1.0.1.exe --silent
-DSH-Hotplug-Hub-win-x64-setup-v1.0.1.exe --silent --dir "D:\MyApps\DseamWorld"
+DSH-Hotplug-Hub-win-x64-setup-v1.0.2.exe --silent
+DSH-Hotplug-Hub-win-x64-setup-v1.0.2.exe --silent --dir "D:\MyApps\DseamWorld"
 ```
 
 ### Option 2 — Portable
 
-- **Windows**: unzip `DSH-Hotplug-Hub-win-x64-portable-v1.0.1.zip`, then double-click `DSH-Hotplug-Hub.exe` (WebView2 runtime DLLs are included in the same directory).
-- **Linux**: `tar -xzf DSH-Hotplug-Hub-linux-x64-portable-v1.0.1.tar.gz`, then run `./dsh-hotplug-hub`.
-- **macOS**: unzip `DSH-Hotplug-Hub-macos-x64-portable-v1.0.1.zip`, then double-click `Start-DSH-Hotplug-Hub.command`.
+- **Windows**: unzip `DSH-Hotplug-Hub-win-x64-portable-v1.0.2.zip`, then double-click `DSH-Hotplug-Hub.exe` (WebView2 runtime DLLs are included in the same directory).
+- **Linux**: `tar -xzf DSH-Hotplug-Hub-linux-x64-portable-v1.0.2.tar.gz`, then run `./dsh-hotplug-hub`.
+- **macOS**: unzip `DSH-Hotplug-Hub-macos-x64-portable-v1.0.2.zip`, then double-click `Start-DSH-Hotplug-Hub.command`.
 
 ### Option 3 — From source
 
@@ -169,14 +169,14 @@ Full change history: [`开发文档/开发历史.md`](开发文档/开发历史.
 
 | | |
 |---|---|
-| **正式版** | **v1.0.1** |
-| 发布页 | <https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v1.0.1> |
-| Windows 安装版 | `DSH-Hotplug-Hub-win-x64-setup-v1.0.1.exe` |
-| Windows 便携版 | `DSH-Hotplug-Hub-win-x64-portable-v1.0.1.zip` |
-| Linux 安装版 | `DSH-Hotplug-Hub-linux-x64-setup-v1.0.1.sh` |
-| Linux 便携版 | `DSH-Hotplug-Hub-linux-x64-portable-v1.0.1.tar.gz` |
-| macOS 安装版 | `DSH-Hotplug-Hub-macos-x64-setup-v1.0.1.command` |
-| macOS 便携版 | `DSH-Hotplug-Hub-macos-x64-portable-v1.0.1.zip` |
+| **正式版** | **v1.0.2** |
+| 发布页 | <https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v1.0.2> |
+| Windows 安装版 | `DSH-Hotplug-Hub-win-x64-setup-v1.0.2.exe` |
+| Windows 便携版 | `DSH-Hotplug-Hub-win-x64-portable-v1.0.2.zip` |
+| Linux 安装版 | `DSH-Hotplug-Hub-linux-x64-setup-v1.0.2.sh` |
+| Linux 便携版 | `DSH-Hotplug-Hub-linux-x64-portable-v1.0.2.tar.gz` |
+| macOS 安装版 | `DSH-Hotplug-Hub-macos-x64-setup-v1.0.2.command` |
+| macOS 便携版 | `DSH-Hotplug-Hub-macos-x64-portable-v1.0.2.zip` |
 
 ## 主要功能
 
@@ -203,22 +203,22 @@ Full change history: [`开发文档/开发历史.md`](开发文档/开发历史.
 
 ### 方式一：安装包（推荐）
 
-1. 在 Release 页面下载 `DSH-Hotplug-Hub-win-x64-setup-v1.0.1.exe`。
+1. 在 Release 页面下载 `DSH-Hotplug-Hub-win-x64-setup-v1.0.2.exe`。
 2. 双击运行，选择安装位置（默认 `%LOCALAPPDATA%\Programs\DseamWorld`）。
 3. 安装包自动创建桌面 / 开始菜单快捷方式，完成后直接启动。
 
 静默安装：
 
 ```powershell
-DSH-Hotplug-Hub-win-x64-setup-v1.0.1.exe --silent
-DSH-Hotplug-Hub-win-x64-setup-v1.0.1.exe --silent --dir "D:\MyApps\DseamWorld"
+DSH-Hotplug-Hub-win-x64-setup-v1.0.2.exe --silent
+DSH-Hotplug-Hub-win-x64-setup-v1.0.2.exe --silent --dir "D:\MyApps\DseamWorld"
 ```
 
 ### 方式二：便携版
 
-- **Windows**：解压 `DSH-Hotplug-Hub-win-x64-portable-v1.0.1.zip`，双击 `DSH-Hotplug-Hub.exe`（WebView2 运行时 DLL 已内置同目录）。
-- **Linux**：`tar -xzf DSH-Hotplug-Hub-linux-x64-portable-v1.0.1.tar.gz`，运行 `./dsh-hotplug-hub`。
-- **macOS**：解压 `DSH-Hotplug-Hub-macos-x64-portable-v1.0.1.zip`，双击 `Start-DSH-Hotplug-Hub.command`。
+- **Windows**：解压 `DSH-Hotplug-Hub-win-x64-portable-v1.0.2.zip`，双击 `DSH-Hotplug-Hub.exe`（WebView2 运行时 DLL 已内置同目录）。
+- **Linux**：`tar -xzf DSH-Hotplug-Hub-linux-x64-portable-v1.0.2.tar.gz`，运行 `./dsh-hotplug-hub`。
+- **macOS**：解压 `DSH-Hotplug-Hub-macos-x64-portable-v1.0.2.zip`，双击 `Start-DSH-Hotplug-Hub.command`。
 
 ### 方式三：源码安装
 
