@@ -368,10 +368,11 @@ partial class DSHDesktopUninstaller
                         (KnownProcessNames != null && KnownProcessNames.Length > 0);
         if (hasNames)
         {
-            if (NameMatcher.ContainsToken(displayName, KnownProcessNames) ||
-                NameMatcher.ContainsToken(displayName, KnownExeNames)) return true;
-            if (NameMatcher.ContainsToken(pathForHeuristic, KnownProcessNames) ||
-                NameMatcher.ContainsToken(pathForHeuristic, KnownExeNames)) return true;
+            // 名称按「精确相等」匹配：修复旧 ContainsToken 子串误命中——
+            // 「DSH Desk」⊂「DSH Desktop」、「DSH Desktop」⊂「DSH Desktop Hub」、
+            // 「dsh-desktop」⊂「dsh-desktop-hub」，卸载一个变体会误删另一变体的卸载键。
+            if (NameMatcher.EqualsToken(displayName, KnownProcessNames) ||
+                NameMatcher.EqualsToken(displayName, KnownExeNames)) return true;
             if (!string.IsNullOrEmpty(DshInstallDir) &&
                 pathForHeuristic.IndexOf(DshInstallDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) >= 0) return true;
             return false;
@@ -391,10 +392,9 @@ partial class DSHDesktopUninstaller
                         (KnownProcessNames != null && KnownProcessNames.Length > 0);
         if (hasNames)
         {
-            if (NameMatcher.ContainsToken(valueName, KnownProcessNames) ||
-                NameMatcher.ContainsToken(valueName, KnownExeNames) ||
-                NameMatcher.ContainsToken(value, KnownProcessNames) ||
-                NameMatcher.ContainsToken(value, KnownExeNames)) return true;
+            // 名称按「精确相等」匹配（同上：杜绝子串误命中跨变体 Run 项）
+            if (NameMatcher.EqualsToken(valueName, KnownProcessNames) ||
+                NameMatcher.EqualsToken(valueName, KnownExeNames)) return true;
             if (!string.IsNullOrEmpty(DshInstallDir) &&
                 value.IndexOf(DshInstallDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) >= 0) return true;
             return false;
@@ -650,12 +650,25 @@ partial class DSHDesktopUninstaller
         try { expanded = Environment.ExpandEnvironmentVariables(trimmed); } catch { }
 
         if (expanded.Equals(Path.Combine(DshRuntime, "node"), StringComparison.OrdinalIgnoreCase)) return true;
+        if (expanded.Equals(Path.Combine(DshRuntime, "pnpm"), StringComparison.OrdinalIgnoreCase)) return true;
         if (expanded.Equals(Path.Combine(DshHome, "bin"), StringComparison.OrdinalIgnoreCase)) return true;
         if (!string.IsNullOrEmpty(DshInstallDir) &&
             (expanded.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase) ||
              trimmed.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))) return true;
-        // Broader heuristic for variants not installed in the detected dir.
-        return IsDshRelatedPath(trimmed) || IsDshRelatedPath(expanded);
+        // 兜底：路径「段」精确匹配 DSH 名称（修复旧 IsDshRelatedPath 子串匹配把
+        // dsh-client-sdk 当 dsh-client、把非 DSH 的 dsh-desktop-hub 当 dsh-desktop 误删）
+        return IsDshPathSegment(expanded);
+    }
+
+    static bool IsDshPathSegment(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        string[] segs = path.Split(new char[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (string seg in segs)
+        {
+            if (NameMatcher.EqualsToken(seg, NameMatcher.PathTokens)) return true;
+        }
+        return false;
     }
 #endregion
 

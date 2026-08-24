@@ -35,6 +35,9 @@ partial class DSHDesktopUninstaller
     static bool keepChatData { get { return retentionOptions.ChatData; } set { retentionOptions.ChatData = value; } }
     static bool keepPlugins { get { return retentionOptions.Plugins; } set { retentionOptions.Plugins = value; } }
     static bool keepSkills { get { return retentionOptions.Skills; } set { retentionOptions.Skills = value; } }
+    // 「保留全部插件」显式标志：/KeepPlugins（无值）或 /KeepAll 置位。空 keepPluginNames 表示「全部」，
+    // /KeepVision 仅在「非全部」模式下追加指定插件，避免把「保留全部」误转为「仅保留 vision」。
+    static bool keepAllPlugins = false;
     static List<string> keepPresetNames { get { return retentionOptions.PresetNames; } set { retentionOptions.PresetNames.Clear(); retentionOptions.PresetNames.AddRange(value); } }
     static List<string> keepPluginNames { get { return retentionOptions.PluginNames; } set { retentionOptions.PluginNames.Clear(); retentionOptions.PluginNames.AddRange(value); } }
     static List<string> keepSkillNames { get { return retentionOptions.SkillNames; } set { retentionOptions.SkillNames.Clear(); retentionOptions.SkillNames.AddRange(value); } }
@@ -713,14 +716,14 @@ partial class DSHDesktopUninstaller
             new ArgSpec(new[] { "/S", "-S", "/silent", "-silent" }, v => { silent = true; }),
             new ArgSpec(new[] { "/KeepPresets", "-KeepPresets" }, v => { keepAgentPresets = true; if (!string.IsNullOrWhiteSpace(v)) keepPresetNames = PureHelpers.ParsePresetNames(v); }),
             new ArgSpec(new[] { "/KeepRuntime", "-KeepRuntime" }, v => { keepRuntime = true; }),
-            new ArgSpec(new[] { "/KeepPlugins", "-KeepPlugins" }, v => { keepPlugins = true; keepRuntime = true; if (!string.IsNullOrWhiteSpace(v)) keepPluginNames = PureHelpers.ParsePresetNames(v); }),
-            new ArgSpec(new[] { "/KeepVision", "-KeepVision" }, v => { keepPlugins = true; keepRuntime = true; if (!keepPluginNames.Contains("@dsh-external/dsh-vision", StringComparer.OrdinalIgnoreCase)) keepPluginNames.Add("@dsh-external/dsh-vision"); }),
+            new ArgSpec(new[] { "/KeepPlugins", "-KeepPlugins" }, v => { keepPlugins = true; keepRuntime = true; if (!string.IsNullOrWhiteSpace(v)) { keepAllPlugins = false; keepPluginNames = PureHelpers.ParsePresetNames(v); } else { keepAllPlugins = true; } }),
+            new ArgSpec(new[] { "/KeepVision", "-KeepVision" }, v => { keepPlugins = true; keepRuntime = true; if (!keepAllPlugins && !keepPluginNames.Contains("@dsh-external/dsh-vision", StringComparer.OrdinalIgnoreCase)) keepPluginNames.Add("@dsh-external/dsh-vision"); }),
             new ArgSpec(new[] { "/KeepSkills", "-KeepSkills" }, v => { keepSkills = true; if (!string.IsNullOrWhiteSpace(v)) keepSkillNames = PureHelpers.ParsePresetNames(v); }),
             new ArgSpec(new[] { "/KeepAppSettings", "-KeepAppSettings" }, v => { keepAppSettings = true; }),
             new ArgSpec(new[] { "/KeepModelConfig", "-KeepModelConfig" }, v => { keepModelConfig = true; }),
             new ArgSpec(new[] { "/KeepOtherUserData", "-KeepOtherUserData", "/KeepOtherData", "-KeepOtherData" }, v => { keepOtherUserData = true; }),
             new ArgSpec(new[] { "/KeepChatData", "-KeepChatData", "/KeepChat", "-KeepChat" }, v => { keepChatData = true; }),
-            new ArgSpec(new[] { "/KeepAll", "-KeepAll" }, v => { keepAgentPresets = true; keepRuntime = true; keepPlugins = true; keepChatData = true; keepAppSettings = true; keepModelConfig = true; keepOtherUserData = true; keepSkills = true; }),
+            new ArgSpec(new[] { "/KeepAll", "-KeepAll" }, v => { keepAgentPresets = true; keepRuntime = true; keepPlugins = true; keepAllPlugins = true; keepChatData = true; keepAppSettings = true; keepModelConfig = true; keepOtherUserData = true; keepSkills = true; }),
             new ArgSpec(new[] { "/DetectRunning", "-DetectRunning", "/DetectDSH", "-DetectDSH" }, v => { useDetectedRunningDsh = true; }),
             new ArgSpec(new[] { "/Default", "-Default" }, v => { useDetectedRunningDsh = false; }),
             new ArgSpec(new[] { "/InstallDir", "-InstallDir", "/Dir", "-Dir" }, v => { manualInstallDir = (v ?? string.Empty).Trim().Trim('"').TrimEnd('\\'); }),
@@ -1101,15 +1104,25 @@ partial class DSHDesktopUninstaller
         try
         {
             if (HasDshExecutable(dir)) return true;
-            if (File.Exists(Path.Combine(dir, "resources", "app.asar"))) return true;
-            if (Directory.Exists(Path.Combine(dir, "resources", "app"))) return true;
+            // 不再把「任意 Electron 应用」当 DSH（旧实现见 resources/app.asar 或 package.json 含
+            // "electron" 即认定 → 同名文件夹内放无关 Electron 应用会被误删）；需 package.json 命中
+            // dsh/deepseek 才认定。
             string pkgFile = Path.Combine(dir, "package.json");
             if (File.Exists(pkgFile))
             {
                 string json = File.ReadAllText(pkgFile);
                 if (json.IndexOf("dsh", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    json.IndexOf("deepseek", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    json.IndexOf("electron", StringComparison.OrdinalIgnoreCase) >= 0)
+                    json.IndexOf("deepseek", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+            string appPackage = Path.Combine(dir, "resources", "app", "package.json");
+            if (File.Exists(appPackage))
+            {
+                string json = File.ReadAllText(appPackage);
+                if (json.IndexOf("dsh", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    json.IndexOf("deepseek", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     return true;
                 }

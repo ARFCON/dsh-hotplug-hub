@@ -3,6 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Reflection;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace DseamWorldSetup
 {
@@ -206,6 +207,7 @@ namespace DseamWorldSetup
         private static string InstallTo(string dir, bool desktopShortcut, bool startMenuShortcut, bool runAfter)
         {
             Directory.CreateDirectory(dir);
+            WriteInstallRegistry(dir);
             string appPath = Path.Combine(dir, AppFileName);
             WriteResource("DSHHotplugHub.Setup.app.exe", appPath);
             WriteResource("DSHHotplugHub.Setup.core.dll", Path.Combine(dir, CoreDllFileName));
@@ -214,15 +216,23 @@ namespace DseamWorldSetup
 
             if (desktopShortcut)
             {
-                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-                if (!string.IsNullOrEmpty(desktop)) CreateShortcut(Path.Combine(desktop, "DSH-Hotplug-Hub.lnk"), appPath, dir);
+                try
+                {
+                    string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                    if (!string.IsNullOrEmpty(desktop)) CreateShortcut(Path.Combine(desktop, "DSH-Hotplug-Hub.lnk"), appPath, dir);
+                }
+                catch { /* 快捷方式创建失败不阻塞安装（文件已就位） */ }
             }
             if (startMenuShortcut)
             {
-                string startMenu = Environment.GetFolderPath(Environment.SpecialFolder.StartMenu);
-                string programs = Path.Combine(startMenu, "Programs", "Dseam世界");
-                Directory.CreateDirectory(programs);
-                CreateShortcut(Path.Combine(programs, "DSH-Hotplug-Hub.lnk"), appPath, dir);
+                try
+                {
+                    string startMenu = Environment.GetFolderPath(Environment.SpecialFolder.StartMenu);
+                    string programs = Path.Combine(startMenu, "Programs", "Dseam世界");
+                    Directory.CreateDirectory(programs);
+                    CreateShortcut(Path.Combine(programs, "DSH-Hotplug-Hub.lnk"), appPath, dir);
+                }
+                catch { /* 快捷方式创建失败不阻塞安装 */ }
             }
 
             if (runAfter)
@@ -239,8 +249,23 @@ namespace DseamWorldSetup
             return appPath;
         }
 
-        private static void WriteResource(string resourceName, string targetPath)
+        // 记录安装目录到 HKCU\Software\DSH-Hotplug-Hub，供卸载器定位自定义安装路径
+        private static void WriteInstallRegistry(string dir)
         {
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.CreateSubKey(@"Software\DSH-Hotplug-Hub"))
+                {
+                    k.SetValue("InstallDir", dir, RegistryValueKind.String);
+                }
+            }
+            catch
+            {
+                // 注册表写入失败不阻塞安装
+            }
+        }
+
+        private static void WriteResource(string resourceName, string targetPath)        {
             Assembly assembly = typeof(SetupForm).Assembly;
             using (Stream stream = assembly.GetManifestResourceStream(resourceName))
             {
