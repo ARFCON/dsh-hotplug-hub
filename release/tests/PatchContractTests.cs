@@ -77,6 +77,33 @@ namespace DSHHotplugHub
             catch (ArgumentException) { argRejected = true; }
             Check(argRejected, "AssertShellSafeArg reject metachar");
 
+            // ⑤b AssertShellSafeLocalFile（审计修复：内嵌 tgz 安装链静默失败回归的契约锁定）
+            Console.WriteLine("-- ⑤b AssertShellSafeLocalFile 内嵌资源路径 --");
+            string embeddedDir = PatchContract.EmbeddedTgzDir();
+            Directory.CreateDirectory(embeddedDir);
+            string goodPath = Path.Combine(embeddedDir, "dsh-memory-hub-0.8.0.tgz");
+            File.WriteAllText(goodPath, "stub");
+            Check(PatchContract.AssertShellSafeLocalFile(goodPath, "tarballUrl") == goodPath, "AssertShellSafeLocalFile accept 嵌入目录内 tgz");
+            string[] localRejects =
+            {
+                null, "",
+                embeddedDir + "\\no such file.tgz",                   // 文件名空白（文件名白名单拒；目录段空白放行——引号内安全）
+                embeddedDir + "\\a&b.tgz",                             // & 元字符（文件名白名单拒）
+                embeddedDir + "\\a|b.tgz",                             // | 元字符
+                embeddedDir + "\\a^b.tgz",                             // ^ 元字符
+                Path.Combine(Path.GetTempPath(), "evil.tgz"),          // 目录不在嵌入目录
+                embeddedDir + "\\..\\evil.tgz",                        // .. 逃逸（解析后目录不匹配）
+                "dsh-memory-hub-0.8.0.tgz",                            // 相对路径
+                @"\\server\share\evil.tgz",                            // UNC 路径
+            };
+            foreach (string v in localRejects)
+            {
+                bool rejected = false;
+                try { PatchContract.AssertShellSafeLocalFile(v, "tarballUrl"); }
+                catch (ArgumentException) { rejected = true; }
+                Check(rejected, "AssertShellSafeLocalFile reject " + (v == null ? "<null>" : v.Length > 48 ? v.Substring(0, 48) + "…" : v));
+            }
+
             // ③ MergePatchSection 分节保留合并
             Console.WriteLine("-- ③ MergePatchSection 分节保留合并 --");
             string seeded = "# 顶部注释\n## hotplug:pack.a\n- insert:\n    - id: hp-old\n      name: 'old'\n      config: {}\n## desktop:keep\n- insert:\n    - id: keep\n      name: 'k'\n      config: {}\n";

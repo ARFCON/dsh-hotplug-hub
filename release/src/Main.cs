@@ -1489,8 +1489,22 @@ namespace DSHHotplugHub
                             await HandleAiTestAsync(message.Substring("aiTest:".Length));
                         }
                     }
-                    catch
+                    catch (Exception ipcEx)
                     {
+                        // 审计修复：原空 catch 吞掉一切异常（无日志无回推）——IPC 分支抛错时
+                        // 前端可能停留在“正在安装…”等无终态。至少写入诊断日志（尽力而为，
+                        // 失败不影响主流程）；各分支自身的成败回推仍由分支内负责。
+                        try
+                        {
+                            string logDir = Path.Combine(
+                                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                "DSH-Hotplug-Hub");
+                            Directory.CreateDirectory(logDir);
+                            File.AppendAllText(Path.Combine(logDir, "ipc-error.log"),
+                                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " WebMessageReceived: " +
+                                ipcEx.GetType().FullName + ": " + ipcEx.Message + Environment.NewLine);
+                        }
+                        catch { /* 日志失败不影响主流程 */ }
                     }
                 };
 
@@ -2467,14 +2481,23 @@ namespace DSHHotplugHub
             string[] cmd = FindDshCommand();
             if (cmd == null) return null;
             // H-7 端口（v5 阶段 4，PatchContract）：URL 进 argv 前过 shell 安全契约——
-            // 拒绝元字符/空白（曾仅剔除引号，& 等可拆坏参数）
+            // 拒绝元字符/空白（曾仅剔除引号，& 等可拆坏参数）。
+            // 审计修复（内嵌安装链静默失败回归）：ExtractEmbeddedTgz 释放的本地 tgz
+            // 绝对路径（含盘符与反斜杠）曾被 AssertShellSafeUrl 一律拒绝，失败文案
+            // 不含 ERR_PNPM/Error:/error:，被 InstallPluginsToHarness 等当成功静默吞掉
+            // （内置 memory-hub/skillmcp/dsh-hub 的资源主安装链路失效）。现按形态分流：
+            // http(s) 走 URL 契约；本地路径走 AssertShellSafeLocalFile（精确目录 + 文件名白名单）；
+            // 校验失败统一带 ERR_PLUGIN_ADD: 前缀，纳入全部调用方的失败检测。
+            bool isHttp = tarballUrl != null && (tarballUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                || tarballUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase));
             try
             {
-                PatchContract.AssertShellSafeUrl(tarballUrl, "tarballUrl");
+                if (isHttp) PatchContract.AssertShellSafeUrl(tarballUrl, "tarballUrl");
+                else PatchContract.AssertShellSafeLocalFile(tarballUrl, "tarballUrl");
             }
             catch (ArgumentException ex)
             {
-                return "tarballUrl 非法：" + ex.Message;
+                return "ERR_PLUGIN_ADD: tarballUrl 非法：" + ex.Message;
             }
             string args = cmd[1] + " plugin --profile web add \"" + (tarballUrl ?? "").Replace("\"", "") + "\"";
             return RunCliLong(cmd[0], args, 180000, extraEnv);
@@ -3830,7 +3853,7 @@ namespace DSHHotplugHub
                             : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v" + APP_VERSION + "/dsh-memory-hub-" + MEMORY_HUB_VERSION + ".tgz";
                     }
                     string output = InstallPluginPackage(tgz);
-                    if (output != null && (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:")))
+                    if (output != null && (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:") || output.Contains("ERR_PLUGIN_ADD")))
                     {
                         try
                         {
@@ -3893,7 +3916,7 @@ namespace DSHHotplugHub
                 {
                     return "未找到 dsh 命令，请先安装官方 DSH Desktop 或把 dsh 加入 PATH";
                 }
-                if (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:"))
+                if (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:") || output.Contains("ERR_PLUGIN_ADD"))
                 {
                     return "安装失败：" + output.Substring(0, Math.Min(output.Length, 160));
                 }
@@ -3975,7 +3998,7 @@ namespace DSHHotplugHub
                     return;
                 }
                 string output = InstallPluginPackage(tgz);
-                if (output != null && (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:")))
+                if (output != null && (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:") || output.Contains("ERR_PLUGIN_ADD")))
                 {
                     try
                     {
@@ -4467,7 +4490,7 @@ namespace DSHHotplugHub
         private static string FormatCliResult(string output, string successMessage)
         {
             if (output == null) return "未找到 dsh 命令，请先安装官方 DSH Desktop 或把 dsh 加入 PATH";
-            if (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:"))
+            if (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:") || output.Contains("ERR_PLUGIN_ADD"))
             {
                 string brief = output.Substring(0, Math.Min(output.Length, 160)).Replace("\r", " ").Replace("\n", " ");
                 return "操作失败：" + brief;

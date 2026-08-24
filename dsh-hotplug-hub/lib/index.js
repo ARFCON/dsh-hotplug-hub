@@ -34,7 +34,8 @@
  *  - 绝不执行包内任何脚本：npm 插件走 pnpm add（profile 正常依赖解析），
  *    github / path 源只做 link 挂载（同 graph-memory 模式）。
  *  - 市场联网抓取只读公开元数据（GitHub 搜索 JSON / raw README / package.json），
- *    不携带任何凭据；https 直连兜底仅对市场抓取关闭证书校验（兼容本地根 CA 拦截环境）。
+ *    不携带任何凭据；抓取链全程 TLS 校验（全局 fetch → curl 兜底，证书校验不可
+ *    静默关闭——曾存在的 node:https rejectUnauthorized:false 直连层已删除）。
  */
 import { HotplugGateway } from './gateway.js'
 import { parseHotpack } from './core/hotpack.js'
