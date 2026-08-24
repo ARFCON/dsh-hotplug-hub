@@ -25,6 +25,34 @@ function lastActivationAt(state, id) {
   return null
 }
 
+/**
+ * FD-1 真实记忆中枢摘要：只认「目录内含 pack.json」的记忆包，条目数按
+ * entries/*.md 实数（不展示假数据——此前渲染的是 hotplug-store 缓存目录名）。
+ * 读失败一律降级为空摘要（记忆目录尚未初始化属正常态）。
+ */
+function memorySummarySync() {
+  const dir = memoryDir()
+  /** @type {Array<{id: string, entries: number}>} */
+  const packs = []
+  let activeEntries = 0
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const packDir = join(dir, entry.name)
+      if (!existsSync(join(packDir, 'pack.json'))) continue
+      let entries = 0
+      try {
+        entries = readdirSync(join(packDir, 'entries')).filter((f) => f.endsWith('.md')).length
+      } catch { /* 无 entries 目录按 0 条 */
+      }
+      packs.push({ id: entry.name, entries })
+      activeEntries += entries
+    }
+  } catch { /* 记忆目录不存在：空摘要 */ }
+  packs.sort((a, b) => a.id.localeCompare(b.id))
+  return { dir, packs, activeEntries }
+}
+
 export function statusSync() {
   const state = readState()
   const packs = []
@@ -80,6 +108,8 @@ export function statusSync() {
     packs,
     store: { dir: storeRoot(), entries: storeEntries },
     memoryDir: memoryDir(),
+    // FD-1：真实记忆包摘要（此前 UI 把 hotplug-store 缓存目录当记忆包渲染——假数据）
+    memory: memorySummarySync(),
   }
 }
 
@@ -234,5 +264,7 @@ export async function checkAsync() {
     packCount: status.packs.length,
     storeCount: status.store.entries.length,
     memoryDir: memoryDir(),
+    // 与 statusSync 同源的真实记忆摘要（精简面保持字段齐平，防消费方拿不到）
+    memory: status.memory,
   }
 }

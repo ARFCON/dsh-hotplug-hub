@@ -143,8 +143,6 @@ window.__ModuleLoader__.load({
 			memIntro: "全局记忆包，与 profile 解耦。切换包不影响记忆。",
 			memPacks: "全局记忆包",
 			memEmpty: "暂无记忆包。记忆目录：",
-			memCommit: "打包本轮记忆",
-			memCommitted: "已完成记忆打包，全局可用",
 			memEntries: "条",
 			checkTitle: "系统自检",
 			checkIntro: "运行时 · profile · 插件 · 冲突",
@@ -951,21 +949,23 @@ window.__ModuleLoader__.load({
 					h("p", { className: "hp_info" }, t("memIntro")),
 					data ? h("div", { className: "hp_kv" },
 						h("span", null, t("checkMemory") + ":"),
-						h("span", { className: "hp_code" }, data.memoryDir || (data.home + "/memory-hub"))
+						h("span", { className: "hp_code" }, data.memoryDir || (data.memory && data.memory.dir) || (data.home + "/memory-hub"))
 					) : null
 				),
 				h("div", { className: "hp_card" },
 					h("div", { className: "hp_heading" }, h("h3", null, t("memPacks"))),
-					data && data.store && data.store.entries.length > 0
-						? h("div", { className: "hp_list" }, data.store.entries.map((entry) =>
-							h("div", { key: entry, className: "hp_row" },
+					// FD-1：真实记忆包（memory.packs 来自 status 的 memory-hub 摘要）；
+					// 此前渲染 data.store.entries（hotplug-store 插件缓存目录）属假数据。
+					data && data.memory && Array.isArray(data.memory.packs) && data.memory.packs.length > 0
+						? h("div", { className: "hp_list" }, data.memory.packs.map((pack) =>
+							h("div", { key: pack.id, className: "hp_row" },
 								h("div", { className: "hp_rowTop" },
-									h("span", { className: "hp_name" }, entry),
-									h("span", { className: "hp_tag" }, t("reused"))
+									h("span", { className: "hp_name" }, pack.id),
+									h("span", { className: "hp_tag" }, `${pack.entries} ${t("memEntries")}`)
 								)
 							)
 						))
-						: h("p", { className: "hp_empty" }, t("memEmpty") + (data ? (data.memoryDir || (data.home + "/memory-hub")) : "…"))
+						: h("p", { className: "hp_empty" }, t("memEmpty") + (data ? (data.memoryDir || (data.memory && data.memory.dir) || (data.home + "/memory-hub")) : "…"))
 				)
 			);
 			const renderCheck = () => h("div", null,

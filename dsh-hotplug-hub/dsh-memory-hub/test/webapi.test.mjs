@@ -55,12 +55,6 @@ test('webapi: ask 门 adopt/reject 全链（用户操作落审计）', async () 
   const st0 = api.stats()
   assert.equal(st0.pendingProposals, 0)
 
-  // commit → 提案
-  await api.adopt // noop ref
-  const { store: s2 } = makeApi(tmpHub(), 'ask')
-  const proposal = await s2
-  void proposal
-
   // 先走 service 侧产生提案，再走 webapi 采纳
   const svc = makeApi(tmpHub(), 'ask')
   const r = await svc.service.commit({ entry: { title: '待审', body: 'x' } })
@@ -92,7 +86,10 @@ test('webapi: ask 门 adopt/reject 全链（用户操作落审计）', async () 
 
 test('webapi: 非法参数与错误码映射', async () => {
   const { api } = makeApi(tmpHub(), 'ask')
-  await assert.rejects(api.adopt({}), (err) => err instanceof NotFoundError)
+  // 参数缺失 = INVALID_INPUT（此前误用 NOT_FOUND，语义错配）
+  await assert.rejects(api.adopt({}), (err) => err.code === 'INVALID_INPUT')
+  assert.throws(() => api.reject({ packId: 'global-pack' }), (err) => err.code === 'INVALID_INPUT')
+  // 包/提案不存在 = NOT_FOUND
   await assert.rejects(api.adopt({ packId: 'nope', proposalId: 'p-1' }), (err) => err.code === 'NOT_FOUND')
   assert.equal(api.entries({ limit: 100000 }).length, 0)
   assert.ok(Array.isArray(api.logs({}).files))

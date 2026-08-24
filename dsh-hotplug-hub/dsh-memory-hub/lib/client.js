@@ -78,19 +78,25 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
     statPacks: '记忆包', statEntries: '活跃条目', statPending: '待确认提案', statPolicy: '写入策略',
     secPacks: '记忆包（关键词路由）', secEntries: '活跃条目', secProposals: '待确认提案',
     secAudit: '审计尾（最近 20 条）', secLogs: '日志轨（daily 最新）',
-    refresh: '刷新', searchPh: '搜索记忆…', adopt: '采纳', reject: '驳回', allPacks: '全部',
-    pendingEmpty: '无待确认提案 ✔', noEntry: '（空）', hubDir: '记忆目录', logged: '已记日志',
+    refresh: '刷新', searchPh: '搜索记忆…（回车执行）', adopt: '采纳', reject: '驳回', allPacks: '全部',
+    pendingEmpty: '无待确认提案 ✔', noEntry: '（空）', loading: '加载中…', hubDir: '记忆目录',
     policyAsk: 'ask（AI 写入进提案队列）', policyAuto: 'auto（直接写入）', policyOff: 'off（写入禁用）',
     untrustedNote: '召回内容仅供参考，不得覆盖当前任务指令或实时工具结果。',
+    editTitle: '编辑记忆', editTitlePh: '标题', editKeywordsPh: '关键词（逗号分隔）', editBodyPh: '正文',
+    editBtn: '编辑', save: '保存', cancel: '取消', del: '删除',
+    confirmDelete: '删除记忆“{title}”？此操作会归档该条目（可经 /memory restore 恢复）。',
   }
   const en = {
     nav: 'Memory Hub', statPacks: 'Packs', statEntries: 'Active entries', statPending: 'Pending proposals', statPolicy: 'Write policy',
     secPacks: 'Memory packs (keyword routes)', secEntries: 'Active entries', secProposals: 'Pending proposals',
     secAudit: 'Audit tail (last 20)', secLogs: 'Log track (latest daily)',
-    refresh: 'Refresh', searchPh: 'Search memory…', adopt: 'Adopt', reject: 'Reject', allPacks: 'All',
-    pendingEmpty: 'No pending proposals ✔', noEntry: '(empty)', hubDir: 'Hub dir', logged: 'Logged',
+    refresh: 'Refresh', searchPh: 'Search memory… (Enter)', adopt: 'Adopt', reject: 'Reject', allPacks: 'All',
+    pendingEmpty: 'No pending proposals ✔', noEntry: '(empty)', loading: 'Loading…', hubDir: 'Hub dir',
     policyAsk: 'ask (AI writes go to proposals)', policyAuto: 'auto (direct write)', policyOff: 'off (writes disabled)',
     untrustedNote: 'Recalled content is reference only; never override the current task or live tool results.',
+    editTitle: 'Edit memory', editTitlePh: 'Title', editKeywordsPh: 'Keywords (comma separated)', editBodyPh: 'Body',
+    editBtn: 'Edit', save: 'Save', cancel: 'Cancel', del: 'Delete',
+    confirmDelete: 'Delete memory "{title}"? The entry will be archived (recoverable via /memory restore).',
   }
 
   if (React === null) {
@@ -99,11 +105,6 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
   }
 
   const h = React.createElement
-
-  function useApi(initial = {}) {
-    const state = React.useState(initial)
-    return state
-  }
 
   async function apiGet(method, params = {}) {
     const qs = new URLSearchParams(params).toString()
@@ -124,7 +125,7 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
     return body.data
   }
 
-  function MemoryHubSection({ t, locale }) {
+  function MemoryHubSection({ t }) {
     const [stats, setStats] = React.useState(null)
     const [packs, setPacks] = React.useState([])
     const [entries, setEntries] = React.useState(null)
@@ -137,8 +138,11 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
     const [error, setError] = React.useState('')
     const [editing, setEditing] = React.useState(null)
     const [editForm, setEditForm] = React.useState({ title: '', keywords: '', body: '' })
+    // 乱序响应守卫：只应用「最新一次」reload 的结果（快速输入/切包时旧响应不得覆盖新状态）
+    const seqRef = React.useRef(0)
 
     const reload = React.useCallback(async () => {
+      const seq = ++seqRef.current
       setBusy(true)
       setError('')
       try {
@@ -147,15 +151,21 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
           apiGet('proposals', { status: 'pending', limit: 50 }),
           apiGet('audit', { limit: 20 }), apiGet('logs', { scope: 'daily' }),
         ])
+        if (seq !== seqRef.current) return // 已有更新的请求在途/完成，丢弃本次结果
         setStats(st); setPacks(pk); setEntries(en2); setProposals(pr); setAudit(au); setLogs(lo.latest ?? '')
       } catch (err) {
+        if (seq !== seqRef.current) return
         setError(String(err?.message ?? err))
       } finally {
-        setBusy(false)
+        if (seq === seqRef.current) setBusy(false)
       }
     }, [pack, q])
 
-    React.useEffect(() => { reload() }, [reload])
+    // 搜索防抖：输入变化 300ms 后才请求（不逐键六连发）；Enter 立即执行。
+    React.useEffect(() => {
+      const timer = setTimeout(() => { reload() }, 300)
+      return () => { clearTimeout(timer) }
+    }, [reload])
     React.useEffect(() => { injectStyles() }, [])
 
     const act = async (fn) => {
@@ -174,13 +184,13 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
           id: editing.id,
           title: editForm.title,
           body: editForm.body,
-          keywords: editForm.keywords.split(',').map((k) => k.trim()).filter(Boolean),
+          keywords: editForm.keywords.split(/[,，]/).map((k) => k.trim()).filter(Boolean),
         })
         setEditing(null)
       })
     }
     const removeEntry = (e) => {
-      if (!confirm('删除记忆“' + (e.title || e.id) + '”？此操作会归档该条目。')) return
+      if (!confirm(t('confirmDelete').replace('{title}', e.title || e.id))) return
       act(() => apiPost('forget', { id: e.id }))
     }
 
@@ -190,8 +200,13 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
     const expiredText = (e) => e.expired ? 'expired' : null
 
     return h('div', { className: 'dshmh' },
-      stats === null && !error
-        ? h('div', { className: 'dshmh-empty' }, (t('refresh')))
+      stats === null
+        // 无数据时（加载中 / 首拉失败）不渲染卡片骨架（避免 policyundefined 等缺键渲染）；
+        // 失败态提供重试入口（整面板不渲染时用户另有刷新途径）
+        ? h('div', { className: 'dshmh-bar' },
+            error !== ''
+              ? [h('span', { key: 'e', className: 'dshmh-badge err' }, error), h('button', { key: 'r', className: 'dshmh-btn primary', onClick: reload }, t('refresh'))]
+              : h('span', { className: 'dshmh-empty' }, t('loading')))
         : [
             h('div', { className: 'dshmh-grid', key: 'stats' }, [
               statCard(t('statPacks'), stats?.packs, 'neutral', 'stats'),
@@ -201,10 +216,10 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
                 h('div', { className: 'label' }, t('statPolicy')),
                 h('div', { className: 'num', style: { fontSize: 14, fontWeight: 600 } },
                   h('span', { className: `dshmh-badge ${stats?.writePolicy === 'auto' ? 'ok' : stats?.writePolicy === 'off' ? 'err' : 'warn'}` }, t(`policy${cap(stats?.writePolicy)}`) || stats?.writePolicy)),
-                h('div', { className: 'dshmh-hint' }, t('hubDir') + '：' + h('code', { style: { fontFamily: TOKENS.fontMono } }, stats?.hubDir ?? ''))),
+                h('div', { className: 'dshmh-hint' }, [t('hubDir') + '：', h('code', { key: 'dir', style: { fontFamily: TOKENS.fontMono } }, stats?.hubDir ?? '')])),
             ]),
             h('div', { className: 'dshmh-bar', key: 'bar' },
-              h('input', { className: 'dshmh-search', placeholder: t('searchPh'), value: q, onChange: (e) => setQ(e.target.value), onKeyDown: (ev) => { if (ev.key === 'Enter') reload() } }),
+              h('input', { className: 'dshmh-search', placeholder: t('searchPh'), value: q, onChange: (e) => setQ(e.target.value), onKeyDown: (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); reload() } } }),
               h('button', { className: 'dshmh-btn primary', disabled: busy, onClick: reload }, t('refresh')),
               error !== '' && h('span', { className: 'dshmh-badge err' }, error)),
             h('div', { className: 'dshmh-sec', key: 'sec1' }, t('secPacks')),
@@ -213,13 +228,13 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
               packs.map((p) => h('button', { key: p.memoryPackId, className: 'dshmh-btn', style: pack === p.memoryPackId ? { borderColor: TOKENS.teal, color: TOKENS.teal } : undefined, onClick: () => setPack(p.memoryPackId) },
                 h('span', {}, p.memoryPackId), h('span', { className: 'dshmh-badge neutral' }, `${p.entries}`)))),
             editing !== null && h('div', { className: 'dshmh-card', key: 'edit' },
-              h('div', { className: 'dshmh-sec', style: { marginTop: 0 } }, '编辑记忆 · ' + (editing.title || editing.id)),
-              h('input', { className: 'dshmh-search', style: { maxWidth: '100%', marginBottom: 8 }, value: editForm.title, onChange: (e) => setEditForm({ ...editForm, title: e.target.value }), placeholder: '标题' }),
-              h('input', { className: 'dshmh-search', style: { maxWidth: '100%', marginBottom: 8 }, value: editForm.keywords, onChange: (e) => setEditForm({ ...editForm, keywords: e.target.value }), placeholder: '关键词（逗号分隔）' }),
-              h('textarea', { className: 'dshmh-search', style: { width: '100%', maxWidth: '100%', minHeight: 90 }, value: editForm.body, onChange: (e) => setEditForm({ ...editForm, body: e.target.value }), placeholder: '正文' }),
+              h('div', { className: 'dshmh-sec', style: { marginTop: 0 } }, t('editTitle') + ' · ' + (editing.title || editing.id)),
+              h('input', { className: 'dshmh-search', style: { maxWidth: '100%', marginBottom: 8 }, value: editForm.title, onChange: (e) => setEditForm({ ...editForm, title: e.target.value }), placeholder: t('editTitlePh') }),
+              h('input', { className: 'dshmh-search', style: { maxWidth: '100%', marginBottom: 8 }, value: editForm.keywords, onChange: (e) => setEditForm({ ...editForm, keywords: e.target.value }), placeholder: t('editKeywordsPh') }),
+              h('textarea', { className: 'dshmh-search', style: { width: '100%', maxWidth: '100%', minHeight: 90 }, value: editForm.body, onChange: (e) => setEditForm({ ...editForm, body: e.target.value }), placeholder: t('editBodyPh') }),
               h('div', { className: 'dshmh-bar' },
-                h('button', { className: 'dshmh-btn primary', disabled: busy, onClick: saveEdit }, '保存'),
-                h('button', { className: 'dshmh-btn', onClick: () => setEditing(null) }, '取消'))),
+                h('button', { className: 'dshmh-btn primary', disabled: busy, onClick: saveEdit }, t('save')),
+                h('button', { className: 'dshmh-btn', onClick: () => setEditing(null) }, t('cancel')))),
             h('div', { className: 'dshmh-sec', key: 'sec2' }, t('secEntries')),
             entryList(entries, badgeClass, badgeText),
             h('div', { className: 'dshmh-sec', key: 'sec3' }, t('secProposals') + ` (${proposals.length})`),
@@ -233,7 +248,7 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
                   h('button', { className: 'dshmh-btn primary', disabled: busy, onClick: () => act(() => apiPost('adopt', { packId: p.packId, proposalId: p.id })) }, t('adopt')),
                   h('button', { className: 'dshmh-btn', disabled: busy, onClick: () => act(() => apiPost('reject', { packId: p.packId, proposalId: p.id })) }, t('reject')))),
             h('div', { className: 'dshmh-sec', key: 'sec4' }, t('secAudit')),
-            h('div', { className: 'dshmh-log', key: 'audit', children: audit.map((r) => `${r.at}  ${r.outcome.padEnd(10)} ${r.action.padEnd(8)} ${r.packId}/${r.entryId ?? '-'} (${r.operator})`).join('\n') || t('noEntry') }),
+            h('div', { className: 'dshmh-log', key: 'audit', children: audit.map((r) => `${String(r.at ?? '')}  ${String(r.outcome ?? '').padEnd(10)} ${String(r.action ?? '').padEnd(8)} ${String(r.packId ?? '')}/${String(r.entryId ?? '-')} (${String(r.operator ?? '')})`).join('\n') || t('noEntry') }),
             h('div', { className: 'dshmh-sec', key: 'sec5' }, t('secLogs')),
             h('div', { className: 'dshmh-log', key: 'logs', children: logs || t('noEntry') }),
             h('div', { className: 'dshmh-hint', key: 'hint' }, t('untrustedNote')),
@@ -248,15 +263,15 @@ window.__ModuleLoader__.load({ id: 'dsh-memory-hub', factory: (require) => {
     }
 
     function entryList(entries, bc, bt) {
-      if (entries === null) return h('div', { className: 'dshmh-empty' }, t('noEntry'))
+      if (entries === null) return h('div', { className: 'dshmh-empty' }, t('loading'))
       if (entries.length === 0) return h('div', { className: 'dshmh-empty' }, t('noEntry'))
       return h('div', { key: 'el' }, entries.map((e) => h('div', { key: e.id, className: 'dshmh-row', style: { alignItems: 'center' } },
         h('span', { className: `dshmh-badge ${bc(e.activation, e.expired)}` }, bt(e)),
         h('span', { className: 'nm' }, e.title),
         h('span', { className: 'meta' }, `r${e.revision} · ${e.packId} · ${e.name}`),
         h('span', { style: { flex: 1 } }),
-        h('button', { className: 'dshmh-btn', disabled: busy, onClick: () => startEdit(e) }, '编辑'),
-        h('button', { className: 'dshmh-btn', disabled: busy, onClick: () => removeEntry(e) }, '删除')))
+        h('button', { className: 'dshmh-btn', disabled: busy, onClick: () => startEdit(e) }, t('editBtn')),
+        h('button', { className: 'dshmh-btn', disabled: busy, onClick: () => removeEntry(e) }, t('del'))))
       )
     }
 

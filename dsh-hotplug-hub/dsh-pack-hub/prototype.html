@@ -3775,7 +3775,7 @@ function memoryRowHtml(m, index) {
         <div class="fold-main">
           <div class="pack-title">
             <h3>${esc(m.title || m.id)}</h3>
-            <div class="meta">${esc(m.packId || '')} · ${esc(m.type || '')} · ${esc((m.updatedAt || '').slice(0, 10))}</div>
+            <div class="meta">${esc(m.packId || '')} · ${esc(m.type || '')} · r${esc(String(m.revision ?? 1))} · ${esc((m.updatedAt || '').slice(0, 10))}</div>
           </div>
         </div>
         <span class="status-dot ok" title="已记忆"></span>
@@ -3805,6 +3805,10 @@ function renderMemory() {
   const emptyHint = isWebView
     ? '还没有真实记忆，读取文档后会自动写入 memory-hub'
     : '记忆中枢已接入 ~/.dsh/memory-hub，请在 DSH Desktop 中查看真实记忆。';
+  // 编辑表单保活：重渲染前摘下 DOM 节点（用户输入随节点保留），渲染后回挂——
+  // 保存失败时 __setMemory 的重渲染不再销毁未保存的长正文（二轮复审 G5 返工）
+  const keepForm = $('memEditForm') || null;
+  if (keepForm) keepForm.remove();
   $('view-memory').innerHTML = `
     <div class="section-head">
       <div><h2>记忆中枢</h2><div class="sub">真实读取 ~/.dsh/memory-hub · 支持编辑与删除</div></div>
@@ -3816,6 +3820,7 @@ function renderMemory() {
     <div class="mem-list">
       ${filtered.length ? filtered.map(memoryRowHtml).join('') : `<div class="empty">${emptyHint}</div>`}
     </div>`;
+  if (keepForm) $('view-memory').appendChild(keepForm);
   const refresh = $('memRefresh');
   if (refresh) refresh.addEventListener('click', () => {
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('listMemory'); return; }
@@ -3825,21 +3830,42 @@ function renderMemory() {
   if (search) search.addEventListener('input', renderMemory);
   document.querySelectorAll('[data-del-memory]').forEach((b) => b.addEventListener('click', () => {
     const id = b.dataset.delMemory;
-    if (!confirm('删除这条记忆？删除后不可恢复。')) return;
+    if (!confirm('删除这条记忆？将归档到 .archive（保留历史版本，可恢复），不再出现在活跃记忆与召回中。')) return;
     if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('deleteMemory:' + id); return; }
     state.memories = (state.memories || []).filter((m) => m.id !== id);
     save(); renderMemory();
   }));
   document.querySelectorAll('[data-edit-memory]').forEach((b) => b.addEventListener('click', () => {
     const id = b.dataset.editMemory;
-    const row = rows.find((m) => m.id === id) || {};
+    // 编辑表单必须拿全量正文：列表 body 截断 2000 字符仅用于展示，直接回填会把
+    // 长正文永久截断（A-1）。WebView 通道先请求 getMemoryFull 再开表单；
+    // 自增 token 关联响应：连点多条编辑时过期响应不得覆盖后发的表单。
+    if (window.chrome && window.chrome.webview) {
+      const token = (window.__memFullSeq = (window.__memFullSeq || 0) + 1);
+      window.__onMemoryFull = (full) => {
+        if (token !== window.__memFullSeq) return; // 过期响应（用户已点开下一条编辑）
+        openMemoryEditForm(full || rows.find((m) => m.id === id) || {});
+      };
+      window.chrome.webview.postMessage('getMemoryFull:' + id);
+      return;
+    }
+    openMemoryEditForm(rows.find((m) => m.id === id) || {});
+  }));
+  window.__onMemNotify = (n) => {
+    // 操作结果反馈（归档/保存成败）：复用全局 toast，失败加「失败：」前缀；
+    // 保存成功才关闭编辑表单（失败保留用户输入可改后重试，不丢长正文）
+    if (n && n.ok) { const f = $('memEditForm'); if (f) f.remove(); }
+    toast((n && n.ok ? '' : '失败：') + ((n && n.message) || '操作完成'));
+  };
+  function openMemoryEditForm(row) {
+    const id = row.id;
     const form = $('memEditForm');
     if (form) form.remove();
     const box = document.createElement('div');
     box.id = 'memEditForm';
     box.className = 'mem-edit';
     box.innerHTML = `
-      <div class="section-head"><div><h3>编辑记忆</h3><div class="sub">修改后保存，更新 updatedAt</div></div></div>
+      <div class="section-head"><div><h3>编辑记忆</h3><div class="sub">修改后保存：revision+1、更新 updatedAt（保留历史版本与审计）</div></div></div>
       <div class="toolbar">
         <input class="search" id="memEditTitle" placeholder="标题" value="${esc(row.title || '')}">
         <input class="search" id="memEditType" placeholder="类型 user/project/reference/feedback" value="${esc(row.type || '')}">
@@ -3858,16 +3884,18 @@ function renderMemory() {
     $('memEditSave').addEventListener('click', () => {
       const title = $('memEditTitle').value.trim();
       const type = $('memEditType').value.trim();
-      const keywords = $('memEditKeywords').value.split(',').map((k) => k.trim()).filter(Boolean);
+      const keywords = $('memEditKeywords').value.split(/[,，]/).map((k) => k.trim()).filter(Boolean);
       const body = $('memEditBody').value;
       if (!title && !body) return;
       const payload = { id, title, type, keywords, body };
+      // 关键词分隔符含中文逗号（中文输入友好）；代价：关键词文本本身含中文逗号时会被
+      // 拆成两条——已知取舍，插件端 keywords 是数组无此问题，高级编辑走插件 GUI。
       if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('saveMemory:' + JSON.stringify(payload)); return; }
       const target = (state.memories || []).find((m) => m.id === id);
       if (target) { target.title = title || target.title; target.type = type || target.type; target.keywords = keywords; target.body = body; }
       save(); box.remove(); renderMemory();
     });
-  }));
+  }
 }
 
 function getChecks() {

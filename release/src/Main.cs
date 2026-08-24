@@ -1348,17 +1348,38 @@ namespace DSHHotplugHub
                         }
                         else if (message == "listMemory")
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory(" + GetMemoryJson() + ");");
+                            // 写锁竞争时最长 10s——契约调用走后台线程，绝不冻结 UI 消息泵（复审 #3）
+                            string json = await Task.Run(() => GetMemoryJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory(" + json + ");");
+                        }
+                        else if (message != null && message.StartsWith("getMemoryFull:"))
+                        {
+                            // 编辑用全量正文通道（列表 body 截断 2000 仅用于展示，不再造成编辑回写截断）
+                            string fullJson = await Task.Run(() => GetMemoryFullJson(message.Substring("getMemoryFull:".Length)));
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemoryFull(" + fullJson + ");");
                         }
                         else if (message != null && message.StartsWith("deleteMemory:"))
                         {
-                            DeleteMemoryFile(message.Substring("deleteMemory:".Length));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory(" + GetMemoryJson() + ");");
+                            string targetId = message.Substring("deleteMemory:".Length);
+                            string msg = null;
+                            bool ok = false;
+                            // C#5：lambda 不能捕获 out 参数——闭包局部变量承载结果
+                            await Task.Run(() => { ok = ArchiveMemoryFile(targetId, out msg); });
+                            string refreshed = await Task.Run(() => GetMemoryJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync(
+                                "window.__setMemory(" + refreshed + ");" +
+                                "window.__memNotify(" + new JavaScriptSerializer().Serialize(new Dictionary<string, object> { { "ok", ok }, { "message", msg } }) + ");");
                         }
                         else if (message != null && message.StartsWith("saveMemory:"))
                         {
-                            SaveMemoryFile(message.Substring("saveMemory:".Length));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory(" + GetMemoryJson() + ");");
+                            string payload = message.Substring("saveMemory:".Length);
+                            string msg = null;
+                            bool ok = false;
+                            await Task.Run(() => { ok = SaveMemoryFile(payload, out msg); });
+                            string refreshed = await Task.Run(() => GetMemoryJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync(
+                                "window.__setMemory(" + refreshed + ");" +
+                                "window.__memNotify(" + new JavaScriptSerializer().Serialize(new Dictionary<string, object> { { "ok", ok }, { "message", msg } }) + ");");
                         }
                         else if (message == "listSkills")
                         {
@@ -1519,7 +1540,7 @@ namespace DSHHotplugHub
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildApiIntegrationScript());
                             // v1.1 契约：__setPlugins 回推数据后调用页面钩子 __onPluginsData（刷新主页更新面板/
                         // 菜单角标，并在插件变更流程 pending 时触发「重启 DSH」二次确认提示）
-                        await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory=function(d){window.__memoryData=d||[];if(typeof renderMemory==='function')renderMemory();if(typeof renderShell==='function')renderShell();};window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setSkillSource=function(d){window.__skillSourceData=d||null;if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.__setPlugins=function(d){window.__pluginsData=d||[];if(typeof renderPlugins==='function')renderPlugins();if(typeof renderMarket==='function')renderMarket();if(typeof window.__onPluginsData==='function')window.__onPluginsData(window.__pluginsData);};window.chrome.webview.postMessage('listMemory');window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listSkillSource');window.chrome.webview.postMessage('listMcp');window.chrome.webview.postMessage('listPlugins');");
+                        await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory=function(d){window.__memoryData=d||[];if(typeof renderMemory==='function')renderMemory();if(typeof renderShell==='function')renderShell();};window.__setMemoryFull=function(d){window.__memoryFullData=d||null;if(typeof window.__onMemoryFull==='function')window.__onMemoryFull(window.__memoryFullData);};window.__memNotify=function(d){if(typeof window.__onMemNotify==='function')window.__onMemNotify(d||{ok:true,message:''});};window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setSkillSource=function(d){window.__skillSourceData=d||null;if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.__setPlugins=function(d){window.__pluginsData=d||[];if(typeof renderPlugins==='function')renderPlugins();if(typeof renderMarket==='function')renderMarket();if(typeof window.__onPluginsData==='function')window.__onPluginsData(window.__pluginsData);};window.chrome.webview.postMessage('listMemory');window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listSkillSource');window.chrome.webview.postMessage('listMcp');window.chrome.webview.postMessage('listPlugins');");
                             // 同步窗体背景到页面主题色（消除四周 6px 空隙的白边框）
                             await webView.CoreWebView2.ExecuteScriptAsync("window.chrome.webview.postMessage('themeBg:'+getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());");
                             string latestCheck = null;
@@ -3844,10 +3865,26 @@ namespace DSHHotplugHub
             {
                 // 三插件全部内置：优先从 EXE 资源释放安装（随应用版本一起更新），
                 // 网络仅作为资源缺失时的兜底；插件仓库仍然保留用于手动“检查更新”。
+                // B-4 根治（内容指纹 marker，三层跳过判定）：
+                //   ① marker 指纹 == 内置 tgz SHA256 → 内容完全一致，零重装（含同版本重打包后的稳态）；
+                //   ② 已装版本严格更新 → 跳过（防降级；含「已装正式版 vs 内置 pre」——Core 段相等
+                //      且已装无 pre 后缀时视为更新，semver 0.8.0 > 0.8.0-pre）；
+                //   ③ 其余（未装/指纹不符/更旧）→ 安装 + 落 marker（同版本修复发布得以传播一次）。
+                // 版本号变更归 Owner（开发文档/规范/版本号管理规范.md）。
+                string embeddedTgzPath = ExtractEmbeddedTgz("DSHHotplugHub.Resources.dsh_memory_hub.tgz", "dsh-memory-hub-" + MEMORY_HUB_VERSION + ".tgz");
+                string embeddedHash = embeddedTgzPath != null ? MemoryHubContract.Sha256File(embeddedTgzPath) : null;
                 string installedMemory = GetInstalledMemoryHubVersion();
-                if (NormalizeVersion(installedMemory) != MEMORY_HUB_VERSION)
+                string marker = MemoryHubContract.ReadEmbeddedBuildMarker();
+                // contentSame 需同时确认安装仍存在（marker 命中但 package.json 被清 = 半残，须补装）
+                bool contentSame = embeddedHash != null && marker == embeddedHash && installedMemory != null;
+                // installedNewer 用【严格更新】语义（二轮复审 G2 返工：≥ 语义会让版本相等
+                // 直接短路跳过，marker 的内容指纹判定在同版本修复发布场景永远失效）。
+                bool installedNewer = installedMemory != null
+                    && MemoryHubContract.IsAtLeastEmbedded(NormalizeVersion(installedMemory), MEMORY_HUB_VERSION)
+                    && NormalizeVersion(installedMemory) != MEMORY_HUB_VERSION;
+                if (!contentSame && !installedNewer)
                 {
-                    string tgz = ExtractEmbeddedTgz("DSHHotplugHub.Resources.dsh_memory_hub.tgz", "dsh-memory-hub-" + MEMORY_HUB_VERSION + ".tgz");
+                    string tgz = embeddedTgzPath;
                     if (tgz == null)
                     {
                         Dictionary<string, string> info = GetMemoryHubReleaseInfo();
@@ -3856,7 +3893,10 @@ namespace DSHHotplugHub
                             : "https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v" + APP_VERSION + "/dsh-memory-hub-" + MEMORY_HUB_VERSION + ".tgz";
                     }
                     string output = InstallPluginPackage(tgz);
-                    if (output != null && (output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:") || output.Contains("ERR_PLUGIN_ADD")))
+                    // B-5 根治：dsh CLI 缺失（output==null）此前被完全静默——「失败记日志」的前半句落空
+                    bool failed = output == null
+                        || output.Contains("ERR_PNPM") || output.Contains("Error:") || output.Contains("error:") || output.Contains("ERR_PLUGIN_ADD");
+                    if (failed)
                     {
                         try
                         {
@@ -3865,9 +3905,13 @@ namespace DSHHotplugHub
                                 "DSH-Hotplug-Hub");
                             Directory.CreateDirectory(logDir);
                             File.AppendAllText(Path.Combine(logDir, "plugin-install.log"),
-                                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " memory-hub install failed: " + output + Environment.NewLine);
+                                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " memory-hub install failed: " + (output ?? "(dsh CLI 不可用：FindDshCommand 未命中)") + Environment.NewLine);
                         }
                         catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
+                    }
+                    else if (embeddedHash != null)
+                    {
+                        MemoryHubContract.WriteEmbeddedBuildMarker(embeddedHash);
                     }
                 }
                 InstallEmbeddedSkillMcp();
@@ -3939,7 +3983,9 @@ namespace DSHHotplugHub
                 using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
                 {
                     if (stream == null) return null;
-                    string dir = Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embedded");
+                    // 临时目录带 PID：双实例并发启动时不再交织写同一 tgz（hash 稳定；
+                    // 也消除固定路径的预置/替换面）。目录随进程退出由系统清理。
+                    string dir = Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embedded-" + Process.GetCurrentProcess().Id);
                     Directory.CreateDirectory(dir);
                     string tgz = Path.Combine(dir, fileName);
                     using (FileStream fs = new FileStream(tgz, FileMode.Create, FileAccess.Write))
@@ -3957,17 +4003,21 @@ namespace DSHHotplugHub
         {
             try
             {
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                // B-6 根治：探测目标 = 安装目标（--profile web）优先，其余 profile/源码目录
+                // 仅作信息兜底——此前「扫全部 profile 首个命中即返回」与硬编码安装目标脱节，
+                // web profile 缺装时永不补装。D-1：路径走 DshRootDir 单一真源。
+                string dshRoot = DshRootDir();
                 List<string> candidates = new List<string>();
-                string profilesDir = Path.Combine(home, ".dsh", "profiles");
+                candidates.Add(Path.Combine(dshRoot, "profiles", "web", "node_modules", "dsh-memory-hub", "package.json"));
+                string profilesDir = Path.Combine(dshRoot, "profiles");
                 if (Directory.Exists(profilesDir))
                 {
-                    foreach (string profileDir in Directory.GetDirectories(profilesDir))
+                    foreach (string profileDir in Directory.GetDirectories(profilesDir).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
                     {
                         candidates.Add(Path.Combine(profileDir, "node_modules", "dsh-memory-hub", "package.json"));
                     }
                 }
-                candidates.Add(Path.Combine(home, ".dsh", "plugin-src", "dsh-memory-hub", "package.json"));
+                candidates.Add(Path.Combine(dshRoot, "plugin-src", "dsh-memory-hub", "package.json"));
                 foreach (string pkgFile in candidates)
                 {
                     if (!File.Exists(pkgFile)) continue;
@@ -4565,235 +4615,38 @@ namespace DSHHotplugHub
             return FormatCliResult(RunDshPluginCli("update \"" + id + "\""), "插件 " + id + " 更新已提交，重启 DSH 后生效");
         }
 
+        // ---------- 全局记忆（dsh-memory-hub）面板数据面（薄委托：行为契约在 MemoryHubContract.cs） ----------
+
+        private static string DshRootDir()
+        {
+            return MemoryHubContract.DshRootDir();
+        }
+
+        private static string MemoryHubRoot()
+        {
+            return MemoryHubContract.MemoryHubRoot();
+        }
+
         private static string GetMemoryJson()
         {
-            try
-            {
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string hubDir = Path.Combine(home, ".dsh", "memory-hub");
-                List<Dictionary<string, object>> rows = new List<Dictionary<string, object>>();
-                if (!Directory.Exists(hubDir)) return "[]";
-                foreach (string packDir in Directory.GetDirectories(hubDir))
-                {
-                    string packFile = Path.Combine(packDir, "pack.json");
-                    if (!File.Exists(packFile)) continue;
-                    string packId = Path.GetFileName(packDir);
-                    string entriesDir = Path.Combine(packDir, "entries");
-                    if (!Directory.Exists(entriesDir)) continue;
-                    foreach (string entryFile in Directory.GetFiles(entriesDir, "*.md"))
-                    {
-                        Dictionary<string, object> entry = ParseMemoryEntry(entryFile);
-                        Dictionary<string, object> row = new Dictionary<string, object>();
-                        row["packId"] = packId;
-                        row["id"] = entry.ContainsKey("id") ? entry["id"] : Path.GetFileNameWithoutExtension(entryFile);
-                        row["title"] = entry.ContainsKey("title") ? entry["title"] : Path.GetFileNameWithoutExtension(entryFile);
-                        row["type"] = entry.ContainsKey("type") ? entry["type"] : "";
-                        row["body"] = entry.ContainsKey("body") ? entry["body"] : "";
-                        row["keywords"] = entry.ContainsKey("keywords") ? entry["keywords"] : new List<string>();
-                        row["updatedAt"] = entry.ContainsKey("updatedAt") ? entry["updatedAt"] : "";
-                        rows.Add(row);
-                        if (rows.Count >= 50) break;
-                    }
-                    if (rows.Count >= 50) break;
-                }
-                return new JavaScriptSerializer().Serialize(rows);
-            }
-            catch { return "[]"; }
+            return MemoryHubContract.GetMemoryJson();
         }
 
-        // 解析 memory-hub 条目文件（entries/*.md）：frontmatter 键值 + body 前 200 字符。
-        private static Dictionary<string, object> ParseMemoryEntry(string file)
+        private static string GetMemoryFullJson(string id)
         {
-            Dictionary<string, object> m = new Dictionary<string, object>();
-            string body = "";
-            try
-            {
-                string text = File.ReadAllText(file);
-                body = text;
-                if (text.StartsWith("---"))
-                {
-                    int end = text.IndexOf("\n---", 3);
-                    if (end > 0)
-                    {
-                        string fm = text.Substring(3, end - 3);
-                        body = text.Substring(end + 4).Trim();
-                        List<string> keywords = new List<string>();
-                        foreach (string raw in fm.Split('\n'))
-                        {
-                            string line = raw.TrimEnd('\r');
-                            int ci = line.IndexOf(':');
-                            if (ci <= 0) continue;
-                            string k = line.Substring(0, ci).Trim();
-                            string v = line.Substring(ci + 1).Trim();
-                            if (k == "keywords")
-                            {
-                                if (v.StartsWith("["))
-                                {
-                                    try
-                                    {
-                                        object[] arr = new JavaScriptSerializer().Deserialize<object[]>(v);
-                                        if (arr != null)
-                                        {
-                                            foreach (object o in arr)
-                                            {
-                                                string p = Convert.ToString(o).Trim().Trim('\'', '"');
-                                                if (p.Length > 0) keywords.Add(p);
-                                            }
-                                        }
-                                    }
-                                    catch
-                                    {
-                                        foreach (string part in v.Trim('[', ']').Split(','))
-                                        {
-                                            string p = part.Trim().Trim('\'', '"');
-                                            if (p.Length > 0) keywords.Add(p);
-                                        }
-                                    }
-                                }
-                                else if (v.Length > 0)
-                                {
-                                    foreach (string part in v.Split(','))
-                                    {
-                                        string p = part.Trim().Trim('\'', '"');
-                                        if (p.Length > 0) keywords.Add(p);
-                                    }
-                                }
-                            }
-                            else if (k == "id") m["id"] = v;
-                            else if (k == "title") m["title"] = v.Trim('\'', '"');
-                            else if (k == "type") m["type"] = v;
-                            else if (k == "updatedAt") m["updatedAt"] = v;
-                        }
-                        if (keywords.Count == 0)
-                        {
-                            bool inKwList = false;
-                            foreach (string raw in fm.Split('\n'))
-                            {
-                                string line = raw.TrimEnd('\r');
-                                if (line.StartsWith("keywords:")) { inKwList = true; continue; }
-                                if (inKwList && line.StartsWith("- "))
-                                {
-                                    string p = line.Substring(2).Trim().Trim('\'', '"');
-                                    if (p.Length > 0) keywords.Add(p);
-                                }
-                                else if (inKwList && line.Length > 0 && !line.StartsWith(" "))
-                                {
-                                    inKwList = false;
-                                }
-                            }
-                        }
-                        m["keywords"] = keywords;
-                    }
-                }
-            }
-            catch
-            {
-            }
-            if (!m.ContainsKey("title")) m["title"] = Path.GetFileNameWithoutExtension(file);
-            string bodyText = string.IsNullOrEmpty(body) ? "" : body;
-            m["body"] = bodyText.Length > 2000 ? bodyText.Substring(0, 2000) : bodyText;
-            return m;
+            return MemoryHubContract.GetMemoryFullJson(id);
         }
 
-        private static string FindMemoryEntryFile(string id)
+        private static bool ArchiveMemoryFile(string id, out string message)
         {
-            try
-            {
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string hubDir = Path.Combine(home, ".dsh", "memory-hub");
-                if (!Directory.Exists(hubDir)) return null;
-                foreach (string packDir in Directory.GetDirectories(hubDir))
-                {
-                    string entriesDir = Path.Combine(packDir, "entries");
-                    if (!Directory.Exists(entriesDir)) continue;
-                    foreach (string entryFile in Directory.GetFiles(entriesDir, "*.md"))
-                    {
-                        if (Path.GetFileNameWithoutExtension(entryFile) == id) return entryFile;
-                        Dictionary<string, object> entry = ParseMemoryEntry(entryFile);
-                        if (entry.ContainsKey("id") && Convert.ToString(entry["id"]) == id) return entryFile;
-                    }
-                }
-            }
-            catch { /* 有意吞掉：查找失败返回 null，调用方按不存在处理 */ }
-            return null;
+            return MemoryHubContract.ArchiveMemoryFile(id, out message);
         }
 
-        private static string SetFmValue(string fm, string key, string value)
+        private static bool SaveMemoryFile(string payload, out string message)
         {
-            string[] lines = fm.Replace("\r\n", "\n").Split('\n');
-            List<string> next = new List<string>();
-            bool replaced = false;
-            foreach (string line in lines)
-            {
-                string t = line.TrimEnd('\r');
-                if (t.StartsWith(key + ":"))
-                {
-                    next.Add(key + ": " + value);
-                    replaced = true;
-                }
-                else
-                {
-                    next.Add(t);
-                }
-            }
-            if (!replaced) next.Add(key + ": " + value);
-            return string.Join("\n", next);
+            return MemoryHubContract.SaveMemoryFile(payload, out message);
         }
 
-        private static void DeleteMemoryFile(string id)
-        {
-            try
-            {
-                string file = FindMemoryEntryFile(id);
-                if (file != null) File.Delete(file);
-            }
-            catch { /* 有意吞掉：删除失败在刷新后可见，不阻塞主流程 */ }
-        }
-
-        private static void SaveMemoryFile(string payload)
-        {
-            try
-            {
-                JavaScriptSerializer ser = new JavaScriptSerializer();
-                Dictionary<string, object> data = ser.Deserialize<Dictionary<string, object>>(payload);
-                if (data == null) return;
-                string id = data.ContainsKey("id") ? Convert.ToString(data["id"]) : "";
-                string file = FindMemoryEntryFile(id);
-                if (file == null) return;
-                string text = File.ReadAllText(file);
-                string title = data.ContainsKey("title") ? Convert.ToString(data["title"]) : "";
-                string body = data.ContainsKey("body") ? Convert.ToString(data["body"]) : "";
-                string type = data.ContainsKey("type") ? Convert.ToString(data["type"]) : "";
-                object[] keywords = data.ContainsKey("keywords") ? data["keywords"] as object[] : null;
-                List<string> kw = new List<string>();
-                if (keywords != null)
-                {
-                    foreach (object k in keywords)
-                    {
-                        string p = Convert.ToString(k).Trim();
-                        if (p.Length > 0) kw.Add(p);
-                    }
-                }
-                string fm = "";
-                string oldBody = "";
-                if (text.StartsWith("---"))
-                {
-                    int end = text.IndexOf("\n---", 3);
-                    if (end > 0)
-                    {
-                        fm = text.Substring(3, end - 3);
-                        oldBody = text.Substring(end + 4).Trim();
-                    }
-                }
-                if (title.Length > 0) fm = SetFmValue(fm, "title", title);
-                if (type.Length > 0) fm = SetFmValue(fm, "type", type);
-                fm = SetFmValue(fm, "updatedAt", DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'"));
-                if (kw.Count > 0) fm = SetFmValue(fm, "keywords", new JavaScriptSerializer().Serialize(kw));
-                if (body.Length == 0) body = oldBody;
-                File.WriteAllText(file, "---\n" + fm + "\n---\n\n" + body + "\n");
-            }
-            catch { /* 有意吞掉：保存失败在刷新后可见，不阻塞主流程 */ }
-        }
         private static string GetSkillsJson()
         {
             try

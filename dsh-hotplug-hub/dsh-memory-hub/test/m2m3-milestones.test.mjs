@@ -154,10 +154,10 @@ test('M3: review_status 按变更数定级，review_done 重置', async () => {
   assert.equal(service.reviewStatus().due, false)
 })
 
-test('M3: review_status 报告 pending 提案与写策略（供回合内审查决策）', async () => {
+test('M3: review_status 报告 pending 提案，且 writePolicy 对模型不可见（NFR-2）', async () => {
   const { service } = await makeFakeCtx(tmpHub(), 'ask')
   const before = service.reviewStatus()
-  assert.equal(before.writePolicy, 'ask')
+  assert.equal(before.writePolicy, undefined, 'writePolicy 不得出现在模型可见的 review_status 输出')
   await service.commit({ entry: { title: '待审 A' } })
   assert.equal(service.reviewStatus().pendingProposals, 1, 'ask 门提案例应计入 pending')
 })

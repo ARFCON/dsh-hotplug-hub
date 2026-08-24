@@ -233,11 +233,19 @@ jobs:
           & $env:RUNNER_TEMP\CoreTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Compile & run MemoryHubContract 契约测试（全局记忆面板：根目录优先级 / 归档删除 / 协议化编辑 / 跨进程锁）
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\MemoryHubContractTests.exe /reference:System.dll /reference:System.Web.Extensions.dll release\src\PatchContract.cs release\src\MemoryHubContract.cs release\tests\MemoryHubContractTests.cs
+          & $env:RUNNER_TEMP\MemoryHubContractTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Compile Main.cs（WebView2 引用，语法完整性）
         shell: pwsh
         run: |
           $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\MainCheck.exe /reference:System.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:release\Microsoft.Web.WebView2.Core.dll" "/reference:release\Microsoft.Web.WebView2.WinForms.dll" release\src\PatchContract.cs release\src\ShellContract.cs release\src\RepairContract.cs release\src\Main.cs
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\MainCheck.exe /reference:System.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:release\Microsoft.Web.WebView2.Core.dll" "/reference:release\Microsoft.Web.WebView2.WinForms.dll" release\src\PatchContract.cs release\src\ShellContract.cs release\src\RepairContract.cs release\src\MemoryHubContract.cs release\src\Main.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Compile 安装器 / 卸载器（语法完整性；Setup.cs + 两个卸载器 + 契约）
