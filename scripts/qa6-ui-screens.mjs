@@ -59,14 +59,8 @@ const isAiOpen = async (page) => page.evaluate(() => {
   return !!(d && v && d.classList.contains('open') && !v.classList.contains('hidden') && !d.classList.contains('hidden'))
 })
 const gotoView = async (page, id) => {
-  if (id === 'ai') {
-    await page.evaluate(() => switchView('ai'))
-    await new Promise((r) => setTimeout(r, 350))
-    return
-  }
-  await page.click('#navMenuBtn')
-  await new Promise((r) => setTimeout(r, 320)) // 等下滑缓出动画（~260ms）结束再点选项，避免动画中坐标偏移
-  await page.click(`.navmenu-item[data-view="${id}"]`)
+  // v3：顶部横排菜单导航（契约由 qa10 覆盖），此处用 switchView 直达目标视图
+  await page.evaluate((x) => switchView(x), id)
   await new Promise((r) => setTimeout(r, 350))
 }
 

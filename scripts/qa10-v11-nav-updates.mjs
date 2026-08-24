@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 /**
- * scripts/qa10-v11-nav-updates.mjs — v1.1 交互契约验收（puppeteer-core + 本机 Edge）
+ * scripts/qa10-v11-nav-updates.mjs — v3 PCL 启动器交互契约验收（puppeteer-core + 本机 Edge）
  *
- * 覆盖（v1.1 四大改造的端到端契约）：
- *   1) 顶部折叠菜单：打开缓出面板 → 分组渲染（总览/插件/管理/系统）→ 跳转目标视图 →
- *      外点/Esc 关闭 → 当前项高亮 → 插件更新角标（.n-count.upd）
+ * 覆盖（v3 顶部横排导航 + PCL 主页的端到端契约）：
+ *   1) 顶部横排主导航：9 视图项横排 → 当前项高亮 → 点击跳转 → 插件更新角标（.n-count.upd）
  *   2) 左侧女仆坞：头像展开/收起 → AI 装配间入住坞内 → switchView('ai') 转义为展开 →
  *      开合状态刷新后持久恢复 → 主区视图切换不影响坞
- *   3) 主页插件更新面板：无更新（绿 ok）/有更新（计数+清单）→ 检查更新=checkPlugins →
- *      一键更新确认=updateAllPlugins → 面板主体点击跳转插件管理
+ *   3) 主页插件更新卡：无更新（全部最新）/有更新（计数+清单）→ 检查更新=checkPlugins →
+ *      一键更新确认=updateAllPlugins → 卡主体点击跳转插件管理
  *   4) 插件变更重启流：postPluginOp 置 pending → __setPlugins 回推 → 重启 DSH 二次确认 →
  *      取消路径不发消息 / 双确认后发 restartHarness
  *
@@ -64,48 +63,23 @@ try {
   await page.setViewport({ width: 1280, height: 860 })
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle2', timeout: 30000 })
   const captured = () => page.evaluate(() => window.__captured.filter((m) => m !== 'themeBg:#f6f7f9' && m.indexOf('list') !== 0))
-  const openMenu = async () => {
-    await page.click('#navMenuBtn')
-    await new Promise((r) => setTimeout(r, 320)) // 等下滑缓出动画结束
-  }
   const dialogVisible = () => page.evaluate(() => document.getElementById('dlgBackdrop').classList.contains('show'))
 
-  console.log('== 1. 顶部折叠菜单 ==')
-  check('初始菜单关闭', await page.evaluate(() => !document.getElementById('navMenuPanel').classList.contains('open')))
-  await openMenu()
-  check('点击菜单按钮 → 面板缓出打开', await page.evaluate(() => document.getElementById('navMenuPanel').classList.contains('open')))
-  const groups = await page.$$eval('.navmenu-group-title', (els) => els.map((e) => e.textContent))
-  check('分组渲染（总览/插件/管理/系统）', groups.length === 4 && groups[0] === '总览' && groups[2] === '管理', groups.join('/'))
-  const items = await page.$$eval('.navmenu-item', (els) => els.map((e) => e.dataset.view))
-  check('菜单含 9 个视图项（AI 已移入女仆坞）', items.length === 9 && !items.includes('ai'), items.join(','))
-  check('管理分组含 Skill 面板与 MCP 面板', items.includes('skills') && items.includes('mcp'))
-  await page.click('.navmenu-item[data-view="skills"]')
+  console.log('== 1. 顶部横排主导航（PCL 启动器风） ==')
+  const navItems = await page.$$eval('#mainNav .nav-item', (els) => els.map((e) => e.dataset.view))
+  check('顶栏渲染 9 个横排菜单项', navItems.length === 9, `n=${navItems.length}`)
+  check('导航含 9 视图（AI 住女仆坞，不入导航）', navItems.length === 9 && !navItems.includes('ai'), navItems.join(','))
+  check('含 Skill 面板与 MCP 面板', navItems.includes('skills') && navItems.includes('mcp'))
+  check('当前项高亮（home active）', await page.$eval('#mainNav .nav-item[data-view="home"]', (e) => e.classList.contains('active')))
+  await page.click('#mainNav .nav-item[data-view="skills"]')
   await new Promise((r) => setTimeout(r, 350))
-  check('选择项 → 跳转 Skill 面板且菜单收起', await page.evaluate(() =>
-    !document.getElementById('view-skills').classList.contains('hidden') && !document.getElementById('navMenuPanel').classList.contains('open')))
-  await openMenu()
-  check('当前视图项高亮（skills active）', await page.$eval('.navmenu-item[data-view="skills"]', (e) => e.classList.contains('active')))
-  // 点击面板外（页面区域）→ 仅收起菜单、零副作用（不触发底下内容、不跳转——遮罩为最顶层）
-  const menuScrimTop = await page.evaluate(() => {
-    const top = document.elementFromPoint(900, 500) // 页面区域内一点（当前 skills 视图的内容上方）
-    return !!(top && top.id === 'menuScrim')
-  })
-  check('菜单展开时遮罩为页面区域最顶层（特效不可达）', menuScrimTop)
-  await page.mouse.click(900, 500)
-  await new Promise((r) => setTimeout(r, 250))
-  check('点击面板外 → 仅收起菜单（零副作用，仍停留当前视图）', await page.evaluate(() =>
-    !document.getElementById('navMenuPanel').classList.contains('open')
-    && !document.getElementById('view-skills').classList.contains('hidden')))
-  await openMenu()
-  await page.keyboard.press('Escape')
-  await new Promise((r) => setTimeout(r, 250))
-  check('Esc → 关闭', await page.evaluate(() => !document.getElementById('navMenuPanel').classList.contains('open')))
-  // 更新角标（依赖插件数据，先注入再开菜单）
+  check('点击导航项 → 跳转 Skill 面板', await page.evaluate(() => !document.getElementById('view-skills').classList.contains('hidden')))
+  check('当前项高亮（skills active）', await page.$eval('#mainNav .nav-item[data-view="skills"]', (e) => e.classList.contains('active')))
+  // 更新角标（依赖插件数据，先注入）
   await page.evaluate((rows) => { window.__pluginsData = rows; window.__onPluginsData() }, PLUGINS)
-  await openMenu()
-  const badge = await page.$eval('.navmenu-item[data-view="plugins"] .n-count.upd', (e) => e.textContent).catch(() => '')
-  check('插件管理项带更新角标（1 更新）', badge.includes('1') && badge.includes('更新'), badge)
-  await page.keyboard.press('Escape')
+  const badge = await page.$eval('#mainNav .nav-item[data-view="plugins"] .n-count.upd', (e) => e.textContent).catch(() => '')
+  check('插件管理项带更新角标（1）', badge.trim() === '1', badge)
+  await page.evaluate(() => switchView('home'))
 
   console.log('== 2. 左侧女仆坞（AI 装配间 · v1.2 仅主页 + 玻璃标签） ==')
   await page.evaluate(() => switchView('home')) // 女仆坞仅存在于主页
@@ -130,7 +104,7 @@ try {
     document.getElementById('maidDock').contains(document.getElementById('view-ai'))))
   // 点击坞外页面：scrim 遮罩拦截——仅收起、零副作用（悬停/按压/聚焦特效到不了底下按钮）
   const scrimTop = await page.evaluate(() => {
-    const cell = document.querySelector('.bento-cell[data-goto="market"]')
+    const cell = document.querySelector('.home-tile[data-goto="market"]')
     const r = cell.getBoundingClientRect()
     const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
     return !!(top && top.id === 'maidScrim')
@@ -142,31 +116,25 @@ try {
     !document.getElementById('maidDock').classList.contains('open')
     && !/^BUTTON$|^SELECT$|^INPUT$|^A$/.test(document.activeElement.tagName)))
   check('收起后按钮位置恢复直达（遮罩退场）', await page.evaluate(() => {
-    const cell = document.querySelector('.bento-cell[data-goto="market"]')
+    const cell = document.querySelector('.home-tile[data-goto="market"]')
     const r = cell.getBoundingClientRect()
     const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
     return !!(top && (top === cell || cell.contains(top)))
   }))
-  await page.click('.cell-maid')
+  await page.click('.home-tile[data-goto="ai"]')
   await new Promise((r) => setTimeout(r, 320))
-  check('点击主页 AI 模块 → 正常展开（不被外点收起误关）', await page.evaluate(() => document.getElementById('maidDock').classList.contains('open')))
+  check('点击主页 AI 入口 → 正常展开（不被外点收起误关）', await page.evaluate(() => document.getElementById('maidDock').classList.contains('open')))
   // 坞内点击（如输入框）不触发收起
   await page.click('#reqInput')
   await new Promise((r) => setTimeout(r, 200))
   check('坞内点击不收起', await page.evaluate(() => document.getElementById('maidDock').classList.contains('open')))
-  // 顶栏 = 应用骨架（永远可交互）：窗口控制与菜单按钮不被遮罩盖住
+  // 顶栏 = 应用骨架（永远可交互）：窗口控制与导航按钮不被遮罩盖住
   const chromeOk = await page.evaluate(() => {
     const pick = (id) => { const el = document.getElementById(id); if (!el) return false; const r = el.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!(top && (top === el || el.contains(top) || el.contains(top))); };
-    return { winMax: pick('winMax'), winClose: pick('winClose'), menuBtn: pick('navMenuBtn') };
+    const navBtn = document.querySelector('#mainNav .nav-item'); const nr = navBtn && navBtn.getBoundingClientRect(); const ntop = nr && document.elementFromPoint(nr.left + nr.width / 2, nr.top + nr.height / 2);
+    return { winMax: pick('winMax'), winClose: pick('winClose'), navBtn: !!(ntop && (ntop === navBtn || navBtn.contains(ntop))) };
   });
-  check('坞展开时窗口控制/菜单按钮仍直达（顶栏不被遮罩）', chromeOk.winMax && chromeOk.winClose && chromeOk.menuBtn, JSON.stringify(chromeOk))
-  // 点菜单 → 小织自动让位缩回 + 菜单正常打开
-  await page.click('#navMenuBtn')
-  await new Promise((r) => setTimeout(r, 340))
-  check('点菜单 → 小织自动让位 + 菜单打开', await page.evaluate(() =>
-    !document.getElementById('maidDock').classList.contains('open') && document.getElementById('navMenuPanel').classList.contains('open')))
-  await page.keyboard.press('Escape')
-  await new Promise((r) => setTimeout(r, 250))
+  check('坞展开时窗口控制/导航按钮仍直达（顶栏不被遮罩）', chromeOk.winMax && chromeOk.winClose && chromeOk.navBtn, JSON.stringify(chromeOk))
   // 重新展开坞，保持后续「刷新恢复展开」断言的前置状态
   await page.evaluate(() => switchView('ai'))
   await new Promise((r) => setTimeout(r, 320))
@@ -199,12 +167,12 @@ try {
   check('有更新：计数与提示', await page.evaluate(() => {
     const t = document.querySelector('#homeUpdatePanel .hu-sub')
     const c = document.querySelector('#homeUpdatePanel .hu-count')
-    return t && t.textContent.includes('1 个插件有可用更新') && c && c.textContent.trim().startsWith('1')
+    return t && t.textContent.includes('1 个插件有可用更新') && c && c.textContent.trim().includes('1 个可更新')
   }))
   check('有更新：清单含 dsh-hub → 1.1.8', await page.evaluate(() => document.querySelector('#homeUpdatePanel .hu-names').textContent.includes('dsh-hub')))
-  await page.click('#homeUpdatePanel') // 面板主体（非按钮）→ 跳插件管理
+  await page.evaluate(() => document.querySelector('#homeUpdatePanel .hu-sub').click()) // 卡主体（非按钮）→ 跳插件管理
   await new Promise((r) => setTimeout(r, 350))
-  check('点击面板主体 → 跳转插件管理', await page.evaluate(() => !document.getElementById('view-plugins').classList.contains('hidden')))
+  check('点击更新卡主体 → 跳转插件管理', await page.evaluate(() => !document.getElementById('view-plugins').classList.contains('hidden')))
   await page.evaluate(() => switchView('home'))
   await new Promise((r) => setTimeout(r, 300))
   await page.click('#homeUpdateCheckBtn')
@@ -253,7 +221,7 @@ try {
   await new Promise((r) => setTimeout(r, 300))
   check('双确认后 → restartHarness 消息', (await captured()).includes('restartHarness'))
 
-  console.log(`== v1.1 契约验收：PASS=${pass} FAIL=${fail} ==`)
+  console.log(`== v3 PCL 启动器契约验收：PASS=${pass} FAIL=${fail} ==`)
 } finally {
   await browser.close()
   server.close()

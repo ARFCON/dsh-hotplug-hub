@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 /**
- * scripts/qa11-v11-layout.mjs — 布局几何与 v1.2 主页重设计验收（puppeteer-core + 本机 Edge）
+ * scripts/qa11-v11-layout.mjs — 布局几何与 v3 PCL 启动器主页重设计验收（puppeteer-core + 本机 Edge）
  *
- * 布局契约（v1.2）：
+ * 布局契约（v3）：
  *   · 女仆坞 = 覆盖式玻璃标签（fixed），仅主页显示：默认 34px 细条（无文字）→ 悬停延伸 ~78px
  *     （peek，仍无文字）→ 点击弹出 400px AI 装配间；切走主页整体隐藏，回主页恢复；
- *   · 主区始终全宽（坞为覆盖层，不再挤占布局）；主页内容左缘让位 64px 给玻璃标签；
- *   · 主页 = 一体化 bento 大面板（发丝线分割）+ 右下悬浮簇（版本号在上 / 启动主键 /
- *     左侧向上折叠箭头 → 向左弹出 修改配置·选择客户端）。
+ *   · 主区始终全宽（坞为覆盖层，不挤占布局）；主页内容左缘让位 64px 给玻璃标签；
+ *   · 主页 = PCL 启动器布局（左启动卡大绿启动键 + 环境自检 + 右卡片列快捷入口 6 格）；
+ *   · 顶部横排主导航（#mainNav，9 视图项，当前项底部指示条高亮）。
  *
  * 断言分组：
- *   1) 1280 宽主页：坞标签 / 主区全宽 / 左缘让位 / bento 发丝线 / 无溢出
+ *   1) 1280 宽主页：坞标签 / 主区全宽 / 左缘让位 / PCL 启动卡 / 无溢出 / 横排菜单
  *   2) 悬停 peek：延伸且无文字界面
  *   3) 弹出 open：400px 玻璃面板 / AI 占满 / 主区仍全宽 / 设置按钮可命中
  *   4) 滚动锚定：滚动后坞不动、按钮仍可命中
- *   5) 右下悬浮簇：版本号在启动上方 / 折叠默认收起 / 箭头展开向左弹出
+ *   5) PCL 启动卡：大绿启动键 / 环境自检 3 项 / 服务操作排
  *   6) 其他视图：坞隐藏、主区全宽、无溢出
  *   7) 900 / 720 / 500 宽：收起与展开两态均无横向溢出
  *
@@ -69,23 +69,27 @@ try {
     }
   })
 
-  console.log('== 1. 1280 宽 · 主页（坞标签 + bento 大面板） ==')
+  console.log('== 1. 1280 宽 · 主页（坞标签 + PCL 启动卡） ==')
   let g = await geom()
   check('女仆坞标签可见：左缘 34px 细条', !g.dockHidden && g.dock.x === 0 && g.dock.w >= 30 && g.dock.w <= 36, JSON.stringify(g.dock))
   check('主区全宽（覆盖式坞不挤占布局）', g.main.x === 0 && g.main.w >= 1276, `x=${g.main.x} w=${g.main.w}`)
   check('主页内容左缘让位 ≥56px（玻璃标签空间）', g.shellPadL >= 56, `padL=${g.shellPadL}`)
   check('无横向溢出', g.docScrollW <= 1280, `scrollW=${g.docScrollW}`)
-  const bento = await page.evaluate(() => {
-    const b = document.querySelector('.bento')
-    return { exists: !!b, gap: b ? getComputedStyle(b).gap : '', cells: document.querySelectorAll('.bento-cell').length }
+  const pcl = await page.evaluate(() => {
+    const lc = document.querySelector('.launch-card')
+    const btn = document.getElementById('homeLaunchBtn')
+    return {
+      exists: !!lc, launchBtn: !!btn,
+      tiles: document.querySelectorAll('.home-tile').length,
+      navItems: document.querySelectorAll('#mainNav .nav-item').length,
+      envs: document.querySelectorAll('.launch-env .env').length
+    }
   })
-  check('bento 大面板：发丝线网格（gap 1px）', bento.exists && bento.gap === '1px', `gap=${bento.gap}`)
-  check('bento 模块 ≥6 格', bento.cells >= 6, `cells=${bento.cells}`)
-  check('顶部菜单按钮带当前视图图标', await page.evaluate(() => {
-    const ic = document.getElementById('navMenuIcon')
-    return ic && ic.innerHTML.trim().length > 10
-  }))
-  // 主页标题条为女仆坞让位：「主页」标题不被 34px 玻璃标签遮挡，且与 bento 左缘对齐
+  check('PCL 启动器：启动卡 + 大启动键渲染', pcl.exists && pcl.launchBtn, JSON.stringify(pcl))
+  check('快捷入口 6 格', pcl.tiles === 6, `tiles=${pcl.tiles}`)
+  check('顶部横排菜单 9 项', pcl.navItems === 9, `nav=${pcl.navItems}`)
+  check('环境自检 3 项', pcl.envs === 3, `envs=${pcl.envs}`)
+  // 主页标题条为女仆坞让位：「主页」标题不被 34px 玻璃标签遮挡，且与启动卡左缘对齐
   const title = await page.evaluate(() => {
     const h = document.querySelector('.topbar h1')
     const dock = document.getElementById('maidDock')
@@ -99,22 +103,15 @@ try {
     }
   })
   check('主页标题不被女仆坞遮挡（起点在坞右侧）', title.onHome && title.x > title.dockR, `title.x=${title.x} dockR=${title.dockR}`)
-  check('主页标题与 bento 内容左缘对齐', title.x === title.shellContentL, `title.x=${title.x} shellContentL=${title.shellContentL}`)
+  check('主页标题与启动卡内容左缘对齐', title.x === title.shellContentL, `title.x=${title.x} shellContentL=${title.shellContentL}`)
 
-  // 菜单面板锚定：从「菜单」按钮正下方垂出，不遮左缘女仆坞玻璃标签
-  await page.click('#navMenuBtn')
-  await new Promise((r) => setTimeout(r, 340))
-  const menuGeo = await page.evaluate(() => {
-    const p = document.getElementById('navMenuPanel').getBoundingClientRect()
-    const btn = document.getElementById('navMenuBtn').getBoundingClientRect()
-    const dock = document.getElementById('maidDock').getBoundingClientRect()
-    return { panelL: Math.round(p.left), panelR: Math.round(p.right), btnL: Math.round(btn.left), dockR: Math.round(dock.right), vw: window.innerWidth }
+  // 顶部横排菜单：贴标题栏下方，不与左缘女仆坞玻璃标签重叠
+  const navGeo = await page.evaluate(() => {
+    const nav = document.getElementById('mainNav').getBoundingClientRect()
+    return { top: Math.round(nav.top), w: Math.round(nav.width), vw: window.innerWidth }
   })
-  check('菜单面板贴按钮左缘垂出', Math.abs(menuGeo.panelL - menuGeo.btnL) <= 2, `panel=${menuGeo.panelL} btn=${menuGeo.btnL}`)
-  check('菜单面板不遮女仆坞标签（左缘在坞右侧）', menuGeo.panelL > menuGeo.dockR, `panel=${menuGeo.panelL} dockR=${menuGeo.dockR}`)
-  check('菜单面板不出右视口', menuGeo.panelR <= menuGeo.vw - 10, `panelR=${menuGeo.panelR} vw=${menuGeo.vw}`)
-  await page.keyboard.press('Escape')
-  await new Promise((r) => setTimeout(r, 250))
+  check('横排菜单在标题栏下方（top≈56）', navGeo.top >= 54 && navGeo.top <= 58, `top=${navGeo.top}`)
+  check('横排菜单不出右视口', navGeo.w <= navGeo.vw, `w=${navGeo.w} vw=${navGeo.vw}`)
 
   console.log('== 2. 悬停 peek（无文字玻璃延伸） ==')
   await page.hover('#maidDock')
@@ -167,36 +164,24 @@ try {
   check('滚动 300px 后坞不动（y≈56）且按钮仍可命中', anchored.y >= 54 && anchored.y <= 58 && anchored.hitOk, JSON.stringify(anchored))
   await page.evaluate(() => { window.scrollTo(0, 0); switchView('home'); openMaidDock(false); })
 
-  console.log('== 5. 右下悬浮操作簇 ==')
-  const fab = await page.evaluate(() => {
-    const c = document.querySelector('.fab-cluster')
-    const launch = document.getElementById('homeLaunchBtn')
-    const ver = document.querySelector('.fab-ver')
-    const pop = document.getElementById('fabPop')
-    if (!c || !launch || !ver || !pop) return null
-    const cb = c.getBoundingClientRect(); const lb = launch.getBoundingClientRect(); const vb = ver.getBoundingClientRect()
+  console.log('== 5. PCL 启动卡（大绿启动键 + 环境自检 + 服务操作） ==')
+  const launch = await page.evaluate(() => {
+    const btn = document.getElementById('homeLaunchBtn')
+    const api = document.getElementById('homeApiBtn')
+    const client = document.getElementById('homeClientBtn')
+    const repair = document.getElementById('homeRepairBtn')
+    const choose = document.getElementById('homeChooseBtn')
+    if (!btn || !api || !client || !repair || !choose) return null
+    const b = btn.getBoundingClientRect()
     return {
-      clusterRight: Math.round(cb.right), clusterBottom: Math.round(cb.bottom), vw: window.innerWidth, vh: window.innerHeight,
-      verAbove: vb.bottom <= lb.top + 2,
-      popClosed: getComputedStyle(pop).opacity === '0' && getComputedStyle(pop).pointerEvents === 'none'
+      h: Math.round(b.height),
+      labels: api.textContent.trim() + '/' + client.textContent.trim() + '/' + repair.textContent.trim() + '/' + choose.textContent.trim(),
+      env: document.querySelectorAll('.launch-env .env').length
     }
   })
-  check('悬浮簇存在且位于右下角', !!fab && fab.clusterRight >= fab.vw - 40 && fab.clusterBottom >= fab.vh - 40, JSON.stringify(fab))
-  check('版本号在启动按钮上方', !!fab && fab.verAbove)
-  check('折叠弹层默认收起（向左弹出前不可交互）', !!fab && fab.popClosed)
-  await page.click('#fabArrow')
-  await new Promise((r) => setTimeout(r, 320))
-  const popOpen = await page.evaluate(() => {
-    const pop = document.getElementById('fabPop')
-    const st = getComputedStyle(pop)
-    const repair = document.getElementById('fabRepairBtn')
-    const choose = document.getElementById('fabChooseBtn')
-    return { opacity: st.opacity, pe: st.pointerEvents, labels: repair && choose ? repair.textContent + '/' + choose.textContent : '' }
-  })
-  check('箭头展开 → 弹层向左弹出可交互', popOpen.opacity === '1' && popOpen.pe === 'auto', JSON.stringify(popOpen))
-  check('弹层含 修改配置 / 选择客户端', popOpen.labels.includes('修改配置') && popOpen.labels.includes('选择客户端'), popOpen.labels)
-  await page.click('#fabArrow')
-  await new Promise((r) => setTimeout(r, 300))
+  check('大启动键为高按钮（h≥58）', !!launch && launch.h >= 58, JSON.stringify(launch))
+  check('启动卡含 API 配置/客户端中心/修改配置/选择客户端', !!launch && launch.labels.includes('API 配置') && launch.labels.includes('客户端中心') && launch.labels.includes('修改配置') && launch.labels.includes('选择客户端'), launch ? launch.labels : '')
+  check('环境自检 3 项', !!launch && launch.env === 3, launch ? `env=${launch.env}` : '')
 
   console.log('== 6. 其他视图：坞隐藏、主区全宽 ==')
   for (const v of ['skills', 'market', 'plugins']) {

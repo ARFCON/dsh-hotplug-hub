@@ -100,10 +100,8 @@ try {
     console.log('== ' + label + ' ==')
     await page.goto('http://127.0.0.1:' + PORT + '/', { waitUntil: 'networkidle2', timeout: 30000 })
     await new Promise((r) => setTimeout(r, 300))
-    // v1.1：顶部折叠菜单 → 系统分组 → 自检更新
-    await page.click('#navMenuBtn')
-    await new Promise((r) => setTimeout(r, 320)) // 等菜单下滑动画结束再点选项
-    await page.click('.navmenu-item[data-view="check"]')
+    // v3：顶部横排菜单 → 直接切到自检更新视图
+    await page.evaluate(() => switchView('check'))
     await new Promise((r) => setTimeout(r, 400))
     check('自检行已渲染', (await page.$$('.check-row')).length > 0)
     const errBefore = pageErrors.length

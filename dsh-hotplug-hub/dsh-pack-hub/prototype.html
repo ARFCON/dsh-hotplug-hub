@@ -6,24 +6,30 @@
 <title>DSH 插座中枢 · 原型</title>
 <style>
 :root {
-  /* ===== 设计系统 v2 · 现代中性 + 深蓝强调 ===== */
-  /* 强调色统一由 --teal 驱动（随主题切换），--accent 系列是它的别名 */
+  /* ===== 设计系统 v3 · PCL 启动器风（浅色卡片 + 绿色启动 + 顶部横排菜单） =====
+   * 强调色 --teal 仍驱动导航/链接/选中（随主题切换）；--launch 系列专给「启动 DSH」大键（PCL 特征绿）。 */
   --accent: var(--teal);
   --accent-strong: var(--teal-hover);
   --accent-soft: var(--teal-soft);
   --accent-ink: #ffffff;
 
-  --bg: #f6f7f9;
+  --bg: #f2f3f5;
   --panel: #ffffff;
   --ink: #1a1f26;
   --muted: #6b7280;
-  --line: #e5e7eb;
+  --line: #e6e8ec;
 
   /* 默认主题强调色（切主题时被 THEME_PRESETS 覆盖） */
   --teal: #2563eb;
   --teal-dark: #1e293b;
   --teal-soft: #eff4ff;
   --teal-hover: #1d4ed8;
+
+  /* PCL 启动绿：启动主键专用（草方块绿的现代化，比 --green 更明亮、带亲和力） */
+  --launch: #43a047;
+  --launch-hover: #388e3c;
+  --launch-soft: #e8f5e9;
+  --launch-deep: #2e7d32;
 
   --amber: #d97706;
   --amber-soft: #fdf3e3;
@@ -46,9 +52,13 @@
   --rad: 10px;
   --rad-lg: 12px;
   --rad-full: 999px;
+  /* 卡片柔和阴影（PCL 特征：轻投影而非硬边框） */
+  --shadow-card: 0 1px 3px rgba(17,24,39,.06), 0 1px 2px rgba(17,24,39,.04);
+  --shadow-card-hover: 0 4px 12px rgba(17,24,39,.1);
   --shadow-toast: 0 8px 24px rgba(17,24,39,.18);
   --fs: 14px;
   --nav-h: 56px;
+  --menu-h: 42px;   /* 顶部横排菜单栏高度（标题栏之下） */
 }
 * { box-sizing: border-box; }
 /* 全局滚动条美化（细、圆角、语义色，暗色主题也协调） */
@@ -79,16 +89,18 @@ button { font: inherit; color: inherit; }
   flex-direction: column;
   min-height: 100vh;
 }
-/* 顶部导航栏（替代原左侧栏） */
+/* 顶部标题栏（PCL 启动器风：标题行 + 下方横排菜单栏两层，整体 sticky） */
 .topnav {
-  display: flex; align-items: center; gap: 20px;
-  height: var(--nav-h);
-  padding: 0 22px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 20;
   user-select: none;
   cursor: default;
+}
+.topnav-title {
+  display: flex; align-items: center; gap: 20px;
+  height: var(--nav-h);
+  padding: 0 22px;
 }
 /* 窗口控制按钮（无边框自绘） */
 .win-ctrls { display: flex; align-items: center; gap: 2px; margin-left: auto; flex: 0 0 auto; }
@@ -112,7 +124,7 @@ button { font: inherit; color: inherit; }
 }
 .brand-name { font-weight: 700; font-size: 15px; line-height: 1.2; letter-spacing: .01em; }
 .brand-sub { display: none; }
-/* v1.1：顶部横向导航已改为折叠菜单（.navmenu-btn + .navmenu-panel，见文件末尾样式区） */
+/* v3：顶部横排主导航（.mainnav + .nav-item，见主样式区） */
 .side-foot {
   display: flex; align-items: center; gap: 14px;
   flex: 0 0 auto;
@@ -132,10 +144,10 @@ button { font: inherit; color: inherit; }
   padding: 14px 22px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
-  position: sticky; top: var(--nav-h); z-index: 10;
+  position: sticky; top: calc(var(--nav-h) + var(--menu-h)); z-index: 10;
   transition: padding-left .26s var(--ease);
 }
-/* 主页态：给左侧女仆坞玻璃标签让位（34px），标题与 bento 面板左缘对齐成一条竖线
+/* 主页态：给左侧女仆坞玻璃标签让位（34px），标题与中控台/启动卡左缘对齐成一条竖线
    （86 = wrap 22 + home-shell 左让位 64；其他视图标题 22 同样与其内容对齐，惯例一致） */
 body.on-home .topbar { padding-left: 86px; }
 .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; line-height: 1.3; letter-spacing: .01em; }
@@ -546,16 +558,14 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
   .pack-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 720px) {
-  .topnav { padding: 0 12px; gap: 12px; }
+  .topnav-title { padding: 0 12px; gap: 12px; }
   .brand-name, .side-foot { display: none; }
-  .navmenu-btn { padding: 0 10px; }
+  .nav-item { padding: 0 10px; }
   .grid-4, .pack-grid, .mem-list { grid-template-columns: 1fr; }
-  .bento { grid-template-columns: 1fr; grid-template-rows: none; } /* 单列后各行回归内容高度（覆盖桌面端的显式分行） */
-  .home-update, .bento-cell.cell-wide { grid-column: auto; }
-  .home-shell { padding: 14px 14px 150px 52px; }
+  .pcl-home { grid-template-columns: 1fr; }          /* 启动卡与卡片列纵向堆叠 */
+  .home-tiles { grid-template-columns: 1fr; }        /* 快捷入口单列 */
+  .home-shell { padding: 14px 14px 32px 52px; }
   body.on-home .topbar { padding-left: 66px; } /* 与 52px 面板左缘对齐（wrap 14 + 52） */
-  .fab-cluster { right: 14px; bottom: 14px; gap: 8px; }
-  .fab-launch { height: 44px; padding: 0 18px; font-size: 14px; }
   .wrap { padding: 14px; }
   .topbar { padding: 12px 14px; }
 }
@@ -604,6 +614,11 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .pack, .mem, .check-row, .panel, .toolbar, .stat {
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
+/* PCL 卡片皮肤：通用卡片统一柔和投影（轻投影而非硬边框堆叠） */
+.stat, .pack, .mem, .panel, .toolbar, .fold, .search {
+  box-shadow: var(--shadow-card);
+}
+.pack:hover, .mem:hover { box-shadow: var(--shadow-card-hover); }
 .btn { transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease); }
 .btn:active { transform: scale(.97); }
 .chip, .tag, .pill, .badge { transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
@@ -656,7 +671,7 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 
 /* ===== 左右分区 + 分类导航（小白友好） ===== */
 .split-view { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; }
-.split-side { position: sticky; top: calc(var(--nav-h) + 60px); }
+.split-side { position: sticky; top: calc(var(--nav-h) + var(--menu-h) + 60px); }
 .split-side .cat-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: 0 12px 8px; }
 .cat-list { display: grid; gap: 3px; }
 .cat-item {
@@ -685,120 +700,96 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
   .cat-item { width: auto; }
 }
 
-/* ===== 主页（v1.2）：发丝线一体化大面板（仪器面板风，非卡片堆叠）+ 右下悬浮操作簇 ===== */
+/* ===== 主页（v3 · PCL 启动器风）：左启动卡（大绿启动键 + 环境自检）+ 右卡片列（更新/快捷入口） ===== */
 .home-shell {
-  /* 左侧 64px 让位给女仆坞玻璃标签（悬浮玻璃覆盖时内容从其下滑过）；底部让位悬浮簇 */
-  box-sizing: border-box; /* 连同上下内边距一起计入，杜绝把页面撑出滚动条 */
-  padding: 16px 22px 130px 64px;
-  /* 视口高度 − 页面固定 chrome：56 顶栏 + 71 视图标题条（字体精修行高 1.3 后）+ 22×2 wrap 内边距 + 1px 余量；
-     ≤720px 断点 wrap 内边距 14 → 面板矮 16px（被底部 130px 让位吸收，视觉无感） */
+  box-sizing: border-box;
+  /* 左 64px 让位女仆坞玻璃标签；底部小留白（无悬浮簇后不再需 130px） */
+  padding: 20px 22px 40px 64px;
   min-height: calc(100vh - 172px);
-  display: flex;           /* bento 纵向占满主页：面板随视口拉伸，模块行均分剩余高度 */
 }
-.bento {
-  flex: 1 1 auto;
-  min-height: 460px;       /* 视口过矮时保底，避免模块内容被压扁 */
-  border: 1px solid var(--line);
-  border-radius: var(--rad-lg);
-  overflow: hidden;
+.pcl-home {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  /* 首行头 + 更新/AI 行（主视觉稍高）+ 三模块行 + 快捷条；随视口占满高度 */
-  grid-template-rows: auto minmax(150px, 1.2fr) minmax(140px, 1fr) auto;
-  gap: 1px;               /* 发丝线：格间距透出底色成 1px 分割线，整体一块面板而非浮动卡片 */
-  background: var(--line);
+  grid-template-columns: minmax(300px, 5fr) minmax(340px, 7fr);
+  gap: 20px; align-items: start;
+  max-width: 1120px;
 }
-.bento-head {
-  grid-column: 1 / -1;
-  display: flex; align-items: baseline; gap: 12px;
-  padding: 14px 18px;
-  background: var(--panel);
+/* —— 启动卡：PCL「启动游戏」区，白卡 + 大绿按钮 —— */
+.launch-card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--rad-lg); box-shadow: var(--shadow-card);
+  padding: 26px 22px 20px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  text-align: center;
 }
-.bento-head .bh-title { font-size: 15px; font-weight: 700; letter-spacing: .01em; display: flex; align-items: center; gap: 9px; }
-.bento-head .bh-dot { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); flex: 0 0 8px; transform: rotate(45deg); }
-.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: .08em; }
-.bento-head .bh-sub { font-size: 10.5px; color: var(--muted); }
-.bento-head .bh-hint { margin-left: auto; font-size: 11.5px; color: var(--muted); }
-.bento-cell {
-  background: var(--panel);
-  padding: 16px 18px;
-  display: flex; flex-direction: column; gap: 9px;
-  cursor: pointer; position: relative;
-  transition: background var(--dur) var(--ease);
+.launch-brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; letter-spacing: .01em; }
+.launch-brand .brand-mark { width: 36px; height: 36px; margin: 0; }
+.launch-btn {
+  width: 100%; max-width: 340px; height: 62px;
+  border: 0; border-radius: 14px;
+  background: linear-gradient(180deg, var(--launch), var(--launch-hover));
+  color: #fff; font-size: 17px; font-weight: 700; letter-spacing: .05em;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(46, 125, 50, .34);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), filter var(--dur) var(--ease);
 }
-.bento-cell:not(.bento-head):hover { background: var(--neutral-soft); }
-/* 悬停左侧刻度线（仪器面板的档位感，替代浮卡阴影） */
-.bento-cell::before {
-  content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 2px;
-  background: var(--accent); opacity: 0; transition: opacity var(--dur) var(--ease);
-}
-.bento-cell:hover::before { opacity: 1; }
-.bento-cell .bc-label { font-size: 10.5px; color: var(--muted); display: flex; align-items: center; gap: 8px; letter-spacing: .02em; }
-.bento-cell .bc-label .mono { font-size: 9.5px; opacity: .65; letter-spacing: .1em; }
-.bento-cell h3 { margin: 0; font-size: 14.5px; font-weight: 700; }
-.bento-cell .bc-num { font-size: 26px; font-weight: 600; line-height: 1.15; margin-top: 2px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.bento-cell .bc-num small { font-size: 11.5px; color: var(--muted); font-family: var(--font-sans); font-weight: 500; margin-left: 4px; }
-.bento-cell .bc-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
-.bento-cell .bc-row.mt { margin-top: 4px; }
-.bento-cell .bc-note { margin-top: auto; font-size: 11.5px; }
-.bento-cell .bc-act { margin-top: auto; display: flex; gap: 8px; align-items: center; }
-.bento-cell.cell-wide { grid-column: 1 / -1; } /* 整行通栏（与面板头呼应，避免行尾留空格） */
-.cell-maid-mark {
-  width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center;
-  margin: 8px 0 2px;
-  background: linear-gradient(135deg, #db2777, #f472b6); color: #fff;
-  font-weight: 800; font-size: 15px; box-shadow: 0 4px 12px rgba(219,39,119,.26);
-}
-.cell-maid-go { color: #db2777; font-weight: 600; font-size: 12.5px; margin-top: auto; }
+.launch-btn:hover { filter: brightness(1.05); transform: translateY(-1px); box-shadow: 0 9px 22px rgba(46, 125, 50, .42); }
+.launch-btn:active { transform: translateY(0) scale(.99); }
+.launch-btn .fl-play { width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,.24); display: grid; place-items: center; font-size: 11px; }
+.launch-ver { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.launch-state { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.launch-state .ls-label { font-size: 11px; color: var(--muted); letter-spacing: .06em; }
+.launch-env { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.launch-env .env { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.launch-env .hc-dot { width: 7px; height: 7px; }
+.launch-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 
-/* ===== 右下悬浮操作簇（v1.2）：版本号在上 · 启动主键 · 左侧向上折叠箭头（弹出客户端选项） ===== */
-.fab-cluster {
-  position: fixed; right: 26px; bottom: 26px; z-index: 15;
-  display: flex; align-items: flex-end; gap: 14px;
-  user-select: none;
+/* —— 右侧卡片列 —— */
+.home-cards { display: grid; gap: 14px; align-content: start; }
+/* 插件更新卡：有更新时琥珀提示条，无更新时绿色安心卡 */
+.home-update-card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--rad); box-shadow: var(--shadow-card);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-.fab-main { display: flex; flex-direction: column; align-items: center; gap: 7px; }
-.fab-ver { font-size: 10.5px; color: var(--muted); background: color-mix(in srgb, var(--panel) 78%, transparent); border: 1px solid var(--line); border-radius: var(--rad-full); padding: 2px 10px; backdrop-filter: blur(8px); }
-.fab-launch {
-  display: inline-flex; align-items: center; gap: 10px;
-  height: 50px; padding: 0 26px; border: 0; border-radius: 16px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  color: #fff; font-size: 15px; font-weight: 700; letter-spacing: .02em; cursor: pointer;
-  box-shadow: 0 10px 26px rgba(37, 99, 235, .32);
-  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+.home-update-card:hover { box-shadow: var(--shadow-card-hover); }
+.home-update-card.has-upd { border-color: color-mix(in srgb, var(--amber) 45%, var(--line)); background: var(--amber-soft); }
+.home-update-card .hu-top { display: flex; align-items: center; gap: 8px; }
+.home-update-card .hu-top .hu-title { font-size: 13.5px; font-weight: 700; }
+.home-update-card .hu-top .hu-count { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--amber); font-variant-numeric: tabular-nums; }
+.home-update-card.ok .hu-top .hu-count { color: var(--green); }
+.home-update-card .hu-sub { font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+.home-update-card .hu-names { display: flex; gap: 6px; flex-wrap: wrap; }
+.home-update-card .hu-names .tag { font-family: var(--font-mono); font-size: 11px; }
+.home-update-card .hu-actions { display: flex; gap: 8px; }
+/* 快捷入口 2×3 */
+.home-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.home-tile {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--rad);
+  box-shadow: var(--shadow-card); padding: 13px 15px; cursor: pointer; text-align: left;
+  display: flex; flex-direction: column; gap: 6px;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
-.fab-launch:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgba(37, 99, 235, .4); }
-.fab-launch:active { transform: translateY(0); }
-.fab-launch .fl-play { width: 18px; height: 18px; border-radius: 50%; background: rgba(255,255,255,.22); display: grid; place-items: center; font-size: 10px; }
-.fab-side { display: flex; align-items: flex-end; gap: 10px; padding-bottom: 0; }
-.fab-arrow {
-  width: 44px; height: 44px; border-radius: 14px;
-  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
-  display: grid; place-items: center; cursor: pointer;
-  transition: all var(--dur) var(--ease);
-}
-.fab-arrow:hover { border-color: var(--accent); color: var(--accent); }
-.fab-arrow svg { width: 16px; height: 16px; transition: transform var(--dur) var(--ease); }
-.fab-cluster.fab-open .fab-arrow { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-.fab-cluster.fab-open .fab-arrow svg { transform: rotate(180deg); }
-/* 折叠弹层：向左弹出（默认收起），条目错落入场；visibility 确保收起时不可 Tab 聚焦 */
-.fab-pop {
-  display: flex; gap: 8px; align-items: center;
-  opacity: 0; pointer-events: none; visibility: hidden; transform: translateX(12px);
-  transition: opacity .22s var(--ease), transform .22s var(--ease), visibility 0s .22s;
-}
-.fab-cluster.fab-open .fab-pop { opacity: 1; pointer-events: auto; visibility: visible; transform: none; transition-delay: 0s; }
-.fab-pop button {
-  height: 40px; padding: 0 16px; border-radius: 12px;
-  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
-  font-size: 13px; cursor: pointer; white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(17,24,39,.1);
-  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), transform .22s var(--ease), opacity .22s var(--ease);
-}
-.fab-pop button:nth-child(2) { transition-delay: .03s; }
-.fab-pop button:hover { border-color: var(--accent); color: var(--accent); }
-.fab-cluster:not(.fab-open) .fab-pop button { transform: translateX(10px); }
-.fab-cluster:not(.fab-open) .fab-pop button:nth-child(2) { transform: translateX(18px); }
+.home-tile:hover { border-color: var(--accent); box-shadow: var(--shadow-card-hover); transform: translateY(-1px); }
+.home-tile .ht-top { display: flex; align-items: center; gap: 8px; }
+.home-tile .ht-icon { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: #fff; flex: 0 0 auto; }
+.home-tile .ht-icon.ti-blue { background: var(--accent); }
+.home-tile .ht-icon.ti-green { background: var(--green); }
+.home-tile .ht-icon.ti-amber { background: var(--amber); }
+.home-tile .ht-icon.ti-pink { background: linear-gradient(135deg, #db2777, #f472b6); }
+.home-tile .ht-icon.ti-slate { background: var(--surface-dark); }
+.home-tile .ht-name { font-size: 13.5px; font-weight: 700; }
+.home-tile .ht-num { font-size: 11px; color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.home-tile .ht-num.upd { color: var(--amber); font-weight: 600; }
+.home-tile .ht-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+/* 台尾操作条 */
+.home-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.home-foot .spacer { flex: 1; }
+
+/* 通用等宽注记 */
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: .08em; }
 /* ===== 客户端中心面板（内嵌官方 harness 选项 + 汇总 + 开关显示 + 环境自检） ===== */
 .client-center-backdrop {
   position: fixed; inset: 0; background: rgba(17,24,39,.45);
@@ -842,70 +833,52 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 }
 .env-toggle:hover { border-color: var(--accent); color: var(--accent); }
 .env-toggle.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
-/* v1.2：旧「四板块卡片」已并入一体化 bento 大面板（见上方主页样式区）；
-   .hc-dot 保留（客户端中心环境状态点复用） */
+/* v3：.hc-dot 保留（客户端中心/主页环境自检复用） */
 .hc-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
 .hc-dot.ok { background: var(--green); }
 .hc-dot.err { background: var(--red); }
 
-/* ===== v1.1 顶部折叠导航：顶栏只留一个菜单按钮，点开向下缓出分组面板 ===== */
+/* ===== v3 顶部横排主导航（PCL 启动器风）：标题栏下方一排横向菜单项，当前项底部指示条高亮 ===== */
 .topnav-spacer { flex: 1 1 auto; }
-.navmenu-wrap { position: relative; flex: 0 0 auto; }
-.navmenu-btn {
-  display: inline-flex; align-items: center; gap: 8px;
-  height: 34px; padding: 0 7px 0 9px;
-  border: 1px solid transparent; border-radius: var(--rad-full);
-  background: transparent; color: var(--ink);
-  font-size: 13px; font-weight: 600; letter-spacing: .01em; cursor: pointer;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+.mainnav {
+  display: flex; align-items: stretch; gap: 2px;
+  height: 42px; padding: 0 14px;
+  border-top: 1px solid var(--line);
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; user-select: none;
 }
-.navmenu-btn:hover { background: var(--neutral-soft); border-color: var(--line); }
-.navmenu-btn.open { background: var(--accent-soft); color: var(--accent); }
-.navmenu-btn .nv-icon { display: grid; place-items: center; color: var(--muted); transition: color var(--dur) var(--ease); }
-.navmenu-btn .nv-icon svg { width: 15px; height: 15px; }
-.navmenu-btn:hover .nv-icon, .navmenu-btn.open .nv-icon { color: var(--accent); }
-.navmenu-btn .nv-caret { display: grid; place-items: center; color: var(--muted); transition: transform var(--dur) var(--ease); }
-.navmenu-btn .nv-caret svg { width: 12px; height: 12px; }
-.navmenu-btn.open .nv-caret { transform: rotate(180deg); color: var(--accent); }
-/* 锚定由 openNavMenu() 动态写入 left（贴菜单按钮左缘垂出，避开左缘女仆坞标签）；22px 仅为 JS 前的兜底 */
-.navmenu-panel {
-  position: fixed; top: calc(var(--nav-h) + 8px); left: 22px;
-  width: min(560px, calc(100vw - 44px));
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--rad-lg);
-  box-shadow: 0 24px 60px rgba(17,24,39,.22);
-  padding: 10px; z-index: 49; /* 遮罩(48)之上：顶栏属应用骨架，菜单随时可用（小织见菜单自动让位） */
-  display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px;
-  opacity: 0; transform: translateY(-14px) scale(.985); transform-origin: top left;
-  pointer-events: none; visibility: hidden;
-  transition: opacity .26s cubic-bezier(.33,1,.68,1), transform .26s cubic-bezier(.33,1,.68,1), visibility .26s;
+.mainnav::-webkit-scrollbar { display: none; }
+.nav-item {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 0 15px; border: 0; background: transparent;
+  color: var(--muted); font-size: 13px; font-weight: 500; cursor: pointer;
+  white-space: nowrap; flex: 0 0 auto;
+  transition: color var(--dur) var(--ease);
 }
-.navmenu-panel.open { opacity: 1; transform: none; pointer-events: auto; visibility: visible; }
-.navmenu-group { display: grid; gap: 3px; min-width: 0; padding: 4px 2px; align-content: start; }
-.navmenu-group-title {
-  font-size: 11px; color: var(--muted); letter-spacing: .05em;
-  padding: 4px 10px 6px; text-transform: uppercase; user-select: none;
+.nav-item svg { width: 15px; height: 15px; flex: 0 0 auto; opacity: .8; }
+.nav-item:hover { color: var(--ink); }
+.nav-item.active { color: var(--accent); font-weight: 600; }
+.nav-item.active svg { opacity: 1; }
+/* 当前项底部指示条（PCL 式，非胶囊） */
+.nav-item::after {
+  content: ""; position: absolute; left: 13px; right: 13px; bottom: -1px; height: 2px;
+  border-radius: 2px 2px 0 0; background: var(--accent);
+  transform: scaleX(0); transform-origin: center;
+  transition: transform var(--dur) var(--ease);
 }
-.navmenu-item {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 9px 10px; border: 0; border-radius: var(--rad);
-  background: transparent; color: var(--ink); cursor: pointer;
-  font-size: 13px; text-align: left; font-weight: 500;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+.nav-item.active::after { transform: scaleX(1); }
+.nav-item .n-count {
+  font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: var(--rad-full);
+  background: var(--neutral-soft); color: var(--muted);
 }
-.navmenu-item:hover { background: var(--neutral-soft); }
-.navmenu-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.navmenu-item svg { width: 16px; height: 16px; flex: 0 0 auto; opacity: .8; }
-.navmenu-item.active svg { opacity: 1; }
-.navmenu-item .mi-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.navmenu-item .n-count { font-size: 11px; background: var(--neutral-soft); border-radius: var(--rad-full); padding: 1px 8px; color: var(--muted); }
-.navmenu-item.active .n-count { background: var(--panel); color: var(--accent); }
-.navmenu-item .n-count.upd { background: var(--amber-soft); color: var(--amber); font-weight: 600; }
+.nav-item .n-count.upd { background: var(--amber-soft); color: var(--amber); font-weight: 700; }
 
 /* ===== v1.2 左侧女仆坞（仅主页）：左缘玻璃标签 → 悬停延伸玻璃条（无文字）→ 点击弹出 AI 装配间 ===== */
 .app-body { flex: 1 1 auto; min-height: 0; display: flex; }
 .app-body > .main { flex: 1 1 auto; }
 .maid-dock {
-  position: fixed; left: 0; top: var(--nav-h); bottom: 0; z-index: 18;
+  position: fixed; left: 0; top: calc(var(--nav-h) + var(--menu-h)); bottom: 0; z-index: 18;
   width: 34px;
   display: flex; flex-direction: column; align-items: center;
   overflow: hidden;
@@ -969,35 +942,17 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .maid-dock-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .maid-dock .ai-zone { height: 100%; min-height: 0; flex: 1 1 auto; }
 .maid-dock #view-ai { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-/* ===== 遮罩（scrim）统一模型：顶栏 = 应用骨架永远可交互；顶栏之下的页面区域在
- * 浮层展开期间由透明遮罩接管——鼠标事件到不了底下按钮（悬停/按压/聚焦特效零出现），
- * 点击遮罩 = 仅收起该浮层。显隐全部由 CSS 兄弟选择器驱动，与浮层状态永不失步。
- * z 序 48：盖住页面内容/悬浮簇；让位于菜单面板(49)/对话框(50)/客户端中心(60)/Toast(70)。 ===== */
-.maid-scrim, .menu-scrim {
-  display: none; position: fixed; top: var(--nav-h); right: 0; bottom: 0;
+/* ===== 遮罩（scrim）统一模型：女仆坞展开时，顶栏之下的页面区域由透明遮罩接管，
+ * 点击遮罩 = 仅收起浮层（零副作用）。显隐由 CSS 兄弟选择器驱动，与浮层状态永不失步。
+ * z 序 48：盖住页面内容；让位于对话框(50)/客户端中心(60)/Toast(70)。 ===== */
+.maid-scrim {
+  display: none; position: fixed; top: calc(var(--nav-h) + var(--menu-h)); right: 0; bottom: 0;
   z-index: 48; cursor: default; -webkit-user-select: none; user-select: none;
 }
 /* 女仆坞遮罩：坞右侧（left 贴坞右缘 400px） */
 .maid-dock.open:not(.hidden) ~ .maid-scrim { display: block; left: 400px; }
-/* 菜单遮罩：整条页面区域（含左缘女仆坞标签——菜单开着时她也暂不可唤起） */
-.navmenu-panel.open ~ .menu-scrim { display: block; left: 0; }
 
-/* ===== v1.2 主页 · 插件更新模块（bento 首格：是否有更新 / 几个 / 一键更新 / 点击跳插件页） ===== */
-.home-update {
-  flex-direction: row; align-items: center; gap: 16px;
-  grid-column: span 2;
-}
-.home-update .hu-main { flex: 1 1 auto; min-width: 0; }
-.home-update h3 { margin: 0; font-size: 14.5px; }
-.home-update .hu-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
-.home-update .hu-names { font-size: 12px; margin-top: 7px; display: flex; gap: 6px; flex-wrap: wrap; }
-.home-update .hu-names .tag { font-family: var(--font-mono); font-size: 11px; }
-.home-update .hu-count { font-size: 28px; font-weight: 600; color: var(--amber); flex: 0 0 auto; text-align: center; line-height: 1; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.home-update .hu-count small { display: block; font-size: 10.5px; color: var(--muted); font-weight: 500; margin-top: 5px; font-family: var(--font-sans); }
-.home-update.ok .hu-count { color: var(--green); }
-.home-update .hu-actions { display: flex; gap: 8px; flex: 0 0 auto; align-items: center; }
-.home-update .hu-arrow { color: var(--muted); flex: 0 0 auto; display: grid; place-items: center; }
-.home-update .hu-arrow svg { width: 15px; height: 15px; }
+/* v3：旧插件更新格（.home-update）已由 .home-update-card 取代 */
 
 /* 无障碍：用户系统开启「减弱动态效果」时，收掉过渡与动画（保留状态切换本身） */
 @media (prefers-reduced-motion: reduce) {
@@ -1008,31 +963,24 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 <body>
 <div class="app">
   <header class="topnav">
-    <div class="brand">
-      <div class="brand-mark">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v7a3 3 0 0 1-3 3H4"/><path d="M15 2v7a3 3 0 0 0 3 3h2"/><path d="M6 12v2a6 6 0 0 0 6 6h0a6 6 0 0 0 6-6v-2"/><path d="M12 20v2"/></svg>
+    <div class="topnav-title">
+      <div class="brand">
+        <div class="brand-mark">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v7a3 3 0 0 1-3 3H4"/><path d="M15 2v7a3 3 0 0 0 3 3h2"/><path d="M6 12v2a6 6 0 0 0 6 6h0a6 6 0 0 0 6-6v-2"/><path d="M12 20v2"/></svg>
+        </div>
+        <div class="brand-name">Dseam世界</div>
       </div>
-      <div class="brand-name">Dseam世界</div>
+      <div class="topnav-spacer"></div>
+      <div class="side-foot" id="sideFoot"></div>
+      <div class="win-ctrls">
+        <button class="win-btn" id="winMin" title="最小化" aria-label="最小化"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+        <button class="win-btn" id="winMax" title="最大化/还原" aria-label="最大化"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
+        <button class="win-btn win-close" id="winClose" title="关闭" aria-label="关闭"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
     </div>
-    <div class="navmenu-wrap">
-      <button class="navmenu-btn" id="navMenuBtn" aria-haspopup="menu" aria-expanded="false" title="打开导航菜单">
-        <span class="nv-icon" id="navMenuIcon"></span>
-        <span id="navMenuLabel">菜单</span>
-        <span class="nv-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
-      </button>
-    </div>
-    <div class="topnav-spacer"></div>
-    <div class="side-foot" id="sideFoot"></div>
-    <div class="win-ctrls">
-      <button class="win-btn" id="winMin" title="最小化" aria-label="最小化"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
-      <button class="win-btn" id="winMax" title="最大化/还原" aria-label="最大化"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
-      <button class="win-btn win-close" id="winClose" title="关闭" aria-label="关闭"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
-    </div>
+    <!-- 顶部横排主导航（PCL 启动器风）：9 视图项横排，当前项底部指示条高亮，由 renderMainNav() 渲染 -->
+    <nav class="mainnav" id="mainNav" aria-label="主导航"></nav>
   </header>
-  <!-- 顶部折叠导航面板：从菜单按钮位置向下缓出，按分组选择目标面板（v1.1） -->
-  <div class="navmenu-panel" id="navMenuPanel" role="menu"></div>
-  <!-- 菜单遮罩：菜单展开时覆盖顶栏以下的页面区域（与女仆坞遮罩同一模型，见 .menu-scrim 样式注释） -->
-  <div class="menu-scrim" id="menuScrim" aria-hidden="true"></div>
   <div class="app-body">
     <!-- 左侧女仆坞（v1.2，仅主页显示）：左缘玻璃标签 → 悬停延伸玻璃条（无文字）→ 点击弹出 AI 装配间 -->
     <aside class="maid-dock" id="maidDock" aria-label="DeepSeek Harness 女仆 · AI 装配间">
@@ -2065,8 +2013,7 @@ $('dlgOk').addEventListener('click', () => {
 });
 $('dlgBackdrop').addEventListener('click', (e) => { if (e.target === $('dlgBackdrop')) hideDialog(); });
 
-/* ===== 顶部折叠菜单（v1.1）：一个按钮 + 向下缓出分组面板 ===== */
-let navMenuOpen = false;
+/* ===== 顶部横排主导航（v3 · PCL 启动器风）：标题栏下方一排横向菜单项，当前项高亮 ===== */
 
 /** 各视图的角标数据：统一来源（外壳注入的 window.__xxxData 优先，本地 state 兜底）。 */
 function navCounts(id) {
@@ -2081,57 +2028,22 @@ function navCounts(id) {
   return {};
 }
 
-function renderNavMenuPanel() {
-  const panel = $('navMenuPanel');
-  if (!panel) return;
-  panel.innerHTML = NAV_GROUPS.map((g) => `
-    <div class="navmenu-group" role="group" aria-label="${esc(g.label)}">
-      <div class="navmenu-group-title">${esc(g.label)}</div>
-      ${g.items.map((id) => {
-        const n = NAV.find((x) => x.id === id);
-        if (!n) return '';
-        const c = navCounts(id);
-        const countHtml = c.upd
-          ? `<span class="n-count upd">${c.upd} 更新</span>`
-          : (c.n !== undefined ? `<span class="n-count">${c.n}</span>` : '');
-        return `
-        <button class="navmenu-item ${id === currentView ? 'active' : ''}" data-view="${id}" role="menuitem">
-          ${ICONS[n.icon]}<span class="mi-label">${esc(n.label)}</span>${countHtml}
-        </button>`;
-      }).join('')}
-    </div>`).join('');
-  panel.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
-    closeNavMenu();
-    switchView(b.dataset.view);
-  }));
+/** 渲染顶部横排菜单：9 视图项横排，当前项高亮，插件管理带更新角标。 */
+function renderMainNav() {
+  const nav = $('mainNav');
+  if (!nav) return;
+  nav.innerHTML = NAV.map((n) => {
+    const c = navCounts(n.id);
+    const countHtml = c.upd
+      ? `<span class="n-count upd">${c.upd}</span>`
+      : (c.n !== undefined ? `<span class="n-count">${c.n}</span>` : '');
+    return `
+      <button class="nav-item ${n.id === currentView ? 'active' : ''}" data-view="${n.id}" role="menuitem">
+        ${ICONS[n.icon]}<span>${esc(n.label)}</span>${countHtml}
+      </button>`;
+  }).join('');
+  nav.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
 }
-
-/* 菜单面板锚定：贴「菜单」按钮左缘垂出（标准下拉范式）——按钮位于品牌区右侧，
- * 面板天然避开左缘女仆坞玻璃标签（0-34px），不再遮挡「小织」；右侧不出视口 */
-function anchorNavMenu() {
-  const btn = $('navMenuBtn');
-  const panel = $('navMenuPanel');
-  if (!btn || !panel) return;
-  const vw = window.innerWidth;
-  const pw = panel.offsetWidth || Math.min(560, vw - 44);
-  let left = btn.getBoundingClientRect().left;
-  left = Math.max(22, Math.min(left, vw - pw - 22));
-  panel.style.left = Math.round(left) + 'px';
-}
-function openNavMenu() {
-  navMenuOpen = true;
-  if (maidOpen) openMaidDock(false); // 用户要去导航：小织自动让位缩回
-  anchorNavMenu();
-  $('navMenuPanel').classList.add('open');
-  renderShell();
-}
-function closeNavMenu() {
-  navMenuOpen = false;
-  const p = $('navMenuPanel');
-  if (p) p.classList.remove('open');
-  renderShell();
-}
-function toggleNavMenu() { if (navMenuOpen) closeNavMenu(); else openNavMenu(); }
 
 /* ===== 左侧女仆坞（v1.2，仅主页）：玻璃标签 → 悬停延伸（无文字）→ 点击弹出 AI 装配间 ===== */
 let maidOpen = false;
@@ -2166,7 +2078,7 @@ function postPluginOp(msg) {
 }
 window.__onPluginsData = function () {
   if (currentView === 'home') renderHome();       // 主页更新面板刷新
-  renderNavMenuPanel();                            // 「插件管理」角标刷新
+  renderMainNav();                                  // 「插件管理」角标刷新
   if (pluginChangePending) {
     pluginChangePending = false;
     maybePromptDshRestart();
@@ -2191,19 +2103,9 @@ function maybePromptDshRestart() {
 }
 
 function renderShell() {
-  const menuBtn = $('navMenuBtn');
   // 主页态标记：驱动标题条为女仆坞让位（body.on-home，见 .topbar 规则）
   document.body.classList.toggle('on-home', currentView === 'home');
-  if (menuBtn) {
-    const n = NAV.find((x) => x.id === currentView);
-    menuBtn.classList.toggle('open', navMenuOpen);
-    menuBtn.setAttribute('aria-expanded', navMenuOpen ? 'true' : 'false');
-    const lbl = $('navMenuLabel');
-    if (lbl) lbl.textContent = n ? n.label : '菜单';
-    const ic = $('navMenuIcon');
-    if (ic) ic.innerHTML = n ? ICONS[n.icon] : '';
-  }
-  renderNavMenuPanel();
+  renderMainNav();
   const restartable = state.pendingRestart > 0;
   $('sideFoot').innerHTML = `
     <div class="side-row"><span>dsh</span><span class="v">${esc(state.dshVersion)}</span></div>
@@ -2300,7 +2202,8 @@ const THEME_PRESETS = [
     '--line': '#374151', '--teal': '#60a5fa', '--teal-dark': '#0b1120', '--teal-soft': '#1e3a5f',
     '--teal-hover': '#3b82f6', '--amber': '#f59e0b', '--amber-soft': '#3a2d12', '--red': '#f87171',
     '--red-soft': '#3a1d1d', '--green': '#34d399', '--sidebar-ink': '#f3f4f6', '--nav-ink': '#9ca3af',
-    '--surface-dark': '#0b1120', '--surface-dark-ink': '#d1d5db', '--green-soft': '#123325', '--neutral-soft': '#2b3544'
+    '--surface-dark': '#0b1120', '--surface-dark-ink': '#d1d5db', '--green-soft': '#123325', '--neutral-soft': '#2b3544',
+    '--launch': '#4caf50', '--launch-hover': '#43a047', '--launch-soft': '#14301a', '--launch-deep': '#2e7d32'
   } },
   { id: 'cyan', name: '青色', swatch: ['#ecfeff', '#ffffff', '#0891b2'], vars: {
     '--bg': '#ecfeff', '--panel': '#ffffff', '--ink': '#083344', '--muted': '#5b7a86',
@@ -2527,9 +2430,7 @@ function renderTheme() {
   });
 }
 
-/* ===== 主页（v1.2）：一体化 bento 大面板 + 右下悬浮操作簇 =====
- * 布局契约：左缘为女仆坞玻璃标签让位 64px；其余主页功能全部收进 bento 模块格；
- * 启动主键 + dsh 版本 + 客户端折叠选项固定于右下角。 */
+/* ===== 主页（v3 · PCL 启动器风）：左启动卡（大绿启动键 + 环境自检）+ 右卡片列（更新/快捷入口） ===== */
 function renderHome() {
   const installed = state.installed.length + state.imported.length;
   const harnessOk = !!(window.__nativeSelfCheck && window.__nativeSelfCheck.dshVersion);
@@ -2542,77 +2443,75 @@ function renderHome() {
   const plugins = pluginRows();
   const updPlugins = plugins.filter((r) => r.hasUpdate);
   const updCount = updPlugins.length;
+  const env = (ok, name, onTxt, offTxt) => `<span class="env"><span class="hc-dot ${ok ? 'ok' : 'err'}"></span>${name} ${ok ? onTxt : offTxt}</span>`;
   $('view-home').innerHTML = `
     <div class="home-shell">
-      <div class="bento">
-        <div class="bento-head">
-          <div class="bh-title"><span class="bh-dot"></span>中枢总览</div>
-          <div class="bh-sub mono">OVERVIEW</div>
-          <div class="bh-hint">点击模块进入对应面板</div>
-        </div>
-        <div class="bento-cell home-update ${updCount ? '' : 'ok'}" id="homeUpdatePanel" title="点击进入插件管理">
-          <div class="hu-main">
-            <div class="bc-label">插件更新 <span class="mono">UPDATE</span></div>
-            <div class="hu-sub">${updCount
-              ? updCount + ' 个插件有可用更新，可一键更新（更新后需重启 DSH 生效）'
-              : (plugins.length ? '全部插件均为最新版本' : '还没有已安装的插件，去插件市场逛逛吧')}</div>
-            ${updCount ? `<div class="hu-names">${updPlugins.slice(0, 3).map((r) => `<span class="tag">${esc(r.id)}${r.latest ? ' → ' + esc(r.latest) : ''}</span>`).join('')}${updCount > 3 ? `<span class="tag">+${updCount - 3} 个</span>` : ''}</div>` : ''}
+      <div class="pcl-home">
+        <div class="launch-card">
+          <div class="launch-brand"><span class="brand-mark" aria-hidden="true">⚡</span>DSH 插座中枢</div>
+          <button class="launch-btn" id="homeLaunchBtn" title="启动 DSH"><span class="fl-play">▶</span>启动 DSH</button>
+          <div class="launch-ver">dsh ${dshVer ? esc(dshVer) : '未安装'} · 程序 ${appVer ? 'v' + esc(appVer) : '—'}</div>
+          <div class="launch-state">
+            <div class="ls-label">环境自检</div>
+            <div class="launch-env">
+              ${env(harnessOk, 'DSH', dshVer ? esc(dshVer) : '就绪', '未检测')}
+              ${env(nodeOk, 'Node', '就绪', '缺失')}
+              ${env(pnpmOk, 'pnpm', '就绪', '缺失')}
+            </div>
           </div>
-          ${updCount ? `<div class="hu-count">${updCount}<small>可更新</small></div>` : ''}
-          <div class="hu-actions">
-            <button class="btn sm" id="homeUpdateCheckBtn" title="强制刷新远端最新版本">${ICONS.refresh} 检查更新</button>
-            ${updCount ? `<button class="btn sm primary" id="homeUpdateAllBtn" title="依次更新全部可更新插件">${ICONS.download} 一键更新</button>` : ''}
-          </div>
-          <span class="hu-arrow" title="进入插件管理">${ICONS.chevronRight}</span>
-        </div>
-        <div class="bento-cell cell-maid" data-goto="ai">
-          <div class="bc-label">AI 装配间 <span class="mono">MAID</span></div>
-          <div class="cell-maid-mark">织</div>
-          <div class="bc-row">把零散插件织成完整 hotpack</div>
-          <div class="cell-maid-go">去找小织聊聊 →</div>
-        </div>
-        <div class="bento-cell" data-goto="hub">
-          <div class="bc-label">插件中枢 <span class="mono">HUB</span></div>
-          <div class="bc-num">${installed}<small>个插座包</small></div>
-          <div class="bc-row bc-note">已装清单 · 健康状态</div>
-        </div>
-        <div class="bento-cell" data-goto="check">
-          <div class="bc-label">服务状态 <span class="mono">STATUS</span></div>
-          <div class="bc-row mt">
-            <span class="hc-dot ${harnessOk ? 'ok' : 'err'}"></span><span>DSH ${harnessOk ? '就绪' : '未检测'}</span>
-            <span class="hc-dot ${nodeOk ? 'ok' : 'err'}"></span><span>Node ${nodeOk ? '就绪' : '缺失'}</span>
-            <span class="hc-dot ${pnpmOk ? 'ok' : 'err'}"></span><span>pnpm ${pnpmOk ? '就绪' : '缺失'}</span>
-          </div>
-          <div class="bc-row bc-note">运行环境自检</div>
-        </div>
-        <div class="bento-cell" data-goto="market">
-          <div class="bc-label">插件市场 <span class="mono">MARKET</span></div>
-          <div class="bc-row mt">${appUpdate ? `程序 v${esc(latest)} 可更新` : (appVer ? `程序已是最新 v${esc(appVer)}` : '社区插件与官方发布动态')}</div>
-          <div class="bc-row bc-note">发现新插件与发布动态</div>
-        </div>
-        <div class="bento-cell cell-wide" style="cursor:default">
-          <div class="bc-label">快捷操作 <span class="mono">QUICK</span></div>
-          <div class="bc-act">
+          <div class="launch-actions">
             <button class="btn sm" id="homeApiBtn">⚙ API 配置</button>
             <button class="btn sm" id="homeClientBtn">🖥 客户端中心</button>
+            <button class="btn sm" id="homeRepairBtn" title="检查并修复 dsh 配置文件">🔧 修改配置</button>
+            <button class="btn sm" id="homeChooseBtn" title="选择 dsh 客户端">🔌 选择客户端</button>
+          </div>
+        </div>
+        <div class="home-cards">
+          <div class="home-update-card ${updCount ? 'has-upd' : 'ok'}" id="homeUpdatePanel" title="点击进入插件管理">
+            <div class="hu-top">
+              <span class="hu-title">${updCount ? '插件更新' : '插件状态'}</span>
+              <span class="hu-count">${updCount ? updCount + ' 个可更新' : '全部最新'}</span>
+            </div>
+            <div class="hu-sub">${updCount
+              ? updCount + ' 个插件有可用更新，一键更新后需重启 DSH 生效'
+              : (plugins.length ? '全部插件均为最新版本' : '还没有已安装的插件，去插件市场逛逛吧')}</div>
+            ${updCount ? `<div class="hu-names">${updPlugins.slice(0, 4).map((r) => `<span class="tag">${esc(r.id)}${r.latest ? ' → ' + esc(r.latest) : ''}</span>`).join('')}${updCount > 4 ? `<span class="tag">+${updCount - 4} 个</span>` : ''}</div>` : ''}
+            <div class="hu-actions">
+              <button class="btn sm" id="homeUpdateCheckBtn" title="强制刷新远端最新版本">${ICONS.refresh} 检查更新</button>
+              ${updCount ? `<button class="btn sm primary" id="homeUpdateAllBtn" title="依次更新全部可更新插件">${ICONS.download} 一键更新</button>` : ''}
+            </div>
+          </div>
+          <div class="home-tiles">
+            <button class="home-tile" data-goto="hub">
+              <div class="ht-top"><span class="ht-icon ti-blue">${ICONS.box}</span><span class="ht-name">插件中枢</span><span class="ht-num">${installed} 包</span></div>
+              <div class="ht-desc">已装清单 · 健康状态</div>
+            </button>
+            <button class="home-tile" data-goto="market">
+              <div class="ht-top"><span class="ht-icon ti-green">${ICONS.store}</span><span class="ht-name">插件市场</span><span class="ht-num ${appUpdate ? 'upd' : ''}">${appUpdate ? '程序可更新' : ''}</span></div>
+              <div class="ht-desc">社区插件 · 官方发布</div>
+            </button>
+            <button class="home-tile" data-goto="memory">
+              <div class="ht-top"><span class="ht-icon ti-amber">${ICONS.brain}</span><span class="ht-name">记忆中枢</span></div>
+              <div class="ht-desc">全局记忆 · 长期沉淀</div>
+            </button>
+            <button class="home-tile" data-goto="skills">
+              <div class="ht-top"><span class="ht-icon ti-slate">${ICONS.spark}</span><span class="ht-name">Skill 面板</span></div>
+              <div class="ht-desc">技能编排 · 热加载</div>
+            </button>
+            <button class="home-tile" data-goto="ai">
+              <div class="ht-top"><span class="ht-icon ti-pink">织</span><span class="ht-name">AI 装配间</span></div>
+              <div class="ht-desc">小织 · 把插件织成 hotpack</div>
+            </button>
+            <button class="home-tile" data-goto="check">
+              <div class="ht-top"><span class="ht-icon ti-blue">${ICONS.shield}</span><span class="ht-name">自检更新</span></div>
+              <div class="ht-desc">运行环境 · 程序版本</div>
+            </button>
+          </div>
+          <div class="home-foot">
+            <span class="spacer"></span>
             <button class="btn sm danger" id="homeHarnessStopBtn" title="停止 dsh web 与 DSH 程序">⏻ 关闭 DSH</button>
           </div>
         </div>
-      </div>
-    </div>
-    <div class="fab-cluster" id="fabCluster">
-      <div class="fab-side">
-        <div class="fab-pop" id="fabPop">
-          <button id="fabRepairBtn" title="检查并修复 dsh 配置文件">修改配置</button>
-          <button id="fabChooseBtn" title="选择 dsh 客户端">选择客户端</button>
-        </div>
-        <button class="fab-arrow" id="fabArrow" title="客户端选项" aria-label="展开客户端选项">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
-        </button>
-      </div>
-      <div class="fab-main">
-        <div class="fab-ver mono" title="dsh 版本">dsh ${dshVer ? esc(dshVer) : '未安装'}</div>
-        <button class="fab-launch" id="homeLaunchBtn"><span class="fl-play">▶</span>启动 DSH</button>
       </div>
     </div>`;
   const postOrToast = (msg, tip) => {
@@ -2621,9 +2520,9 @@ function renderHome() {
   };
   const lb = $('homeLaunchBtn');
   if (lb) lb.addEventListener('click', () => postOrToast('launch', '请在 Dseam世界 桌面端启动 DSH'));
-  const repairBtn = $('fabRepairBtn');
+  const repairBtn = $('homeRepairBtn');
   if (repairBtn) repairBtn.addEventListener('click', () => postOrToast('repairConfig', '请在 Dseam世界 桌面端执行修复'));
-  const chooseBtn = $('fabChooseBtn');
+  const chooseBtn = $('homeChooseBtn');
   if (chooseBtn) chooseBtn.addEventListener('click', () => postOrToast('chooseHarness', '请在 Dseam世界 桌面端选择客户端'));
   const apiBtn = $('homeApiBtn');
   if (apiBtn) apiBtn.addEventListener('click', () => postOrToast('openApiConfig', '请在 Dseam世界 桌面端配置 API'));
@@ -2631,13 +2530,7 @@ function renderHome() {
   if (harnessStopBtn) harnessStopBtn.addEventListener('click', () => postOrToast('harnessStop', '请在 Dseam世界 桌面端停止 dsh'));
   const clientBtn = $('homeClientBtn');
   if (clientBtn) clientBtn.addEventListener('click', () => openClientCenter());
-  // 折叠箭头（默认收起）：展开后选项向左弹出（修改配置 / 选择客户端）
-  const fabArrow = $('fabArrow');
-  if (fabArrow) fabArrow.addEventListener('click', () => {
-    const c = $('fabCluster');
-    if (c) c.classList.toggle('fab-open');
-  });
-  // v1.2 插件更新模块：模块主体点击 → 插件管理页；按钮各自独立动作（不冒泡跳转）
+  // 插件更新卡：主体点击 → 插件管理页；按钮各自独立动作（不冒泡跳转）
   const huPanel = $('homeUpdatePanel');
   if (huPanel) huPanel.addEventListener('click', (e) => {
     if (e.target.closest('button')) return;
@@ -4646,7 +4539,6 @@ document.addEventListener('DOMContentLoaded', () => {
   applyTheme();
   bindWindowControls();
   bindClientCenterBackdrop();
-  bindNavMenu();
   bindMaidDock();
   renderAll();
   // v1.2：女仆坞仅存在于主页——非主页进入时隐藏玻璃标签；主页则恢复上次开合状态
@@ -4654,23 +4546,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (dockInit && state.currentView !== 'home') dockInit.classList.add('hidden');
   openMaidDock(state.maidDockOpen === true);
 });
-
-// 顶部折叠菜单交互（v1.2 遮罩模型）：按钮开合 / 遮罩点击=仅收起（零副作用）/ Esc 收起
-function bindNavMenu() {
-  const btn = document.getElementById('navMenuBtn');
-  if (btn) btn.addEventListener('click', toggleNavMenu);
-  const scrim = document.getElementById('menuScrim');
-  if (scrim) scrim.addEventListener('click', closeNavMenu);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && navMenuOpen) {
-      closeNavMenu();
-      // 同一次 Esc 只关最上层（菜单优先于女仆坞）；依赖 bindNavMenu 先于 bindMaidDock 注册
-      e.stopImmediatePropagation();
-    }
-  });
-  // 视口变化时面板重新锚定按钮（窗口缩放后不悬空错位）
-  window.addEventListener('resize', () => { if (navMenuOpen) anchorNavMenu(); });
-}
 
 // 左侧女仆坞交互（v1.2）：悬停自动延伸玻璃条（260ms 防抖回缩）；点击头像弹出/收起界面；Esc 收起
 function bindMaidDock() {
