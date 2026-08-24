@@ -69,14 +69,17 @@ export function packsDir() { return join(hotplugRoot(), 'packs') }
 export function storeRoot() { return join(homeDir(), 'hotplug-store') }
 export function statePath() { return join(hotplugRoot(), 'state.json') }
 
-/** 选择 profile：DSH_PROFILE 环境变量优先，否则按 desktop → web → headless 取第一个存在的。 */
+/** 选择 profile：DSH_PROFILE 环境变量显式指定时无条件遵守（即使该 profile 尚不存在，
+ *  由下游创建）；未指定时才按 desktop → web → headless 取第一个存在的。审计修复：此前把
+ *  显式值塞进候选列表首位、不存在时静默回退 desktop/web/headless——用户显式指定的目标被
+ *  忽略、写盘落到错误 profile。 */
 export function profileName() {
   const env = typeof process.env.DSH_PROFILE === 'string' ? process.env.DSH_PROFILE.trim() : ''
-  const candidates = env !== '' ? [env, 'desktop', 'web', 'headless'] : ['desktop', 'web', 'headless']
-  for (const name of candidates) {
+  if (env !== '') return env
+  for (const name of ['desktop', 'web', 'headless']) {
     if (existsSync(join(homeDir(), 'profiles', name, 'package.json'))) return name
   }
-  return env !== '' ? env : 'web'
+  return 'web'
 }
 export function profileDir() { return join(homeDir(), 'profiles', profileName()) }
 export function manifestPath() { return join(profileDir(), 'package.json') }

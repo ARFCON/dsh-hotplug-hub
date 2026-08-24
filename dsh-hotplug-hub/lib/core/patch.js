@@ -16,7 +16,7 @@ import {
 import { dirname, join } from 'node:path'
 import {
   patchIdFor, mergePatchFile as sharedMergePatchFile, removePatchBlock as sharedRemovePatchBlock,
-  acquireLock, releaseLock, writeFileAtomic, serializePatch, PATCH_LOCK_FILE,
+  findPatchBlock, acquireLock, releaseLock, writeFileAtomic, serializePatch, PATCH_LOCK_FILE,
 } from '../../vendor-shared/index.mjs'
 import { ENSURE_TIMEOUT_MS, manifestPath, patchPath, profileDir } from './paths.js'
 import { readJson, writeJsonSafe } from './state.js'
@@ -45,6 +45,26 @@ export function patchMarker(packId) { return `## hotplug:${packId}` }
 /** 旧内联形态 marker（`- insert:  # hotplug:<packId>`，迁移期移除用）。 */
 export function legacyInlineMarker(packId) { return `# hotplug:${packId}` }
 
+const ESCAPE_RE = /[.*+?^${}()|[\]\\]/g
+function escapeRegExp(s) { return String(s).replace(ESCAPE_RE, '\\$&') }
+
+/** 旧内联形态 marker 行级匹配（`- insert:  # hotplug:<packId>`；锚定行尾，非子串）。 */
+function inlineMarkerRe(packId) {
+  return new RegExp(`#\\s*hotplug:${escapeRegExp(packId)}\\s*$`)
+}
+
+/**
+ * 判断 patch 文本是否已含指定 packId 的 hotplug 块。
+ * 审计修复：此前 appendPatchBlock 用 `text.includes(marker)` 做子串匹配，与
+ * findPatchBlock 的精确 marker 契约不一致——pack.a 与 pack.a.b 存在前缀关系时，
+ * `includes('## hotplug:pack.a')` 命中 `## hotplug:pack.a.b` 造成误拒（false positive）。
+ * 现统一为：契约 ##/# 形态走 findPatchBlock 精确匹配 + 旧内联形态走行级正则。
+ */
+function hasHotplugBlock(text, packId) {
+  if (findPatchBlock(text, 'hotplug', packId).found) return true
+  return text.split('\n').some((line) => inlineMarkerRe(packId).test(line))
+}
+
 /**
  * 块内容（单个 YAML 顶层数组项；marker 单独成行，CONTRACT.md §4）。
  * 审计修复（v5 阶段 5）：曾手拼 YAML（单引号 name + JSON.stringify config）——
@@ -69,8 +89,8 @@ export function appendPatchBlock(pack) {
   if (!a.ok) return { ok: false, error: `patch 锁获取失败：${a.error.message}` }
   try {
     const text = existsSync(path) ? readFileSync(path, 'utf8') : ''
-    // 已存在同名块（新 ## 或旧 # 形态）→ 拒绝（状态不一致保护；deactivate 后可重挂）
-    if (text.includes(patchMarker(pack.id)) || text.includes(legacyInlineMarker(pack.id))) {
+    // 已存在同名块（新 ##/旧 #/旧内联形态，精确匹配）→ 拒绝（状态不一致保护；deactivate 后可重挂）
+    if (hasHotplugBlock(text, pack.id)) {
       return { ok: false, error: 'patch 中已存在同名 hotplug 块（状态可能不一致，请先 deactivate）' }
     }
     const block = buildPatchBlock(pack)
@@ -104,7 +124,7 @@ export function removePatchBlock(packId) {
     if (r.removed) return { ok: true, removed: true }
     // 2) 旧内联形态（- insert:  # hotplug:<packId>）
     const lines = readFileSync(path, 'utf8').split('\n')
-    const markerRe = new RegExp(`#\\s*hotplug:${packId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`)
+    const markerRe = inlineMarkerRe(packId)
     const start = lines.findIndex((line) => markerRe.test(line))
     if (start === -1) return { ok: true, removed: false }
     let end = start + 1
@@ -194,7 +214,19 @@ export function removeBundles(names) {
 
 // ---------- 激活 / 卸载 ----------
 
-export async function unmountPack(pack) {
+/**
+ * 卸载包：移除 patch 块 / bundles / link 依赖 / 「本次挂载实际安装/替换」的 npm 包。
+ * 审计修复（无损替换根治）：此前 `pnpm remove` 所有在 manifest.dependencies 里的
+ * npm 插件名，把 ensureNpm 判定为 reused（挂载前已存在的 profile 依赖）的包也一并
+ * 删掉，破坏既有状态——与 rollbackMount「只撤 freshlyInstalled」的语义自相矛盾
+ * （补丁式双轨）。现收敛为：仅移除本次挂载实际安装/替换的 npm 包，reused 的预存依赖
+ * 保留；缺省（未传 installedNpm，旧调用方/迁移态）视为「未知」→ 一个都不删（无损优先，
+ * 绝不因信息缺失而破坏既有依赖）。
+ * @param {object} pack
+ * @param {object} [opts]
+ * @param {string[]} [opts.installedNpm] 本次挂载实际安装/替换的 npm 包名
+ */
+export async function unmountPack(pack, opts = {}) {
   const removed = removePatchBlock(pack.id)
   if (!removed.ok) return { ok: false, error: removed.error }
   const bundleNames = bundlePkgNames(pack)
@@ -206,10 +238,12 @@ export async function unmountPack(pack) {
     for (const entry of linkEntries) changed = unlinkEntryFromProfile(entry, manifest) || changed
     if (changed) writeJsonSafe(manifestPath(), manifest)
   }
+  const installedNpm = new Set(Array.isArray(opts.installedNpm) ? opts.installedNpm : [])
   const npmNames = pack.plugins
     .filter((entry) => entry.source.type === 'npm')
     .map((entry) => entry.name)
     .filter((name) => manifest?.dependencies?.[name] !== undefined)
+    .filter((name) => installedNpm.has(name))
   if (npmNames.length > 0) {
     const result = await runCli('pnpm', ['remove', ...npmNames], ENSURE_TIMEOUT_MS)
     if (result.code !== 0) {
@@ -271,5 +305,6 @@ export async function mountPack(pack) {
   addBundles(bundlePkgNames(pack))
   const patched = appendPatchBlock(pack)
   if (!patched.ok) return fail(patched.error)
-  return { ok: true, steps, restartNeeded: true }
+  // installedNpm = 本次挂载实际安装/替换的 npm 包名（供激活方持久化，卸载时只撤这些）
+  return { ok: true, steps, restartNeeded: true, installedNpm: freshlyInstalled }
 }

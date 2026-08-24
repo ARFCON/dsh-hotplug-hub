@@ -78,7 +78,11 @@ class HotplugGateway extends TypertRemoteService {
   }
 
   importPack(text) {
-    return normalizeRpc(importPackSync(text))
+    // 审计修复：importPack 写 packs/<id>/hotpack.json，须与 activate/deactivate/removePack
+    // 串行化——此前未串行化，activate 挂载 v1 期间 importPack 可覆盖 manifest 为 v2
+    // （activePack 尚未写入、非原子检查被绕过），造成「已激活状态 / 磁盘清单 / 实际产物」
+    // 三者不一致。现与其它变更类操作同走 serialize 链。
+    return this.serialize(async () => importPackSync(text)).then(normalizeRpc)
   }
 
   preview(packId) {
@@ -95,7 +99,8 @@ class HotplugGateway extends TypertRemoteService {
       if (state.activePack) {
         const previous = readPackManifest(state.activePack)
         if (previous !== null) {
-          const unmounted = await unmountPack(previous)
+          // 只撤销上一包「实际安装/替换」的 npm 包（reused 的预存依赖保留，无损替换）
+          const unmounted = await unmountPack(previous, { installedNpm: state.activeInstall?.installedNpm })
           if (!unmounted.ok) return unmounted
           events.push(`已卸载上一个包：${previous.name ?? previous.id}（无损替换，记忆与 store 保留）`)
         } else {
@@ -110,6 +115,8 @@ class HotplugGateway extends TypertRemoteService {
       if (!mounted.ok) return { ok: false, error: mounted.error, steps: mounted.steps }
       const next = readState()
       next.activePack = packId
+      // 持久化本次挂载实际安装的 npm 包名（卸载时只撤这些，reused 的预存依赖保留）
+      next.activeInstall = { packId, installedNpm: Array.isArray(mounted.installedNpm) ? mounted.installedNpm : [] }
       next.history = [...(next.history ?? []), { event: 'activate', packId, at: new Date().toISOString() }].slice(-64)
       writeState(next)
       return { ok: true, packId, steps: mounted.steps, events, restartNeeded: true }
@@ -122,7 +129,8 @@ class HotplugGateway extends TypertRemoteService {
       if (!state.activePack) return { ok: false, error: '当前没有激活的包' }
       const manifest = readPackManifest(state.activePack)
       if (manifest !== null) {
-        const unmounted = await unmountPack(manifest)
+        // 只撤「实际安装/替换」的 npm 包，reused 的预存依赖保留（无损替换）
+        const unmounted = await unmountPack(manifest, { installedNpm: state.activeInstall?.installedNpm })
         if (!unmounted.ok) return unmounted
       } else {
         removePatchBlock(state.activePack)
@@ -130,6 +138,7 @@ class HotplugGateway extends TypertRemoteService {
       const next = readState()
       next.history = [...(next.history ?? []), { event: 'deactivate', packId: state.activePack, at: new Date().toISOString() }].slice(-64)
       next.activePack = null
+      next.activeInstall = null
       writeState(next)
       return { ok: true, restartNeeded: true }
     }).then(normalizeRpc)

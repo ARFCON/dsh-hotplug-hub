@@ -6,7 +6,7 @@
  * SSL_CERT_FILE/SSL_CERT_DIR——TLS 校验不可被静默关闭、Node 行为不可被注入）。
  */
 import { spawn } from 'node:child_process'
-import { extname } from 'node:path'
+import { extname, join } from 'node:path'
 import { sanitizeChildEnv } from '../../vendor-shared/index.mjs'
 import { IS_WIN, OUTPUT_CAP, profileDir } from './paths.js'
 
@@ -22,6 +22,28 @@ function isWindowsShellCommand(command) {
   if (!IS_WIN) return false
   const ext = extname(String(command ?? '')).toLowerCase()
   return ext === '' || ext === '.cmd' || ext === '.bat'
+}
+
+/**
+ * 终止子进程整棵进程树（审计修复：进程隔离）。
+ * Windows 下 `cmd.exe /c pnpm ...` 的直接子进程是 cmd.exe，其派生的 pnpm/git/node
+ * 孙进程不会被 `child.kill('SIGKILL')` 连带杀掉 → 超时后成孤儿。用 taskkill /T /F
+ * 杀整棵进程树；taskkill 走 SystemRoot 绝对路径（PATH 被隔离时仍可用），失败回退 kill。
+ * POSIX 下保持 kill（信号直接子进程）。
+ */
+function killChildTree(child) {
+  if (!child || typeof child.pid !== 'number') return
+  if (process.platform === 'win32') {
+    const taskkill = process.env.SystemRoot ? join(process.env.SystemRoot, 'System32', 'taskkill.exe') : 'taskkill'
+    try {
+      const killer = spawn(taskkill, ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+      killer.on('error', () => { try { child.kill('SIGKILL') } catch { /* 忽略 */ } })
+    } catch {
+      try { child.kill('SIGKILL') } catch { /* 忽略 */ }
+    }
+  } else {
+    try { child.kill('SIGKILL') } catch { /* 忽略 */ }
+  }
 }
 
 export function runCli(command, args, timeoutMs, options = {}) {
@@ -41,8 +63,13 @@ export function runCli(command, args, timeoutMs, options = {}) {
     })
     let stdout = ''
     let stderr = ''
+    // 审计修复（超时退出码误报）：Windows 下 taskkill /F 以 TerminateProcess(exitCode=1)
+    // 实现，close 会拿到 code:1,signal:null——调用方（ensureNpm/unmountPack/checkAsync）会把
+    // 「超时被杀」误读为「命令失败 exit 1」。超时路径显式标记 timedOut 并归一为 code:null。
+    let timedOut = false
     const timer = setTimeout(() => {
-      try { child.kill('SIGKILL') } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
+      timedOut = true
+      killChildTree(child)
     }, timeoutMs)
     if (typeof timer.unref === 'function') timer.unref()
     child.stdout.on('data', (chunk) => {
@@ -57,7 +84,8 @@ export function runCli(command, args, timeoutMs, options = {}) {
     })
     child.on('close', (code, signal) => {
       clearTimeout(timer)
-      resolve({ code, signal, stdout, stderr })
+      if (timedOut) resolve({ code: null, signal: 'SIGKILL', timedOut: true, stdout, stderr })
+      else resolve({ code, signal, stdout, stderr })
     })
   })
 }

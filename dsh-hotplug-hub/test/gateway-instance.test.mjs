@@ -41,8 +41,8 @@ describe('HotplugGateway 实例', () => {
     expect(s.packs).toEqual([])
   })
 
-  it('importPack()：非法 → 归一化失败 {code,message,exitCode}', () => {
-    const r = gateway.importPack('{bad')
+  it('importPack()：非法 → 归一化失败 {code,message,exitCode}', async () => {
+    const r = await gateway.importPack('{bad')
     expect(r.ok).toBe(false)
     expect(r.code).toBe('ERR_HOTPLUG_FAILED')
     expect(typeof r.message).toBe('string')
@@ -50,7 +50,7 @@ describe('HotplugGateway 实例', () => {
   })
 
   it('importPack() → preview() → activate() → deactivate() 全链路（path 源，零 spawn）', async () => {
-    const imp = gateway.importPack(JSON.stringify(pathPack()))
+    const imp = await gateway.importPack(JSON.stringify(pathPack()))
     expect(imp.ok).toBe(true)
 
     const prev = await gateway.preview('pack.p')
@@ -81,7 +81,7 @@ describe('HotplugGateway 实例', () => {
   })
 
   it('removePack：激活中拒绝 / 不存在拒绝 / 正常移除', async () => {
-    gateway.importPack(JSON.stringify(pathPack()))
+    await gateway.importPack(JSON.stringify(pathPack()))
     await gateway.activate('pack.p')
     const r1 = await gateway.removePack('pack.p')
     expect(r1.ok).toBe(false)

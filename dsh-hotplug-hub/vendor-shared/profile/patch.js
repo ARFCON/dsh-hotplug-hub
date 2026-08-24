@@ -110,10 +110,21 @@ function stripUndefined(value, ancestors = new WeakSet()) {
     return out;
   }
   if (value && typeof value === 'object') {
+    // 审计修复（Bug D）：非纯对象（Date/RegExp/Map/Set/类实例）无法被 Object.entries
+    // 正确遍历（会被清空为 {}），显式报错而非静默丢数据。config 源自 JSON 时不可达。
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) {
+      throw makeError('ERR_YAML_SERIALIZE', '配置含非纯对象值（Date/RegExp/Map/Set/类实例），无法序列化');
+    }
     if (ancestors.has(value)) throw makeError('ERR_YAML_SERIALIZE', '配置含循环引用，无法序列化');
     ancestors.add(value);
     const out = {};
     for (const [k, v] of Object.entries(value)) {
+      // 审计修复（Bug C）：'__proto__' 经 out[k]=v 赋值会触发 Object.prototype setter，
+      // 键被静默丢弃（isDeepStrictEqual 自校验不比较原型，无法发现）——显式拒绝而非静默丢失。
+      if (k === '__proto__') {
+        throw makeError('ERR_YAML_SERIALIZE', '配置含 __proto__ 键，拒绝序列化');
+      }
       if (v === undefined) continue;
       out[k] = stripUndefined(v, ancestors);
     }
