@@ -3112,42 +3112,13 @@ namespace DSHHotplugHub
             {
                 try
                 {
-                    string[] lines = File.ReadAllLines(settingsPath);
-                    List<string> kept = new List<string>();
-                    int removed = 0;
-                    for (int i = 0; i < lines.Length; i++)
-                    {
-                        string line = lines[i];
-                        // 跳过空行与注释
-                        string trimmed = line.TrimEnd();
-                        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.TrimStart().StartsWith("#"))
-                        {
-                            kept.Add(line);
-                            continue;
-                        }
-                        int indent = line.Length - line.TrimStart().Length;
-                        string key = trimmed.Split(':')[0].Trim();
-                        // 检查前一行是否为「相同缩进 + 相同键」（重复键）
-                        bool dup = false;
-                        if (kept.Count > 0)
-                        {
-                            string prev = kept[kept.Count - 1];
-                            if (!string.IsNullOrWhiteSpace(prev) && !prev.TrimStart().StartsWith("#"))
-                            {
-                                int prevIndent = prev.Length - prev.TrimStart().Length;
-                                string prevKey = prev.TrimEnd().Split(':')[0].Trim();
-                                if (prevIndent == indent && prevKey == key)
-                                {
-                                    dup = true;
-                                }
-                            }
-                        }
-                        if (dup) { removed++; continue; }
-                        kept.Add(line);
-                    }
+                    // 重复键去重收敛到 RepairContract.RemoveDuplicateYamlKeys（单一真源，
+                    // 修复旧内联实现把列表项 `- foo` 误判为重复键而删除的缺陷）。
+                    int removed;
+                    string[] repaired = RepairContract.RemoveDuplicateYamlKeys(File.ReadAllLines(settingsPath), out removed);
                     if (removed > 0)
                     {
-                        File.WriteAllLines(settingsPath, kept.ToArray(), new UTF8Encoding(false));
+                        File.WriteAllLines(settingsPath, repaired, new UTF8Encoding(false));
                         results.Add("settings.yaml 已移除 " + removed + " 处重复键");
                     }
                 }
@@ -3160,41 +3131,13 @@ namespace DSHHotplugHub
             {
                 try
                 {
-                    string[] lines = File.ReadAllLines(credPath);
-                    bool hasWrap = false;
-                    foreach (string l in lines)
+                    // 包裹层扁平化收敛到 RepairContract.FlattenCredentialsYaml（单一真源，
+                    // 修复旧实现把「仅 version 无 refs」的合法扁平凭证误判为包裹而销毁的缺陷）。
+                    bool flattened;
+                    string[] repaired = RepairContract.FlattenCredentialsYaml(File.ReadAllLines(credPath), out flattened);
+                    if (flattened)
                     {
-                        string t = l.TrimEnd();
-                        if (t.TrimStart().StartsWith("version:") || t.TrimStart().StartsWith("refs:"))
-                        {
-                            hasWrap = true;
-                            break;
-                        }
-                    }
-                    if (hasWrap)
-                    {
-                        List<string> outLines = new List<string>();
-                        foreach (string l in lines)
-                        {
-                            string t = l.TrimEnd();
-                            string ts = t.TrimStart();
-                            if (ts.StartsWith("version:") || ts.StartsWith("refs:")) continue;
-                            // refs 下的缩进 key 提升到顶层
-                            int indent = t.Length - ts.Length;
-                            if (indent >= 2 && ts.Contains(":"))
-                            {
-                                outLines.Add(ts);
-                            }
-                            else if (!string.IsNullOrWhiteSpace(t) && !ts.StartsWith("#"))
-                            {
-                                outLines.Add(ts);
-                            }
-                            else if (string.IsNullOrWhiteSpace(t))
-                            {
-                                // 跳过空行
-                            }
-                        }
-                        File.WriteAllLines(credPath, outLines.ToArray(), new UTF8Encoding(false));
+                        File.WriteAllLines(credPath, repaired, new UTF8Encoding(false));
                         results.Add(".credentials.yaml 已扁平化为凭证映射");
                     }
                 }

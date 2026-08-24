@@ -4,8 +4,10 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.IO.Compression;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using DSHHotplugHub;
 
 namespace DSHHotplugHubInstaller
 {
@@ -105,6 +107,7 @@ namespace DSHHotplugHubInstaller
                 progress.Value = 5;
 
                 Directory.CreateDirectory(target);
+                WriteInstallRegistry(target);
 
                 string[] folders = new string[]
                 {
@@ -185,7 +188,10 @@ namespace DSHHotplugHubInstaller
         private static string DeployRuntime(string target)
         {
             string nodeVer = RunCli("node", "--version");
-            string pnpmVer = RunCli("pnpm", "--version");
+            // pnpm 在 Windows 上常为 pnpm.cmd / pnpm.ps1，UseShellExecute=false 直接 spawn "pnpm"
+            // 只会解析原生 .exe → 误判「未安装」并重复部署内置 pnpm、抢占 PATH。经 cmd.exe /c 解析
+            // 才能识别 npm 全局安装的 pnpm.cmd（与 Main.cs GetPnpmVersion 语义一致）。
+            string pnpmVer = RunCli("cmd.exe", "/c pnpm --version");
             if (!string.IsNullOrEmpty(nodeVer) && !string.IsNullOrEmpty(pnpmVer))
             {
                 return "✔ 检测到已存在全局 node " + nodeVer.Trim() + " / pnpm " + pnpmVer.Trim() + "，跳过部署";
@@ -224,6 +230,8 @@ namespace DSHHotplugHubInstaller
         private static void ExtractRuntimeZip(string zipPath, string destDir, string marker)
         {
             string staging = destDir + "_staging" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            string backup = destDir + "_old" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            bool destMoved = false;
             try
             {
                 Directory.CreateDirectory(staging);
@@ -240,13 +248,27 @@ namespace DSHHotplugHubInstaller
                 {
                     throw new Exception("负载解压后未找到 " + marker + "（" + Path.GetFileName(zipPath) + "）");
                 }
-                if (Directory.Exists(destDir)) DeleteDirectoryQuiet(destDir);
+                // 原子替换：旧目录先改名腾位（同卷 rename 原子），staging 就位后再清理旧目录。
+                // 修复旧「DeleteDirectoryQuiet 吞异常 + Directory.Move」：旧运行时被占用时
+                // 半删半留 → 旧负载损坏、新负载被丢弃。
+                if (Directory.Exists(destDir)) { Directory.Move(destDir, backup); destMoved = true; }
                 Directory.Move(staging, destDir);
+            }
+            catch
+            {
+                // 替换失败：恢复被改名腾位的旧目录，避免留下空/损坏的运行时
+                if (destMoved && !Directory.Exists(destDir))
+                {
+                    try { Directory.Move(backup, destDir); } catch { /* 旧负载留在 backup，不丢失 */ }
+                }
+                throw;
             }
             finally
             {
                 if (Directory.Exists(staging)) DeleteDirectoryQuiet(staging);
             }
+            // 成功：清理旧目录（尽力而为，新负载已就位）
+            if (Directory.Exists(backup)) DeleteDirectoryQuiet(backup);
         }
 
         private static void DeleteDirectoryQuiet(string dir)
@@ -254,7 +276,9 @@ namespace DSHHotplugHubInstaller
             try { System.IO.Directory.Delete(dir, true); } catch { }
         }
 
-        // 与 Main.cs RunCli 同一语义：UseShellExecute=false → 只解析原生 .exe；找不到返回 null
+        // 与 Main.cs RunCli 同一语义：UseShellExecute=false → 只解析原生 .exe；找不到返回 null。
+        // 先异步接管 stdout/stderr 再等退出：ReadToEnd() 无限阻塞且 stderr 不读会写满缓冲区死锁，
+        // 超时后 Kill 脱身（与 Main.cs RunCli 对齐，修复此处旧的「ReadToEnd 先于 WaitForExit」死锁）。
         private static string RunCli(string fileName, string arguments)
         {
             try
@@ -266,9 +290,14 @@ namespace DSHHotplugHubInstaller
                 psi.CreateNoWindow = true;
                 using (Process p = Process.Start(psi))
                 {
-                    string output = p.StandardOutput.ReadToEnd().Trim();
-                    p.WaitForExit(5000);
-                    return output;
+                    Task<string> stdout = p.StandardOutput.ReadToEndAsync();
+                    Task<string> stderr = p.StandardError.ReadToEndAsync();
+                    if (!p.WaitForExit(5000))
+                    {
+                        try { p.Kill(); } catch { /* 尽力而为 */ }
+                        try { p.WaitForExit(2000); } catch { /* 尽力而为 */ }
+                    }
+                    return stdout.Status == TaskStatus.RanToCompletion ? stdout.Result.Trim() : "";
                 }
             }
             catch
@@ -291,15 +320,12 @@ namespace DSHHotplugHubInstaller
                     if (v != null) userPath = v.ToString();
                 }
             }
-            var parts = new List<string>();
-            foreach (string p in userPath.Split(';'))
-            {
-                if (!string.IsNullOrEmpty(p) && !parts.Contains(p)) parts.Add(p);
-            }
-            if (!parts.Contains(dir)) parts.Insert(0, dir);
+            // 去重 + 前置插入收敛到 InstallUninstallContract.MergePathEntry（单一真源：
+            // 忽略大小写 + 归一尾随反斜杠；旧 `parts.Contains(p)` 区分大小写 → 重装注入重复条目）
+            userPath = InstallUninstallContract.MergePathEntry(userPath, dir);
             using (RegistryKey k = Registry.CurrentUser.CreateSubKey(envKey))
             {
-                k.SetValue("Path", string.Join(";", parts), RegistryValueKind.ExpandString);
+                k.SetValue("Path", userPath, RegistryValueKind.ExpandString);
             }
         }
 
@@ -309,6 +335,20 @@ namespace DSHHotplugHubInstaller
             {
                 k.SetValue(name, value, RegistryValueKind.ExpandString);
             }
+        }
+
+        // 记录安装目录到 HKCU\Software\DSH-Hotplug-Hub，供卸载器定位自定义安装路径
+        // （修复「非默认目录 + 程序未运行」时卸载器检测失败、残留主程序与 PATH 悬空条目）
+        private static void WriteInstallRegistry(string target)
+        {
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.CreateSubKey(@"Software\DSH-Hotplug-Hub"))
+                {
+                    k.SetValue("InstallDir", target, RegistryValueKind.String);
+                }
+            }
+            catch { /* 注册表写入失败不阻塞安装 */ }
         }
 
         private static void CopyDirectory(string source, string target)

@@ -348,7 +348,13 @@ public static class PureHelpers
             string name = part.Trim();
             if (name.Length > 0 && name != "*" && !name.Equals("all", StringComparison.OrdinalIgnoreCase))
             {
-                result.Add(name);
+                // 去重（不区分大小写）：修复 `/KeepPresets=a,A` 产生重复条目
+                bool dup = false;
+                foreach (string existing in result)
+                {
+                    if (existing.Equals(name, StringComparison.OrdinalIgnoreCase)) { dup = true; break; }
+                }
+                if (!dup) result.Add(name);
             }
         }
         return result;

@@ -209,11 +209,53 @@ jobs:
           & $env:RUNNER_TEMP\ShellContractTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Compile & run RepairContract 契约测试（配置修复：settings.yaml 去重 / .credentials.yaml 扁平化）
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\RepairContractTests.exe /reference:System.dll release\src\RepairContract.cs release\tests\RepairContractTests.cs
+          & $env:RUNNER_TEMP\RepairContractTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile & run InstallUninstallContract 契约测试（PATH 条目 / 名称匹配）
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\InstallUninstallContractTests.exe /reference:System.dll release\src\InstallUninstallContract.cs release\tests\InstallUninstallContractTests.cs
+          & $env:RUNNER_TEMP\InstallUninstallContractTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile & run 卸载器 Core 契约测试（引号 / 名称列表 / 名称匹配 / 变体目录）
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\CoreTests.exe /reference:System.dll uninstaller\dsh-desktop\DSH_Desktop_Uninstaller.Core.cs uninstaller\dsh-desktop\tests\CoreTests.cs
+          & $env:RUNNER_TEMP\CoreTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Compile Main.cs（WebView2 引用，语法完整性）
         shell: pwsh
         run: |
           $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\MainCheck.exe /reference:System.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:release\Microsoft.Web.WebView2.Core.dll" "/reference:release\Microsoft.Web.WebView2.WinForms.dll" release\src\PatchContract.cs release\src\ShellContract.cs release\src\Main.cs
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\MainCheck.exe /reference:System.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:release\Microsoft.Web.WebView2.Core.dll" "/reference:release\Microsoft.Web.WebView2.WinForms.dll" release\src\PatchContract.cs release\src\ShellContract.cs release\src\RepairContract.cs release\src\Main.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile 安装器 / 卸载器（语法完整性；Setup.cs + 两个卸载器 + 契约）
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          # release/src/Setup.cs（DseamWorld 安装器，内嵌资源版）
+          & $csc /nologo /target:winexe /out:$env:RUNNER_TEMP\DseamSetupCheck.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll release\src\Setup.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # installer/Setup.cs（仓库复制版安装器 + PATH 契约）
+          & $csc /nologo /target:winexe /out:$env:RUNNER_TEMP\InstallerCheck.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll installer\Setup.cs release\src\InstallUninstallContract.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # uninstaller/dsh-desktop（全部 .cs）
+          $dsd = @(Get-ChildItem uninstaller\dsh-desktop\*.cs | Sort-Object Name | ForEach-Object { $_.FullName })
+          & $csc /nologo /target:winexe /out:$env:RUNNER_TEMP\UninstallDshDesktopCheck.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Management.dll $dsd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # uninstaller/hotplug-hub（+ PATH 契约 + WMI）
+          & $csc /nologo /target:winexe /out:$env:RUNNER_TEMP\UninstallHotplugCheck.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Management.dll uninstaller\hotplug-hub\Uninstall_Hotplug_Hub.cs release\src\InstallUninstallContract.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Working tree clean
@@ -255,6 +297,14 @@ jobs:
         shell: pwsh
         run: pwsh -File installer/build-installer.ps1
 
+      - name: Build DSH 桌面卸载器
+        shell: pwsh
+        run: pwsh -File uninstaller/dsh-desktop/build-uninstaller.ps1
+
+      - name: Build DSH-Hotplug-Hub 卸载器
+        shell: pwsh
+        run: pwsh -File uninstaller/hotplug-hub/build-uninstaller.ps1
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -262,3 +312,5 @@ jobs:
           path: |
             release/DSH-Hotplug-Hub.exe
             installer/Setup.exe
+            uninstaller/dsh-desktop/build/Uninstall_DSH_Desktop.exe
+            uninstaller/hotplug-hub/Uninstall_Hotplug_Hub.exe

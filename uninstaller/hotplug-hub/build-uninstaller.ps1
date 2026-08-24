@@ -6,6 +6,7 @@ $uninstallerDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # 本脚本位于 uninstaller/hotplug-hub/，项目根需上溯两级
 $projectRoot = Split-Path -Parent (Split-Path -Parent $uninstallerDir)
 $src = Join-Path $uninstallerDir 'Uninstall_Hotplug_Hub.cs'
+$contract = Join-Path $projectRoot 'release\src\InstallUninstallContract.cs'
 $icon = Join-Path $projectRoot 'release\src\app.ico'
 $tmpOut = Join-Path $uninstallerDir 'Uninstall_Hotplug_Hub_new.exe'
 $finalOut = Join-Path $uninstallerDir 'Uninstall_Hotplug_Hub.exe'
@@ -27,7 +28,7 @@ if (-not ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -a
 }
 
 Write-Host "编译: $src"
-& $csc /nologo /target:winexe "/out:$tmpOut" "/r:$fwDir\System.Windows.Forms.dll" "/r:$fwDir\System.Drawing.dll" $src
+& $csc /nologo /target:winexe "/out:$tmpOut" "/r:$fwDir\System.Windows.Forms.dll" "/r:$fwDir\System.Drawing.dll" "/r:$fwDir\System.Management.dll" $src $contract
 if ($LASTEXITCODE -ne 0) { throw "编译失败, exit=$LASTEXITCODE" }
 
 Write-Host "嵌入图标: $icon"

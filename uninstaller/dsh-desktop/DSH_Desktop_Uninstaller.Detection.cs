@@ -365,8 +365,7 @@ partial class DSHDesktopUninstaller
 
     static string ResolveVariantLabelFromRegistryEntry(string keyName, string displayName, string publisher, string urlInfoAbout, string pathForHeuristic)
     {
-        // 1) Display names that are unique to one repo win first (several repos
-        //    share appIds or contain each other's substrings).
+        // 1) 显示名唯一标识（仅无歧义 marker；共享显示名交给下面精确 appId）
         if (!string.IsNullOrWhiteSpace(displayName))
         {
             string dn = displayName.Trim();
@@ -374,6 +373,20 @@ partial class DSHDesktopUninstaller
             if (dn.IndexOf("DSH Desktop Hub", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 FlashingChen/dsh-desktop-hub";
             if (dn.IndexOf("DshCockpit", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 Lxiayu/DshCockpit";
             if (dn.IndexOf("DSH-Web", StringComparison.OrdinalIgnoreCase) >= 0 || dn.IndexOf("dsh-web", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 ding7015869-alt/dsh-web-desktop";
+        }
+
+        // 2) 精确 uninstall-key appId 权威判定（修复旧实现先做共享显示名子串匹配，
+        //    使「DeepSeek Harness Desktop」「DSH Desktop」「DSHDesktop」恒坍缩到一个仓库）
+        if (!string.IsNullOrWhiteSpace(keyName))
+        {
+            string label;
+            if (KnownAppIdLabels.TryGetValue(keyName, out label)) return label;
+        }
+
+        // 3) 共享/模糊显示名兜底（仅用于无 appId 的变体）
+        if (!string.IsNullOrWhiteSpace(displayName))
+        {
+            string dn = displayName.Trim();
             if (dn.IndexOf("DSHDesktop", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 Ackow/dsh-desktop";
             if (dn.IndexOf("DeepSeek Harness Desktop", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 Easyhoov/deepseek-harness-desktop-windows";
             if (dn.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 steven-kid/deepseek-harness-desktop";
@@ -382,16 +395,7 @@ partial class DSHDesktopUninstaller
             if (dn.IndexOf("DSH Desk", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 majiayu000/dsh-desk";
         }
 
-        // 2) Exact uninstall-key appId is authoritative for every repo except
-        //    com.deepseek.dsh.desktop, which both official DSH Desktop and the
-        //    EAC variant use; EAC was already handled above by display name.
-        if (!string.IsNullOrWhiteSpace(keyName))
-        {
-            string label;
-            if (KnownAppIdLabels.TryGetValue(keyName, out label)) return label;
-        }
-
-        // 3) Publisher / URL hints.
+        // 4) Publisher / URL hints.
         if (!string.IsNullOrWhiteSpace(urlInfoAbout))
         {
             string lowerUrl = urlInfoAbout.ToLowerInvariant();
@@ -408,7 +412,7 @@ partial class DSHDesktopUninstaller
             if (lowerUrl.Contains("zouyuxuan122")) return "第三方 zouyuxuan122/Deepseek-Harness-EAC";
         }
 
-        // 4) Path heuristics.
+        // 5) Path heuristics.
         if (!string.IsNullOrWhiteSpace(pathForHeuristic))
         {
             string label = ResolveLabelFromPath(pathForHeuristic);
@@ -565,21 +569,20 @@ partial class DSHDesktopUninstaller
             string env = Environment.GetEnvironmentVariable("DSH_HOME");
             if (!string.IsNullOrWhiteSpace(env))
             {
-                string candidate = env.Trim().TrimEnd('\\');
-                string full = Path.GetFullPath(candidate);
+                string full = Path.GetFullPath(env.Trim());
                 string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
                 string windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
                 string root = Path.GetPathRoot(full);
 
+                string fullNorm = full.TrimEnd('\\');
                 bool isSafe =
                     !string.IsNullOrEmpty(full) &&
-                    !full.Equals(root, StringComparison.OrdinalIgnoreCase) &&
-                    !full.Equals(userProfile, StringComparison.OrdinalIgnoreCase) &&
-                    !full.Equals(windowsDir, StringComparison.OrdinalIgnoreCase) &&
-                    (Path.GetFileName(full).StartsWith(".dsh", StringComparison.OrdinalIgnoreCase) ||
-                     Directory.Exists(Path.Combine(full, ".agent-presets")) ||
-                     Directory.Exists(Path.Combine(full, "sessions")) ||
-                     Directory.Exists(Path.Combine(full, "skills")));
+                    // 修复旧 `env.Trim().TrimEnd('\\')` 使 DSH_HOME="C:\" 被归一为 "C:" →
+                    // GetFullPath 退化为当前目录，绕开盘根守卫 → 可能误删无关目录
+                    !fullNorm.Equals((root ?? "").TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) &&
+                    !fullNorm.Equals(userProfile.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) &&
+                    !fullNorm.Equals(windowsDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) &&
+                    IsLikelyDshHome(full);
 
                 if (isSafe)
                 {
@@ -593,6 +596,24 @@ partial class DSHDesktopUninstaller
         }
 
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh");
+    }
+
+    // DSH 用户数据目录判定：目录名以 .dsh 开头，或至少含两个 DSH 特征目录
+    // （修复旧「任一特征目录即认定」的弱 OR：仅含 skills 的无关目录会被误删）。
+    static bool IsLikelyDshHome(string dir)
+    {
+        try
+        {
+            if (!Directory.Exists(dir)) return false;
+            string name = Path.GetFileName(dir.TrimEnd('\\'));
+            if (name.StartsWith(".dsh", StringComparison.OrdinalIgnoreCase)) return true;
+            int markers = 0;
+            if (Directory.Exists(Path.Combine(dir, ".agent-presets"))) markers++;
+            if (Directory.Exists(Path.Combine(dir, "sessions"))) markers++;
+            if (Directory.Exists(Path.Combine(dir, "skills"))) markers++;
+            return markers >= 2;
+        }
+        catch { return false; }
     }
 #endregion
 

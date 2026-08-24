@@ -15,6 +15,8 @@ $main = Join-Path $srcDir 'Main.cs'
 $patchContract = Join-Path $srcDir 'PatchContract.cs'
 # 托盘/窗口状态契约（ShellContract）同样与 Main.cs 同编译单元
 $shellContract = Join-Path $srcDir 'ShellContract.cs'
+# 配置修复契约（RepairContract：settings.yaml 去重 / .credentials.yaml 扁平化）
+$repairContract = Join-Path $srcDir 'RepairContract.cs'
 $out = Join-Path $root 'DSH-Hotplug-Hub.exe'
 
 # WebView2 托管 DLL 与原生 Loader（从本机 Office/OfficePLUS 复制，避免联网）
@@ -53,7 +55,8 @@ $args = @(
   '/reference:System.Web.Extensions.dll',
   $main,
   $patchContract,
-  $shellContract
+  $shellContract,
+  $repairContract
 )
 & $csc $args
 if ($LASTEXITCODE -ne 0) { throw "编译失败，exit=$LASTEXITCODE" }
