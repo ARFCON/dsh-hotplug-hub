@@ -141,17 +141,22 @@ describe('gateway.aiChat（参数归一化）', () => {
 
   it('落盘失败 warning 透传到 data.warning', async () => {
     const { chmodSync } = await import('node:fs')
+    const { dirname } = await import('node:path')
     stubFetch(async () => reply(JSON.stringify(VALID_PACK)))
     const first = await gateway.aiChat({ input: '做笔记', apiKey: KEY })
     const file = join(iso.dshHome, 'hotplug-hub', 'ai-sessions', first.data.session.id + '.json')
-    chmodSync(file, 0o444)
+    // 平台差异见 ai.test.mjs 同名用例：Windows 锁文件，POSIX 锁会话目录
+    const target = process.platform === 'win32' ? file : dirname(file)
+    const locked = process.platform === 'win32' ? 0o444 : 0o555
+    const unlocked = process.platform === 'win32' ? 0o666 : 0o755
+    chmodSync(target, locked)
     try {
       stubFetch(async () => reply('好的～'))
       const r = await gateway.aiChat({ input: '继续', apiKey: KEY, sessionId: first.data.session.id })
       expect(r.ok).toBe(true)
       expect(r.data.warning).toContain('保存失败')
     } finally {
-      chmodSync(file, 0o666)
+      chmodSync(target, unlocked)
     }
   })
 })

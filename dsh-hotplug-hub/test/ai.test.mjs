@@ -1025,12 +1025,17 @@ describe('会话级互斥（同 sessionId 并发不丢更新）', () => {
 })
 
 describe('落盘失败告警（磁盘错误不静默）', () => {
-  it('会话文件只读 → 第二轮返回 warning，会话内容仍在响应中可用', async () => {
+  it('会话落盘被拒 → 第二轮返回 warning，会话内容仍在响应中可用', async () => {
     const { chmodSync } = await import('node:fs')
     stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
     const first = await aiChat('做笔记', { apiKey: KEY })
     const file = join(sessionsDir(), first.session.id + '.json')
-    chmodSync(file, 0o444) // Windows：只读属性 → rename 覆盖失败
+    // 平台差异：Windows 只读文件可阻断 rename 覆盖；POSIX rename 只需目录写权限，
+    // 须锁会话目录（0555 → tmp 创建 EACCES）。读取不受影响（loadSession 正常）。
+    const target = process.platform === 'win32' ? file : sessionsDir()
+    const locked = process.platform === 'win32' ? 0o444 : 0o555
+    const unlocked = process.platform === 'win32' ? 0o666 : 0o755
+    chmodSync(target, locked)
     try {
       stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: '好的～' } }] }) }))
       const r = await aiChat('继续', { apiKey: KEY, sessionId: first.session.id })
@@ -1038,7 +1043,7 @@ describe('落盘失败告警（磁盘错误不静默）', () => {
       expect(r.warning).toContain('保存失败')
       expect(r.reply).toBe('好的～')
     } finally {
-      chmodSync(file, 0o666)
+      chmodSync(target, unlocked)
     }
   })
 })
