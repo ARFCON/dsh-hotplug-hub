@@ -132,9 +132,12 @@ describe('可疑点 5：validateSourcePath 绝对路径/盘符/UNC/尾斜杠/超
       expect(validateSourcePath(p).ok, JSON.stringify(p)).toBe(false);
     }
   });
-  it('观察：单前导反斜杠根路径（\\server\\share）被接受——非 UNC，是当前盘根相对路径', () => {
-    // path.isAbsolute 视 '\server\share' 为绝对（当前盘根），非网络路径；UNC 检测只拦双反斜杠
-    expect(validateSourcePath('\\server\\share').ok).toBe(true);
+  it('观察：单前导反斜杠根路径（\\server\\share）——Windows 当前盘根、POSIX 非绝对路径', () => {
+    // Windows：path.isAbsolute 视 '\server\share' 为绝对（当前盘根），非网络路径（UNC 只拦双反斜杠）；
+    // POSIX：'\server\share' 不是绝对路径，被「必须绝对路径」规则拒绝。二者都是正确行为。
+    const r = validateSourcePath('\\server\\share');
+    if (process.platform === 'win32') expect(r.ok).toBe(true);
+    else expect(r.ok).toBe(false);
   });
   it('观察：MAX_SOURCE_PATH_LENGTH 按字符计数（4096 字符），非字节', () => {
     // 4096 字符 ≈ 12KB UTF-8 字节（4095 个 CJK + 前导 /），仍被接受——长度预算为字符语义

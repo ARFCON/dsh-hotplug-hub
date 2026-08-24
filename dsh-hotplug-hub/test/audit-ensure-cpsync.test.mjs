@@ -36,9 +36,16 @@ describe('cpSync 与 verifyExtractedTree 的符号链接语义（证伪逃逸 + 
     // 模拟 ensureGithub 的拷贝：cpSync(root, dest, {recursive:true})
     const dest = join(base, 'dest')
     cpSync(root, dest, { recursive: true })
-    // 语义不一致：源里 alias 是符号链接，拷贝后被物化为真实目录（不再是指向根内的链接）
-    expect(lstatSync(join(dest, 'alias')).isSymbolicLink()).toBe(false) // 实际 false（被 dereference）
-    expect(existsSync(join(dest, 'alias', 'a.txt'))).toBe(true)
+    // 语义不一致（平台相关）：Windows 下 junction 被 cpSync 物化（dereference）为真实目录；
+    // POSIX 下符号链接默认原样保留（仍是链接）。二者均是「根内链接」，verifyExtractedTree
+    // 的 realpath 前置校验已阻断越界——此处仅记录 copy 语义与校验语义的差异，无安全逃逸。
+    if (process.platform === 'win32') {
+      expect(lstatSync(join(dest, 'alias')).isSymbolicLink()).toBe(false) // junction 被物化
+      expect(existsSync(join(dest, 'alias', 'a.txt'))).toBe(true)
+    } else {
+      expect(lstatSync(join(dest, 'alias')).isSymbolicLink()).toBe(true) // 符号链接保留
+      expect(existsSync(join(dest, 'alias', 'a.txt'))).toBe(true)
+    }
     rmSync(base, { recursive: true, force: true })
   })
 

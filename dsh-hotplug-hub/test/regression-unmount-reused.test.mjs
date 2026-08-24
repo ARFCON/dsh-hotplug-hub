@@ -23,12 +23,13 @@ beforeEach(() => {
 })
 afterEach(() => { if (restoreEnv) restoreEnv(); if (iso) iso.cleanup() })
 
-/** 假 pnpm remove：删除指定 name 的 node_modules 目录与 manifest.dependencies 条目。 */
+/** 假 pnpm remove：删除指定 name 的 node_modules 目录与 manifest.dependencies 条目。
+ *  POSIX 下 argv.slice(2) 会含 'remove' 本身，须过滤（Windows 下 'remove' 是脚本名，已跳过）。 */
 function removeScript() {
   return [
     "const fs = require('fs');",
     "const path = require('path');",
-    "const names = process.argv.slice(2);",
+    "const names = process.argv.slice(2).filter((a) => a !== 'remove' && !a.startsWith('-'));",
     "const pkg = path.join(process.cwd(), 'package.json');",
     "const m = JSON.parse(fs.readFileSync(pkg, 'utf8'));",
     "m.dependencies = m.dependencies || {};",
@@ -40,7 +41,8 @@ function removeScript() {
 
 function writePnpmPosix(script) {
   const exe = join(iso.dshHome, 'pnpm')
-  writeFileSync(exe, script.replace('__NODE_BIN__', process.execPath))
+  // 必须带 shebang：PATH 被隔离（无 node），内核靠绝对 shebang 定位 node 执行脚本
+  writeFileSync(exe, `#!${process.execPath}\n` + script)
   chmodSync(exe, 0o755)
 }
 
