@@ -6,8 +6,9 @@
  *
  * 装配：
  *  - MemoryStore（hubDir 默认 $DSH_HOME/memory-hub）+ MemoryHubService（注入 writePolicy gate）
- *  - 工具：memory.search / commit / suggest / list / forget / audit
- *  - 冻结快照段（systemPrompt.section，WeakMap 按 Session 冻结，budget 截断）
+ *  - 工具：memory.search / commit / suggest / update / list / forget / audit / log
+ *          / review_status / review_done
+ *  - 冻结快照段（systemPrompt.section，WeakMap 按 Session 冻结，预算只钳动态头）
  *  - /memory 命令（commands 服务存在时）
  *
  * 设计红线：业务逻辑全部在 lib/（零 DSH 依赖）；本文件只做装配与 DSH API 桥接。
@@ -18,7 +19,9 @@ import {
 } from './constants.mjs'
 import { MemoryStore, defaultHubDir, isExpired } from './store.mjs'
 import { MemoryHubService } from './service.mjs'
+import { pinnedLineOf } from './protocol.mjs'
 import { buildMemoryApi } from './webapi.mjs'
+import { truncateCodePoints } from './bm25.mjs'
 import { NotFoundError } from './errors.mjs'
 
 export const name = 'dsh-memory-hub'
@@ -34,7 +37,7 @@ function defaultConfig(config) {
   cfg.writePolicy = ['ask', 'auto', 'off'].includes(cfg.writePolicy) ? cfg.writePolicy : 'ask'
   cfg.snapshotOrder = Number.isFinite(cfg.snapshotOrder) ? cfg.snapshotOrder : 50
   cfg.snapshotChars = pos(cfg.snapshotChars, DEFAULTS.snapshotChars)
-  cfg.searchLimit = pos(cfg.searchLimit, DEFAULTS.searchLimit)
+  cfg.searchLimit = Math.min(pos(cfg.searchLimit, DEFAULTS.searchLimit), DEFAULTS.searchLimitMax)
   cfg.reviewEveryTurns = pos(cfg.reviewEveryTurns, 8)
   cfg.tailMaxNotices = pos(cfg.tailMaxNotices, DEFAULTS.tailMaxNotices)
   cfg.tailMaxChars = pos(cfg.tailMaxChars, DEFAULTS.tailMaxChars)
@@ -83,7 +86,7 @@ function buildTools(service, config) {
 
   tools.push(defineTool({
     name: 'memory.commit',
-    description: `Record a durable fact into the memory hub (dsh-memory-hub). Under writePolicy=ask (default) this creates a PENDING proposal that a human must adopt via /memory review — AI proposes, the user decides, nothing is written unapproved. Provide title + body (or description) of something worth remembering across sessions. Returns the proposal id or the written entry.`,
+    description: `Record a durable fact into the memory hub (dsh-memory-hub). Under writePolicy=ask (default) this creates a PENDING proposal that a human must adopt via /memory proposals → adopt — AI proposes, the user decides, nothing is written unapproved. Provide title + body (or description) of something worth remembering across sessions. Returns the proposal id or the written entry.`,
     parameters: {
       title: { type: 'string', required: true, description: 'Short title (also used to derive the entry name).' },
       body: { type: 'string', description: 'Markdown fact body. Use body OR description.' },
@@ -92,7 +95,7 @@ function buildTools(service, config) {
       keywords: { type: 'array', items: { type: 'string' }, description: 'Bilingual synonyms/aliases for retrieval (title/description/keywords).' },
       subjectKey: { type: 'string', description: 'Dot-notated key; one active value per subject. Empty = none.' },
       activation: { type: 'string', enum: ['relevant', 'pinned'], description: 'pinned = enters the stable system-prompt snapshot (budget-limited).' },
-      volatility: { type: 'string', enum: ['evergreen', 'stable', 'volatile'], description: 'Default stable.' },
+      volatility: { type: 'string', enum: ['evergreen', 'stable', 'volatile'], description: 'Freshness window preset; default = by type.' },
       expiresAt: { type: 'string', description: 'Hard expiry (YYYY-MM-DD or ISO). Expired entries stop auto-recall.' },
       pack: { type: 'string', description: 'Memory pack id; default = keyword-routed/fallback pack.' },
     },
@@ -115,13 +118,13 @@ function buildTools(service, config) {
       if (res.approved && res.entry) {
         return `已写入记忆：${res.entry.name}（id ${res.entry.id}，revision ${res.entry.revision}）`
       }
-      return `已创建待确认提案：${res.proposalId}（writePolicy=ask，等待用户 /memory review 采纳）`
+      return `已创建待确认提案：${res.proposalId}（writePolicy=ask，等待用户 /memory proposals 采纳）`
     },
   }))
 
   tools.push(defineTool({
     name: 'memory.suggest',
-    description: `Propose a memory fact for human review (always goes to the pending proposal queue — never writes directly). Use when the agent believes a fact is worth remembering but is not certain.`,
+    description: `Propose a memory fact for human review (always goes to the pending proposal queue — never writes directly, even under writePolicy=auto). Use when the agent believes a fact is worth remembering but is not certain.`,
     parameters: {
       title: { type: 'string', required: true, description: 'Short title.' },
       body: { type: 'string', description: 'Markdown fact body.' },
@@ -142,13 +145,13 @@ function buildTools(service, config) {
         },
         reason: args.reason,
       })
-      return `已提案：${res.proposalId}（待确认）`
+      return `已提案：${res.proposalId}（待确认，/memory proposals 查看）`
     },
   }))
 
   tools.push(defineTool({
     name: 'memory.update',
-    description: `Update a memory entry by id (title/body/description/keywords/type). Under writePolicy=ask (default) this creates a pending proposal like memory.commit; once approved the entry revision+1 and updatedAt refreshes. Use when the user corrects, edits, or asks to modify a remembered fact.`,
+    description: `Update a memory entry by id (title/body/description/keywords/type). Under writePolicy=ask (default) this creates a pending proposal like memory.commit; once approved the entry revision+1 and updatedAt refreshes. Fields you omit are preserved (activation/subjectKey/expiresAt etc. never silently wiped). Use when the user corrects, edits, or asks to modify a remembered fact.`,
     parameters: {
       id: { type: 'string', required: true, description: 'Entry id (mem-...) to update.' },
       title: { type: 'string', description: 'New title.' },
@@ -163,23 +166,16 @@ function buildTools(service, config) {
     execute: async (args) => {
       const found = service.store.findById(String(args.id ?? ''))
       if (found === null) throw new NotFoundError(`条目不存在：${args.id}`)
-      const prev = found.entry
-      const res = await service.submit({
-        action: 'update',
-        packId: found.packId,
-        entry: {
-          id: prev.id,
-          name: prev.name,
-          title: args.title !== undefined ? String(args.title) : prev.title,
-          body: args.body !== undefined ? String(args.body) : prev.body,
-          description: args.description !== undefined ? String(args.description) : prev.description,
-          keywords: Array.isArray(args.keywords) ? args.keywords : prev.keywords,
-          type: args.type !== undefined ? args.type : prev.type,
-        },
-        reason: 'memory.update',
-      })
+      // 只传显式提供的字段：协议层 mergeEntry 按「显式覆盖、其余保留 prev」合并。
+      const intent = { id: found.entry.id }
+      if (args.title !== undefined) intent.title = String(args.title)
+      if (args.body !== undefined) intent.body = String(args.body)
+      if (args.description !== undefined) intent.description = String(args.description)
+      if (Array.isArray(args.keywords)) intent.keywords = args.keywords
+      if (args.type !== undefined) intent.type = args.type
+      const res = await service.submit({ action: 'update', packId: found.packId, entry: intent, reason: 'memory.update' })
       if (res.approved && res.entry) return `已更新记忆：${res.entry.name}（id ${res.entry.id}，revision ${res.entry.revision}）`
-      return `已创建更新提案：${res.proposalId}（writePolicy=ask，等待用户 /memory review 采纳）`
+      return `已创建更新提案：${res.proposalId}（writePolicy=ask，等待用户 /memory proposals 采纳）`
     },
   }))
 
@@ -190,7 +186,7 @@ function buildTools(service, config) {
       what: { type: 'string', enum: ['entries', 'packs', 'proposals', 'archived'], description: 'What to list. Default entries.' },
       pack: { type: 'string', description: 'Scope to a pack.' },
       status: { type: 'string', enum: ['pending', 'adopted', 'rejected', 'any'], description: 'Proposal status filter.' },
-      limit: { type: 'number', description: 'Max items.' },
+      limit: { type: 'number', description: 'Max items (1-200, default 50; applies to every what).' },
     },
     output: TEXT_OUTPUT,
     timeoutMs: 10_000,
@@ -198,22 +194,23 @@ function buildTools(service, config) {
     execute: (args) => {
       const what = args.what ?? 'entries'
       const pack = args.pack
-      const limit = Math.min(Number(args.limit) || 50, 200)
+      // limit 钳制到 [1,200]：负数/0 此前会让 slice(0, n) 反常掉尾或全丢。
+      const limit = Math.max(1, Math.min(Number(args.limit) || 50, 200))
       const store = service.store
       let data
       if (what === 'packs') {
-        data = store.listPacks().map((p) => ({ memoryPackId: p.memoryPackId, scope: p.scope, keywords: p.keywords, entries: p.entries }))
+        data = store.listPacks().map((p) => ({ memoryPackId: p.memoryPackId, scope: p.scope, keywords: p.keywords, entries: p.entries })).slice(0, limit)
       } else if (what === 'proposals') {
         data = pack
           ? store.listProposals(String(pack), args.status ?? 'pending').slice(0, limit)
           : store.allProposals(args.status ?? 'pending').slice(0, limit)
       } else if (what === 'archived') {
         data = pack
-          ? store.listArchived(String(pack)).map(({ entry }) => ({ ...entrySummary(entry), packId: pack }))
-          : store.allArchived().map(({ packId, entry }) => ({ ...entrySummary(entry), packId }))
+          ? store.listArchived(String(pack)).map(({ entry }) => ({ ...entrySummary(entry), packId: pack })).slice(0, limit)
+          : store.allArchived().map(({ packId, entry }) => ({ ...entrySummary(entry), packId })).slice(0, limit)
       } else {
         data = pack
-          ? store.listEntries(String(pack)).map(entrySummary)
+          ? store.listEntries(String(pack)).map(entrySummary).slice(0, limit)
           : store.allEntries().map(({ packId, entry }) => ({ ...entrySummary(entry), packId })).slice(0, limit)
       }
       return JSON.stringify(data, null, 2)
@@ -244,14 +241,14 @@ function buildTools(service, config) {
     name: 'memory.audit',
     description: 'Read the memory hub audit ledger (who wrote what, outcomes, approval vias).',
     parameters: {
-      limit: { type: 'number', description: 'Max rows.' },
+      limit: { type: 'number', description: 'Max rows (1-500, default 50).' },
       entryId: { type: 'string', description: 'Filter by entry id.' },
     },
     output: TEXT_OUTPUT,
     timeoutMs: 10_000,
     isConcurrencySafe: () => true,
     execute: (args) => {
-      const limit = Math.min(Number(args.limit) || 50, 500)
+      const limit = Math.max(1, Math.min(Number(args.limit) || 50, 500))
       const rows = service.store.auditList({
         limit,
         filter: args.entryId ? (r) => r.entryId === args.entryId : undefined,
@@ -315,33 +312,42 @@ function entrySummary(entry) {
 
 // ---------- 冻结快照段 ----------
 
-/** 按 UTF-16 code unit 截断但绝不在代理对中间切断（emoji/astral 字符不产生孤立代理）。 */
-function truncateCodePoints(s, max) {
-  if (s.length <= max) return s
-  let i = max
-  if (i > 0) {
-    const c = s.charCodeAt(i - 1)
-    if (c >= 0xd800 && c <= 0xdbff) i -= 1
-  }
-  return s.slice(0, i)
+/** 快照 pinned 区块（与 protocol.validatePinnedBudget 同一行格式/头部长度真源）。 */
+function pinnedBlockText(service) {
+  const store = service.store
+  const lines = store.allEntries()
+    .filter(({ entry }) => entry.activation === 'pinned' && !isExpired(entry))
+    .map(({ packId, entry }) => pinnedLineOf(packId, entry))
+  return lines.length === 0 ? '' : '\n\n## 常驻记忆（pinned）\n' + lines.join('\n')
 }
 
 function snapshotText(service, config) {
   const store = service.store
   const entries = store.allEntries()
-  const pinned = entries
-    .filter(({ entry }) => entry.activation === 'pinned' && !isExpired(entry))
-    .map(({ packId, entry }) => `- ${entry.title}${entry.description ? ` — ${entry.description}` : ''} (pack:${packId})`)
-  const header = `${STRINGS.snapshotHeader}\n记忆包：${store.listPacks().map((p) => p.memoryPackId).join(', ') || '（无）'}；活跃条目：${entries.length}；待确认提案：${store.allProposals('pending').length}`
-  let body = `# 记忆\n\n${header}`
-  if (pinned.length > 0) {
-    body += `\n\n## 常驻记忆（pinned）\n${pinned.join('\n')}`
-  }
-  // 预算：先钳住动态部分，固定提示行永远保留（保证前缀稳定 + 引导收尾自动沉淀）。
+  const budget = config.snapshotChars ?? DEFAULTS.snapshotChars
+  const pinnedBlock = pinnedBlockText(service)
   const fixed = `\n\n> ${STRINGS.fixedPromptLine}`
-  const cap = Math.max(0, (config.snapshotChars ?? DEFAULTS.snapshotChars) - fixed.length - 8)
-  if (body.length > cap) body = truncateCodePoints(body, cap) + '…'
-  return body + fixed
+  // 预算分配（FR-14「绝不截断 pinned、固定提示行永不裁掉」）：pinned 与固定行
+  // 全额保留（写时 validatePinnedBudget 已按同口径把关），动态头只吃剩余预算。
+  let pinnedText = pinnedBlock
+  if (pinnedText.length > budget - fixed.length - 8) {
+    // 遗留超预算数据兜底（restore 绕过/旧版本写入的存量）：整行丢弃至装下，
+    // 绝不半行截断；丢弃以省略提示收尾。
+    const header = '\n\n## 常驻记忆（pinned）\n'
+    const lines = pinnedBlock.slice(header.length).split('\n')
+    const kept = []
+    let used = header.length
+    for (const line of lines) {
+      if (used + line.length + 1 > budget - fixed.length - 8 - 24) break
+      kept.push(line)
+      used += line.length + 1
+    }
+    pinnedText = kept.length > 0 ? header + kept.join('\n') + '\n…（其余 pinned 超预算省略）' : ''
+  }
+  let header = `${STRINGS.snapshotHeader}\n记忆包：${store.listPacks().map((p) => p.memoryPackId).join(', ') || '（无）'}；活跃条目：${entries.length}；待确认提案：${store.allProposals('pending').length}`
+  const headerRoom = Math.max(0, budget - fixed.length - 8 - pinnedText.length)
+  if (header.length > headerRoom) header = truncateCodePoints(header, headerRoom) + (headerRoom > 0 ? '…' : '')
+  return header + pinnedText + fixed
 }
 
 // ---------- apply ----------
@@ -349,6 +355,7 @@ function snapshotText(service, config) {
 export function apply(ctx, config) {
   const cfg = defaultConfig(config)
   // 变更通知（M2 尾部注入）：每插件实例独立的有界滚动队列（跨实例不泄漏）。
+  // 通知带单调 seq：时间戳同毫秒的连续变更不再丢通知（tailSeen 按 seq 比对）。
   const changeLog = []
   const pushChange = (change) => {
     changeLog.push(change)
@@ -404,19 +411,22 @@ export function apply(ctx, config) {
       const session = agent && typeof agent === 'object' ? agent.session : null
       if (session === null || session === undefined) return ''
       const seen = tailSeen.get(session) ?? 0
-      const fresh = changeLog.filter((change) => change.at > seen)
+      const fresh = changeLog.filter((change) => (change.seq ?? 0) > seen)
       if (fresh.length === 0) return ''
       const lines = fresh.slice(-(cfg.tailMaxNotices ?? DEFAULTS.tailMaxNotices))
         .map((c) => `- ${c.action} ${c.packId}${c.name ? `/${c.name}` : ''}${c.proposalId ? ` (${c.proposalId})` : ''}`)
       let body = `${STRINGS.tailHeader}\n${lines.join('\n')}`
       if (body.length > (cfg.tailMaxChars ?? DEFAULTS.tailMaxChars)) body = truncateCodePoints(body, cfg.tailMaxChars ?? DEFAULTS.tailMaxChars) + '…'
-      tailSeen.set(session, fresh[fresh.length - 1].at)
+      tailSeen.set(session, fresh[fresh.length - 1].seq ?? 0)
       return body
     },
   }), 'dsh-memory-hub.tail')
 
-  // /memory 命令（commands 服务存在时动态注册；未 inject，用 ctx.get 防抛错）
+  // /memory 命令（commands 服务存在时动态注册；未 inject，用 ctx.get 防抛错）。
+  // 幂等守卫：internal/service 事件重复触发不重复注册（effect disposer 复位标记）。
+  let commandsRegistered = false
   const registerCommands = () => {
+    if (commandsRegistered) return
     let commands
     try {
       commands = ctx.get('commands')
@@ -424,16 +434,28 @@ export function apply(ctx, config) {
       commands = undefined
     }
     if (commands === undefined || typeof commands.register !== 'function') return
-    ctx.effect(() => commands.register({
+    const dispose = commands.register({
       name: 'memory',
-      description: 'DSH 记忆中枢：list|search|proposals|adopt|reject|packs|audit|stats',
+      description: 'DSH 记忆中枢：list|search|proposals|adopt|reject|packs|audit|stats|restore',
       handler: (args, session) => memoryCommand(service, args, session),
-    }), 'dsh-memory-hub.command')
+    })
+    commandsRegistered = true
+    if (typeof dispose === 'function') {
+      disposers.push(dispose)
+    }
   }
+  /** 命令面私有 disposer（commands 非托管 effect 面，手动登记以便卸载即净）。 */
+  const disposers = []
   registerCommands()
   ctx.effect(() => ctx.on('internal/service', (svcName) => {
     if (svcName === 'commands') registerCommands()
   }), 'dsh-memory-hub.command-watch')
+  ctx.effect(() => () => {
+    for (const dispose of disposers.splice(0)) {
+      try { dispose() } catch { /* 卸载容忍 */ }
+    }
+    commandsRegistered = false
+  }, 'dsh-memory-hub.command-cleanup')
 
   // M4 Web 面板数据面：/memory-hub/api/*（webServer 服务存在时挂载；同源 fence）
   mountWebApi(ctx, service)
@@ -461,15 +483,22 @@ async function memoryCommand(service, args) {
       }
       case 'adopt': {
         const [packId, proposalId] = rest
-        if (proposalId === undefined) return '用法：/memory adopt <packId> <proposalId>'
+        if (packId === undefined || proposalId === undefined) return '用法：/memory adopt <packId> <proposalId>'
         const res = await service.adopt(packId, proposalId)
         return `已采纳 ${proposalId}（${res?.result?.id ?? ''}）`
       }
       case 'reject': {
         const [packId, proposalId] = rest
-        if (proposalId === undefined) return '用法：/memory reject <packId> <proposalId>'
+        if (packId === undefined || proposalId === undefined) return '用法：/memory reject <packId> <proposalId>'
         service.reject(packId, proposalId, '用户驳回')
         return `已驳回 ${proposalId}`
+      }
+      case 'restore': {
+        const [packId, ...nameParts] = rest
+        const name = nameParts.join(' ')
+        if (packId === undefined || name === '') return '用法：/memory restore <packId> <name>'
+        const restored = service.restoreArchived(packId, name)
+        return `已恢复 ${restored.name}（id ${restored.id}，revision ${restored.revision}）`
       }
       case 'packs':
         return store.listPacks().map((p) => `- ${p.memoryPackId} (${p.scope}, ${p.entries} entries) keywords:${(p.keywords ?? []).join(',')}`).join('\n')
@@ -484,16 +513,21 @@ async function memoryCommand(service, args) {
           writePolicy: service.config.writePolicy,
         }, null, 2)
       default:
-        return '未知命令。可用：list|search|proposals|adopt|reject|packs|audit|stats'
+        return '未知命令。可用：list|search|proposals|adopt|reject|restore|packs|audit|stats'
     }
   } catch (error) {
     return `错误：${error?.message ?? String(error)}`
   }
 }
 
-export { MemoryHubService, snapshotText, policyGate, truncateCodePoints }
+export { MemoryHubService, snapshotText, policyGate, truncateCodePoints, trustedOrigin }
 
-// ---------- M4 Web 面板：/memory-hub/api/* 挂载（webServer + 同源 fence） ----------
+// ---------- M4 Web 面板：/memory-hub/api/* 挂载（webServer + 同源 fence + 方法白名单） ----------
+
+/** 写端点：仅接受 POST（GET/HEAD 一律 405——杜绝无 Origin 的链接预取触发写）。 */
+const WRITE_API_METHODS = new Set(['update', 'forget', 'adopt', 'reject', 'restore'])
+/** POST body 上限（本机数据面防御性上限，超出 413）。 */
+const MAX_BODY_BYTES = 1024 * 1024
 
 function mountWebApi(ctx, service) {
   if (typeof ctx.inject !== 'function') return
@@ -505,11 +539,18 @@ function mountWebApi(ctx, service) {
         if (!trustedOrigin(req)) {
           return writeJson(res, 403, { ok: false, error: { code: 'forbidden', message: 'forbidden' } })
         }
-        const base = 'http://dsh.internal'
-        const url = new URL(req.url ?? '/', base)
+        let url
+        try {
+          url = new URL(req.url ?? '/', 'http://dsh.internal')
+        } catch {
+          return writeJson(res, 400, { ok: false, error: { code: 'bad-request', message: 'malformed request url' } })
+        }
         const method = url.pathname.startsWith('/memory-hub/api/') ? url.pathname.slice('/memory-hub/api/'.length) : ''
         if (method === '' || method.includes('/')) {
           return writeJson(res, 404, { ok: false, error: { code: 'not-found', message: `unknown api method "${method}"` } })
+        }
+        if (WRITE_API_METHODS.has(method) && req.method !== 'POST') {
+          return writeJson(res, 405, { ok: false, error: { code: 'method-not-allowed', message: `${method} requires POST` } })
         }
         const api = buildMemoryApi(service)
         if (typeof api[method] !== 'function') {
@@ -527,8 +568,10 @@ function mountWebApi(ctx, service) {
         } catch (error) {
           const code = error?.code ?? error?.name ?? 'error'
           const status = (/NOT_FOUND|not-found/i.test(code)) ? 404
-            : (/WRITE_DENIED|BUDGET_EXCEEDED|SUBJECT_CONFLICT|AMBIGUOUS_MATCH/i.test(code)) ? 409
-              : 500
+            : (/PAYLOAD_TOO_LARGE/i.test(code)) ? 413
+              : (/INVALID_INPUT/i.test(code)) ? 400
+                : (/WRITE_DENIED|BUDGET_EXCEEDED|SUBJECT_CONFLICT|AMBIGUOUS_MATCH/i.test(code)) ? 409
+                  : 500
           return writeJson(res, status, { ok: false, error: { code, message: error?.message ?? String(error) } })
         }
       },
@@ -536,18 +579,37 @@ function mountWebApi(ctx, service) {
   })
 }
 
-/** 同源 fence：Origin 存在则须与 Host 一致；无 Origin 时只认本地监听地址。 */
+/**
+ * 同源 fence：Origin 存在则须与 Host 完全一致；Origin: null（沙箱 iframe）一律拒绝；
+ * 无 Origin 时 Host 的主机名（大小写不敏感）必须精确等于 localhost/127.0.0.1/[::1]
+ * （剥端口后全等比较——前缀匹配会被 `localhost.evil.com` / `127.0.0.1.evil.com` 绕过）。
+ */
 function trustedOrigin(req) {
   const host = String(req.headers?.host ?? '')
   const origin = String(req.headers?.origin ?? '')
-  if (origin !== '' && origin !== 'null') {
+  if (origin !== '') {
+    // 沙箱 iframe 的 Origin:null 可发 text/plain 简单请求盲写（无预检）——拒绝
+    if (origin === 'null') return false
     try {
       return new URL(origin).host === host
     } catch {
       return false
     }
   }
-  return host.startsWith('127.0.0.1') || host.startsWith('localhost') || host.startsWith('[::1]')
+  return hostNameOf(host) !== null
+}
+
+/** 从 Host 头剥出主机名（IPv6 [::1]:port / host:port）；非法形态返回 null。 */
+function hostNameOf(host) {
+  if (host === '') return null
+  if (host.startsWith('[')) {
+    const end = host.indexOf(']')
+    if (end === -1) return null
+    const name = host.slice(1, end)
+    return name === '::1' ? name : null
+  }
+  const name = host.split(':', 1)[0].toLowerCase()
+  return name === '127.0.0.1' || name === 'localhost' ? name : null
 }
 
 function writeJson(res, status, body) {
@@ -565,8 +627,26 @@ function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     if (typeof req.body === 'object' && req.body !== null) return resolve(req.body)
     const chunks = []
-    req.on?.('data', (c) => { chunks.push(c) })
+    let size = 0
+    let done = false
+    const tooLarge = () => {
+      if (done) return
+      done = true
+      const error = new Error('request body too large')
+      error.code = 'PAYLOAD_TOO_LARGE'
+      reject(error)
+    }
+    req.on?.('data', (c) => {
+      size += c.length
+      if (size > MAX_BODY_BYTES) {
+        tooLarge()
+        return
+      }
+      chunks.push(c)
+    })
     req.on?.('end', () => {
+      if (done) return
+      done = true
       const raw = Buffer.concat(chunks).toString('utf8')
       if (raw.trim() === '') return resolve({})
       try {
@@ -575,6 +655,10 @@ function readJsonBody(req) {
         reject(error)
       }
     })
-    req.on?.('error', reject)
+    req.on?.('error', (error) => {
+      if (done) return
+      done = true
+      reject(error)
+    })
   })
 }

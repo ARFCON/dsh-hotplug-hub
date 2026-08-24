@@ -69,26 +69,31 @@ export class MemoryHubService extends MemoryProtocolCore {
     return this.submit({ action: 'create', packId, entry: payload.entry, reason: payload.reason ?? 'memory.commit' })
   }
 
-  /** 提案（永远进队列，绝不直写）；未指定 pack 时按内容关键词路由。 */
+  /**
+   * 提案（永远进队列，绝不直写——FR-3）；未指定 pack 时按内容关键词路由。
+   * forceQueue 在协议层 authorize 强制 queued：writePolicy=auto 也不放行。
+   */
   suggest(payload) {
     const packId = payload.pack ?? routePackId(this.store.readRoutes(), packText(payload.entry))
-    return this.submit({ action: 'create', packId, entry: payload.entry, reason: payload.reason ?? 'memory.suggest' })
+    return this.submit({ action: 'create', packId, entry: payload.entry, reason: payload.reason ?? 'memory.suggest', forceQueue: true })
   }
-  /** GUI/用户直接编辑（绕过 ask 提案，操作者=user；面板编辑按钮专用）。 */
+  /** GUI/用户直接编辑（绕过 ask 提案，操作者=user；面板编辑按钮专用）。
+   *  走严格 update 模式：按 id 定位、仅覆盖显式字段、目标缺失即 NotFound。 */
   updateDirect(payload) {
-    const found = this.store.findById(String(payload?.id ?? ''))
-    if (found === null) throw new NotFoundError(`条目不存在：${payload?.id}`)
-    const prev = found.entry
-    const next = {
-      ...prev,
-      title: typeof payload.title === 'string' && payload.title.trim() !== '' ? payload.title.trim().slice(0, 200) : prev.title,
-      body: typeof payload.body === 'string' ? payload.body : prev.body,
-      description: typeof payload.description === 'string' ? payload.description : prev.description,
-      keywords: Array.isArray(payload.keywords) ? payload.keywords.map((k) => String(k).slice(0, 60)) : prev.keywords,
-      type: ['user', 'feedback', 'project', 'reference'].includes(payload.type) ? payload.type : prev.type,
+    if (typeof payload?.id !== 'string' || payload.id === '') {
+      throw new NotFoundError(`条目不存在：${payload?.id}`)
     }
-    const entry = this.applyCreateOrUpdate(found.packId, next)
-    this.auditWrite('update', found.packId, entry.id, { outcome: 'allowed', source: 'user' })
+    const found = this.store.findById(payload.id)
+    if (found === null) throw new NotFoundError(`条目不存在：${payload.id}`)
+    const intent = {}
+    if (typeof payload.title === 'string' && payload.title.trim() !== '') intent.title = payload.title.trim().slice(0, 200)
+    if (typeof payload.body === 'string') intent.body = payload.body
+    if (typeof payload.description === 'string') intent.description = payload.description
+    if (Array.isArray(payload.keywords)) intent.keywords = payload.keywords.map((k) => String(k).slice(0, 60))
+    if (['user', 'feedback', 'project', 'reference'].includes(payload.type)) intent.type = payload.type
+    // GUI 编辑 = 人工核验：lastVerifiedAt 刷新（freshness 快速通道真正可达，bm25 恒 fresh）
+    const entry = this.applyCreateOrUpdate(found.packId, { id: found.entry.id, ...intent, lastVerifiedAt: new Date().toISOString() }, 'update')
+    this.auditWrite('update', found.packId, entry.id, { outcome: 'allowed', source: 'user', operator: 'user' })
     return entry
   }
 
@@ -125,11 +130,20 @@ export class MemoryHubService extends MemoryProtocolCore {
 
   // ----- 回合内自我审查（M3 方案 B：每 N 次变更后提醒沉淀审查）-----
 
-  /** 审查状态：变更计数超阈值（每 memory 写/采纳/拒/归档/恢复）→ due。 */
+  /**
+   * 审查状态：变更计数超阈值（每 memory 写/采纳/拒/归档/恢复）→ due。
+   * changeCount 以 review-state.totalChanges 为种子（跨重启连续，H6）；
+   * markedTurns 钳制到 ≤ 当前计数（旧版持久化的 markedTurns 高于计数时不再压制 due）。
+   * writePolicy 不对模型输出（NFR-2「模型不可见」；GUI 面板经 webapi stats 单独获取）。
+   */
   reviewStatus() {
     const interval = Number.isFinite(this.config.reviewEveryTurns) ? this.config.reviewEveryTurns : REVIEW_EVERY_TURNS
     const state = this.store.readReviewState()
-    const changesSince = this.changeCount - (state.markedTurns ?? 0)
+    // 新格式不变量：markedTurns ≤ totalChanges（reviewDone 两者同时落盘）。
+    // markedTurns > totalChanges（或 totalChanges 缺失=旧格式）⟺ 旧计数纪元的
+    // 不可信残留 → 归零重计（宁可提前审查，不可让虚高 markedTurns 压制 due）。
+    const marked = (state.markedTurns ?? 0) <= (state.totalChanges ?? -1) ? (state.markedTurns ?? 0) : 0
+    const changesSince = this.changeCount - marked
     return {
       due: changesSince >= interval,
       changesSinceReview: Math.max(0, changesSince),
@@ -138,15 +152,17 @@ export class MemoryHubService extends MemoryProtocolCore {
       activeEntries: this.store.allEntries().length,
       pinnedCount: this.store.allEntries().filter(({ entry }) => entry.activation === 'pinned').length,
       lastReviewedAt: state.lastReviewedAt,
-      writePolicy: this.config.writePolicy,
       reviewHint:
         '若 due：在任务收尾静默执行一次记忆审查——把本轮值得长期记住的事实用 memory.suggest 提案（不要直接 commit 绕过确认）。审查完调用 memory.review_done 记录。',
     }
   }
 
-  /** 标记一次审查已完成（持久化 lastReviewedAt + 当前变更计数，重置到期）。 */
+  /** 标记一次审查已完成（持久化 lastReviewedAt + 当前变更计数，重置到期）。
+   *  持写锁：与并发 _postChange 的 review-state 读-改-写互斥（last-write-wins 丢计数）。 */
   reviewDone() {
-    this.store.writeReviewState({ lastReviewedAt: new Date().toISOString(), markedTurns: this.changeCount })
+    this.store.withWriteLock(() => {
+      this.store.writeReviewState({ lastReviewedAt: new Date().toISOString(), markedTurns: this.changeCount, totalChanges: this.changeCount })
+    })
     return { reviewedAt: new Date().toISOString(), changesSinceReview: 0 }
   }
 }

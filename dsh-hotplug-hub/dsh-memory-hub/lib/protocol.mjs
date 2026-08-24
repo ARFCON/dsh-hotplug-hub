@@ -7,7 +7,11 @@
  *  - MemoryHubService 继承本核心，注入 gate（index.mjs 把 writePolicy 裁决接进来）。
  *  - gate 三态：allowed=直写（auto/已确认）；queued=进提案队列（ask 默认）；
  *    rejected=拒绝（denied，Nothing written）——全部落审计。
- *  - 写前 budget 检查、subject 冲突检查、name 唯一化、revision 快照、审计行。
+ *  - 写前 budget 检查、subject 冲突检查、revision 快照、审计行。
+ *
+ * 锁与可重入：公共写方法（applyCreateOrUpdate/applyRemove/restoreArchived/
+ * adopt/reject）各自持跨进程写锁；锁内逻辑拆到 *Locked 核心，供组合写流
+ * （adopt = 改提案状态 + 落条目）在同一把锁内完成，杜绝嵌套自锁。
  */
 import { DEFAULTS, NAME_RE, STRINGS, SUBJECT_KEY_RE } from './constants.mjs'
 import {
@@ -23,19 +27,32 @@ const ENUM = {
   volatilities: ['evergreen', 'stable', 'volatile'],
 }
 
+const ACTIONS = new Set(['create', 'update', 'remove'])
+
 function assertEnum(name, value, allowed) {
-  if (value !== undefined && value !== null && !allowed.includes(value)) {
+  if (value !== undefined && value !== null && value !== '' && !allowed.includes(value)) {
     throw new InvalidInputError(`${name} 非法：${String(value)}（允许 ${allowed.join('/')}）`)
   }
 }
 
+/** 快照渲染的 pinned 单行（与 index.mjs snapshotText 单一真源；预算校验用同一格式）。 */
+export function pinnedLineOf(packId, entry) {
+  return `- ${entry.title}${entry.description ? ` — ${entry.description}` : ''} (pack:${packId})`
+}
+
+/** 快照 pinned 区块头（含首尾换行，长度与渲染一致）。 */
+const PINNED_BLOCK_HEADER = '\n\n## 常驻记忆（pinned）\n'
+/** 固定提示行（渲染时的完整注入形态）。 */
+const FIXED_PROMPT = `\n\n> ${STRINGS.fixedPromptLine}`
+/** 校验时为动态 header（# 记忆/计数行）保留的最小空间（渲染端 header 可被钳制）。 */
+const HEADER_RESERVE = 24
+
 /**
  * @typedef {object} GateResult
  * @property {'allowed'|'queued'|'rejected'|'denied'} outcome
- * @property {'approval'|'gate'|'proposals'} [source]
+ * @property {'approval'|'gate'|'proposals'|'suggest'} [source]
  * @property {string} [detail]
  */
-
 export class MemoryProtocolCore {
   /**
    * @param {object} deps
@@ -43,7 +60,7 @@ export class MemoryProtocolCore {
    * @param {{writePolicy: string, maxPendingProposals?: number, snapshotChars?: number, reviewEveryTurns?: number}} deps.config
    * @param {(payload: object, write: object) => Promise<GateResult>} deps.gate  默认门=ask→queued
    * @param {string} [deps.sourceLabel]  审计 source 标签
-   * @param {(change: {action: string, packId: string, name?: string, proposalId?: string}) => void} [deps.notify]  变更回调（M2 尾部注入）
+   * @param {(change: {seq: number, at: number, action: string, packId: string, name?: string, proposalId?: string}) => void} [deps.notify]  变更回调（M2 尾部注入）
    */
   constructor(deps) {
     this.store = deps.store
@@ -51,46 +68,52 @@ export class MemoryProtocolCore {
     this.sourceLabel = deps.sourceLabel ?? 'memory-hub'
     this.gate = deps.gate ?? (async () => ({ outcome: 'queued', source: 'proposals' }))
     this.notify = typeof deps.notify === 'function' ? deps.notify : null
-    /** 会话内记忆变更计数（M3 审查定级用；跨 restarts 以 review-state.json 存 lastReviewedAt）。 */
-    this.changeCount = 0
+    /**
+     * 会话内记忆变更计数（M3 审查定级用）。种子取 review-state.totalChanges，
+     * 重启后连续（H6 根治：不再从 0 重开导致 markedTurns 压制 due）。
+     */
+    this.changeCount = Math.max(0, Number(this.store.readReviewState().totalChanges) || 0)
+    /** 尾部注入用单调序号（时间戳同毫秒会丢通知，seq 严格递增不丢）。 */
+    this._changeSeq = 0
   }
 
   /**
    * 统一写入口（工具/命令全部走这里）。
-   * @param {object} intent {action:'create'|'update'|'remove', packId?, entry?, reason?}
+   * @param {object} intent {action:'create'|'update'|'remove', packId?, entry?, reason?, forceQueue?}
    * @returns {Promise<{approved: boolean, entry?: object, removed?: object, proposalId?: string}>}
    */
   async submit(intent) {
     const action = intent.action
+    if (!ACTIONS.has(action)) {
+      throw new InvalidInputError(`未知写动作：${String(action)}（允许 create/update/remove）`)
+    }
     const packId = this.resolvePack(intent.packId)
     const entry = intent.entry ?? null
     if (entry !== null) this.validateEntryShape(entry)
 
-    if (action === 'create' || action === 'update') {
-      this.checkPendingBudget()
-    }
+    // 提案队列硬上限对全部动作生效（create/update/remove 提案同池排队）。
+    this.checkPendingBudget()
 
     const write = { action, packId, entryId: entry?.id ?? null, reason: intent.reason ?? '' }
     const result = await this.authorize({
       action, packId, entry: entry === null ? null : { ...entry }, reason: write.reason,
+      forceQueue: intent.forceQueue === true,
     }, write)
 
     if (result.outcome === 'allowed') {
       if (action === 'create' || action === 'update') {
         if (entry === null) throw new InvalidInputError('create/update 必须带 entry')
-        return { approved: true, entry: this.applyCreateOrUpdate(packId, entry) }
+        return { approved: true, entry: this.applyCreateOrUpdate(packId, entry, action) }
       }
-      if (action === 'remove') {
-        const id = entry?.id ?? (typeof intent.id === 'string' ? intent.id : null)
-        if (id === null || !isEntryId(id)) throw new InvalidInputError('remove 必须带合法 entry.id')
-        return { approved: true, removed: this.applyRemove(packId, id) }
-      }
-      throw new InvalidInputError(`未知写动作：${action}`)
+      // remove
+      const id = entry?.id ?? (typeof intent.id === 'string' ? intent.id : null)
+      if (id === null || !isEntryId(id)) throw new InvalidInputError('remove 必须带合法 entry.id')
+      return { approved: true, removed: this.applyRemove(packId, id) }
     }
 
     if (result.outcome === 'queued') {
       const proposal = this.enqueueProposal(packId, { kind: action, entry, reason: write.reason })
-      this._postChange({ action: 'proposal', packId, proposalId: proposal.id, name: entry?.title })
+      this._postChange({ action: 'proposal', packId, proposalId: proposal.id, name: entry?.name })
       return { approved: false, proposalId: proposal.id }
     }
 
@@ -109,10 +132,15 @@ export class MemoryProtocolCore {
       throw new WriteDeniedError('记忆写入已被禁用（writePolicy=off）', { policy: 'off' })
     }
     let result
-    try {
-      result = (await this.gate(payload, write)) ?? { outcome: 'queued', source: 'proposals' }
-    } catch (error) {
-      result = { outcome: 'denied', source: 'approval', detail: String(error?.message ?? error) }
+    if (payload.forceQueue) {
+      // FR-3：suggest 永远进队列，绝不直写（auto 也不放行）；off 已在上面整体拒绝。
+      result = { outcome: 'queued', source: 'suggest' }
+    } else {
+      try {
+        result = (await this.gate(payload, write)) ?? { outcome: 'queued', source: 'proposals' }
+      } catch (error) {
+        result = { outcome: 'denied', source: 'approval', detail: String(error?.message ?? error) }
+      }
     }
     const ok = result.outcome === 'allowed'
     this.auditWrite(write.action, write.packId, write.entryId, {
@@ -128,10 +156,10 @@ export class MemoryProtocolCore {
       action,
       packId: packId ?? null,
       entryId: entryId ?? null,
-      operator: 'agent',
+      operator: via.operator ?? 'agent',
       source: this.sourceLabel,
       outcome: via.outcome,
-      via: via.source,
+      via: via.source ?? null,
       ...extra,
     })
   }
@@ -141,13 +169,21 @@ export class MemoryProtocolCore {
     const pending = this.store.allProposals('pending')
     if (pending.length >= limit) {
       throw new BudgetExceededError(
-        `待确认提案已达上限（${pending.length}/${limit}），请先处理旧提案（memory review）。`,
+        `待确认提案已达上限（${pending.length}/${limit}），请先处理旧提案（/memory proposals → adopt/reject）。`,
         { pending: pending.length, limit },
       )
     }
   }
 
   enqueueProposal(packId, { kind, entry, reason }) {
+    // proposalMaxChars：提案单条字符上限（entry 序列化 + reason），超限拒绝不截断（失败要大声）。
+    const size = JSON.stringify({ entry: entry ?? null, reason: typeof reason === 'string' ? reason : '' }).length
+    if (size > DEFAULTS.proposalMaxChars) {
+      throw new BudgetExceededError(
+        `提案体积超限：${size} > ${DEFAULTS.proposalMaxChars} 字符（proposalMaxChars）。请精简 body/description 后重试。`,
+        { chars: size, limit: DEFAULTS.proposalMaxChars },
+      )
+    }
     return this.store.appendProposal(packId, {
       kind,
       entry: entry === null ? null : { ...entry },
@@ -163,27 +199,30 @@ export class MemoryProtocolCore {
 
   // ----- 落盘（被门放行后） -----
 
-  /** 变更计数 + 通知（尾部注入回调；协议层单一入口，不依赖 DSH）。 */
+  /** 变更计数 + 持久化 + 通知（尾部注入回调；协议层单一入口，不依赖 DSH）。 */
   _postChange(change) {
     this.changeCount += 1
-    this.notify?.({ at: Date.now(), ...change })
+    this._changeSeq += 1
+    try {
+      this.store.bumpReviewTotal(this.changeCount)
+    } catch { /* 计数持久化失败不阻断写主流程（review 定级退化为本进程内计数） */ }
+    this.notify?.({ seq: this._changeSeq, at: Date.now(), ...change })
   }
 
   /**
-   * pinned 预算校验（M2）：若该条目 activation=pinned，估算入前缀字符，
-   * 超 snapshotChars 抛 BUDGET_EXCEEDED（提示常驻规则进指令文件）。
+   * pinned 预算校验（M2）：按快照渲染的【精确】行格式估算（pinnedLineOf 单一真源），
+   * 含区块头与固定提示行——写时校验与渲染端口径一致，"通过校验仍被截断"不再可能。
    * 更新场景排除自身（同名），避免更新自己时误判。
    */
   validatePinnedBudget(packId, entry) {
     if (entry === null || typeof entry !== 'object' || entry.activation !== 'pinned') return
     const budget = Number.isFinite(this.config.snapshotChars) ? this.config.snapshotChars : DEFAULTS.snapshotChars
-    const pad = DEFAULTS.pinnedEstimatePad
-    const est = (e) => String(e.title ?? '').length + String(e.description ?? '').length + pad
-    const current = this.store.allEntries()
+    const lineLen = (e, p) => pinnedLineOf(p, e).length + 1
+    const others = this.store.allEntries()
       .filter(({ entry: e }) => e.activation === 'pinned' && !isExpired(e))
       .filter(({ packId: p, entry: e }) => !(p === packId && e.name === entry.name))
-      .reduce((sum, { entry: e }) => sum + est(e), 0)
-    const total = current + est(entry)
+    const current = others.reduce((sum, { packId: p, entry: e }) => sum + lineLen(e, p), 0)
+    const total = current + lineLen(entry, packId) + PINNED_BLOCK_HEADER.length + FIXED_PROMPT.length + 8 + HEADER_RESERVE
     if (total > budget) {
       throw new BudgetExceededError(
         `pinned 预算超限：常驻记忆估算 ${total} 字符 > ${budget}（snapshotChars）。${STRINGS.pinnedBudgetHint}`,
@@ -192,74 +231,136 @@ export class MemoryProtocolCore {
     }
   }
 
-  applyCreateOrUpdate(packId, entry) {
-    // H-8（v5 阶段 4）：整个 read-check-write 周期持跨进程写锁——两进程并发
-    // 创建同 subjectKey 时，第二个在锁内重读 → SubjectConflictError（放大窗口回归）
-    return this.store.withWriteLock(() => {
-      const normalized = this.normalizeEntry(entry)
-      this.validateEntryShape(normalized)
-      if (this.store.hasEntry(packId, normalized.name)) {
-        // 同名 = 更新（revision+1）。subjectKey 变更时同样要校验冲突：
-        // 把条目从旧 subjectKey 挪到已被他人持有的新 subjectKey 会制造"一 subject 两活跃值"。
-        const prev = this.store.readEntry(packId, normalized.name)
-        const now = new Date().toISOString()
-        this.store.snapshotRevision(packId, prev)
-        const next = {
-          ...prev,
-          updatedAt: now,
-          revision: prev.revision + 1,
-          title: normalized.title ?? prev.title,
-          description: normalized.description ?? prev.description,
-          type: normalized.type ?? prev.type,
-          scope: normalized.scope ?? prev.scope,
-          activation: normalized.activation ?? prev.activation,
-          volatility: normalized.volatility ?? prev.volatility,
-          subjectKey: normalized.subjectKey ?? prev.subjectKey,
-          expiresAt: normalized.expiresAt ?? prev.expiresAt,
-          keywords: normalized.keywords ?? prev.keywords,
-          body: normalized.body ?? prev.body,
-          want: undefined,
-        }
-        this.validatePinnedBudget(packId, next)
-        // 同条目自身持有的 subjectKey 会被 subjectHolder 的 id 比对豁免；变更到他人持有者则抛冲突
-        this.assertSubjectFree(packId, next)
-        this.store.writeEntryFile(packId, next)
-        this.store.rebuildIndex(packId)
-        this.store.syncPackCount(packId)
-        this._postChange({ action: 'update', packId, name: next.name })
-        return next
+  /**
+   * 创建或更新条目（公共入口：持跨进程写锁）。
+   * @param {string} packId
+   * @param {object} entry 写意图
+   * @param {'create'|'update'} mode create=同名合并更新（文档语义）；update=按 id 严格定位（缺失即 NotFound）
+   */
+  applyCreateOrUpdate(packId, entry, mode = 'create') {
+    return this.store.withWriteLock(() => this._applyCreateOrUpdateLocked(packId, entry, mode))
+  }
+
+  _applyCreateOrUpdateLocked(packId, entry, mode) {
+    if (mode === 'update') {
+      // update 语义：按 id 定位既有条目，仅覆盖显式提供的字段；目标缺失（已归档/
+      // 损坏/竞态删除）→ NotFoundError，绝不以 create 分支复活（revision 回跳 +
+      // 活跃/归档双态）。id 必须合法且在本包内。
+      if (!isEntryId(entry?.id)) throw new InvalidInputError('update 必须带合法 entry.id')
+      const found = this.store.findById(entry.id)
+      if (found === null || found.packId !== packId) {
+        throw new NotFoundError(`条目不存在：${entry.id}（pack ${packId}；可能已被归档或删除）`)
       }
-      this.validatePinnedBudget(packId, normalized)
-      this.assertSubjectFree(packId, normalized)
-      this.store.writeEntryFile(packId, normalized)
+      const next = this.mergeEntry(found.entry, entry)
+      // 合并终态校验：直连 applyCreateOrUpdate 的调用方（不经 submit 的预校验）
+      // 也不能把非法枚举/subjectKey 落盘（否则该条目下次读取即被当损坏文件跳过）
+      this.validateEntryShape(next)
+      this.validatePinnedBudget(packId, next)
+      // 同条目自身持有的 subjectKey 会被 holder 的 id 比对豁免；变更到他人持有者则抛冲突
+      this.assertSubjectFree(packId, next)
+      this.store.snapshotRevision(packId, found.entry)
+      this.store.writeEntryFile(packId, next)
       this.store.rebuildIndex(packId)
       this.store.syncPackCount(packId)
-      this._postChange({ action: 'create', packId, name: normalized.name })
-      return normalized
-    })
+      this._postChange({ action: 'update', packId, name: next.name })
+      return next
+    }
+    // create 语义：同名 = 更新（revision+1，文档化行为）；否则新建。
+    const normalized = this.normalizeEntry(entry)
+    this.validateEntryShape(normalized)
+    if (this.store.hasEntry(packId, normalized.name)) {
+      // 同名 = 更新（revision+1）。与 update 同一合并语义：以【原始意图】合并
+      // （未提供的字段保留 prev；normalizeEntry 的默认值只用于全新建）。
+      // subjectKey 变更时同样要校验冲突：把条目从旧 subjectKey 挪到已被他人
+      // 持有的新 subjectKey 会制造"一 subject 两活跃值"。
+      const prev = this.store.readEntry(packId, normalized.name)
+      if (prev === null) {
+        throw new NotFoundError(`条目文件无法解析：${normalized.name}（pack ${packId}；文件可能损坏，请修复或删除后再写）`)
+      }
+      const next = this.mergeEntry(prev, entry)
+      this.validateEntryShape(next)
+      this.validatePinnedBudget(packId, next)
+      this.assertSubjectFree(packId, next)
+      this.store.snapshotRevision(packId, prev)
+      this.store.writeEntryFile(packId, next)
+      this.store.rebuildIndex(packId)
+      this.store.syncPackCount(packId)
+      this._postChange({ action: 'update', packId, name: next.name })
+      return next
+    }
+    this.validatePinnedBudget(packId, normalized)
+    this.assertSubjectFree(packId, normalized)
+    this.store.writeEntryFile(packId, normalized)
+    this.store.rebuildIndex(packId)
+    this.store.syncPackCount(packId)
+    this._postChange({ action: 'create', packId, name: normalized.name })
+    return normalized
   }
 
   applyRemove(packId, id) {
-    // H-8：移除同样持写锁（与创建/更新串行化）
-    return this.store.withWriteLock(() => {
-      const found = this.store.findById(id)
-      if (found === null || found.packId !== packId) throw new NotFoundError(`条目不存在：${id}（pack ${packId}）`)
-      this.store.snapshotRevision(found.packId, found.entry)
-      this.store.archiveEntry(found.packId, found.entry)
-      this.store.deleteEntryFile(found.packId, found.entry.name)
-      this.store.rebuildIndex(packId)
-      this.store.syncPackCount(packId)
-      this._postChange({ action: 'remove', packId, name: found.entry.name })
-      return { id: found.entry.id, name: found.entry.name }
-    })
+    return this.store.withWriteLock(() => this._applyRemoveLocked(packId, id))
   }
 
-  /** 统一条目规范化（补默认、校验）；生成 id/name/timestamps。 */
+  _applyRemoveLocked(packId, id) {
+    const found = this.store.findById(id)
+    if (found === null || found.packId !== packId) throw new NotFoundError(`条目不存在：${id}（pack ${packId}）`)
+    this.store.snapshotRevision(found.packId, found.entry)
+    this.store.archiveEntry(found.packId, found.entry)
+    this.store.deleteEntryFile(found.packId, found.entry.name)
+    this.store.rebuildIndex(packId)
+    this.store.syncPackCount(packId)
+    this._postChange({ action: 'remove', packId, name: found.entry.name })
+    return { id: found.entry.id, name: found.entry.name }
+  }
+
+  /**
+   * 更新合并：仅覆盖写意图里【显式提供】的字段，其余一律保留 prev。
+   * （normalizeEntry 的 eager 默认值只用于 create；update 走这里，彻底消除
+   * "默认值碰巧非空 → ?? 回退失效 → activation/subjectKey/expiresAt 被擦除"。）
+   * name/id/createdAt 不可变（filename/身份/历史锚点）。
+   */
+  mergeEntry(prev, intent) {
+    const now = new Date().toISOString()
+    const provided = (v) => v !== undefined
+    const titleProvided = typeof intent.title === 'string' && intent.title.trim() !== ''
+    return {
+      ...prev,
+      updatedAt: now,
+      revision: prev.revision + 1,
+      title: titleProvided ? intent.title.trim().slice(0, 200) : prev.title,
+      description: provided(intent.description)
+        ? (typeof intent.description === 'string' ? intent.description.slice(0, 500) : '')
+        : prev.description,
+      body: provided(intent.body)
+        ? (typeof intent.body === 'string' ? intent.body : '')
+        : prev.body,
+      type: provided(intent.type) && intent.type !== '' ? intent.type : prev.type,
+      scope: provided(intent.scope) && intent.scope !== '' ? intent.scope : prev.scope,
+      activation: provided(intent.activation) && intent.activation !== '' ? intent.activation : prev.activation,
+      volatility: intent.volatility === undefined ? prev.volatility : (intent.volatility === '' ? '' : intent.volatility),
+      subjectKey: provided(intent.subjectKey) ? (typeof intent.subjectKey === 'string' ? intent.subjectKey : '') : prev.subjectKey,
+      expiresAt: provided(intent.expiresAt)
+        ? (typeof intent.expiresAt === 'string' && intent.expiresAt !== '' ? intent.expiresAt : null)
+        : prev.expiresAt,
+      // lastVerifiedAt 仅人工核验路径（GUI updateDirect）显式提供；AI 路径不置 → 保留 prev
+      lastVerifiedAt: typeof intent.lastVerifiedAt === 'string' && intent.lastVerifiedAt !== ''
+        ? intent.lastVerifiedAt
+        : (prev.lastVerifiedAt ?? null),
+      keywords: Array.isArray(intent.keywords)
+        ? intent.keywords.filter((k) => typeof k === 'string').map((k) => k.trim()).filter(Boolean).slice(0, 24)
+        : prev.keywords,
+      tagged: prev.tagged ?? [],
+      archivedAt: undefined,
+    }
+  }
+
+  /** 统一条目规范化（create 路径：补默认、校验）；生成 id/name/timestamps。'' 视为未指定。 */
   normalizeEntry(input) {
     const now = new Date().toISOString()
     const name = typeof input.name === 'string' && NAME_RE.test(input.name)
       ? input.name
       : slugify(typeof input.title === 'string' ? input.title : 'untitled')
+    const pick = (v, fallback) => (v !== undefined && v !== null && v !== '' ? v : fallback)
     return {
       id: isEntryId(input.id) ? input.id : newMemoryId(),
       revision: 1,
@@ -268,14 +369,16 @@ export class MemoryProtocolCore {
       name,
       title: (typeof input.title === 'string' && input.title.trim() !== '') ? input.title.trim().slice(0, 200) : name,
       description: typeof input.description === 'string' ? input.description.slice(0, 500) : '',
-      type: input.type ?? 'project',
-      scope: input.scope ?? 'global',
-      activation: input.activation ?? 'relevant',
-      volatility: input.volatility ?? 'stable',
+      type: pick(input.type, 'project'),
+      scope: pick(input.scope, 'global'),
+      activation: pick(input.activation, 'relevant'),
+      volatility: input.volatility ?? '',
       subjectKey: typeof input.subjectKey === 'string' ? input.subjectKey : '',
       expiresAt: typeof input.expiresAt === 'string' && input.expiresAt !== '' ? input.expiresAt : null,
       lastVerifiedAt: null,
-      keywords: Array.isArray(input.keywords) ? input.keywords.filter((k) => typeof k === 'string').slice(0, 24) : [],
+      keywords: Array.isArray(input.keywords)
+        ? input.keywords.filter((k) => typeof k === 'string').map((k) => k.trim()).filter(Boolean).slice(0, 24)
+        : [],
       tagged: [],
       body: typeof input.body === 'string' ? input.body : '',
     }
@@ -308,39 +411,52 @@ export class MemoryProtocolCore {
 
   // ----- 提案采纳 / 驳回 / 恢复 -----
 
+  /**
+   * 采纳提案：提案状态复查 + 落条目 + 状态落定在同一把写锁内完成
+   * （check-then-act 竞态根治：并发双击/跨进程双采纳恰一个成功）。
+   */
   async adopt(packId, proposalId) {
-    const proposal = this.store.listProposals(packId, 'any').find((p) => p.id === proposalId)
-    if (proposal === undefined) throw new NotFoundError(`提案不存在：${proposalId}`)
-    if (proposal.status !== 'pending') throw new InvalidInputError(`提案状态为 ${proposal.status}，不能重复采纳`)
-    let result
-    try {
-      if (proposal.kind === 'create' || proposal.kind === 'update') {
-        result = this.applyCreateOrUpdate(packId, proposal.entry)
-      } else if (proposal.kind === 'remove') {
-        if (!isEntryId(proposal.entry?.id)) throw new InvalidInputError('remove 提案缺少合法 entry.id')
-        result = this.applyRemove(packId, proposal.entry.id)
-      } else {
-        throw new InvalidInputError(`未知提案类型：${proposal.kind}`)
+    return this.store.withWriteLock(() => {
+      const proposal = this.store.listProposals(packId, 'any').find((p) => p.id === proposalId)
+      if (proposal === undefined) throw new NotFoundError(`提案不存在：${proposalId}`)
+      if (proposal.status !== 'pending') throw new InvalidInputError(`提案状态为 ${proposal.status}，不能重复采纳`)
+      let result
+      try {
+        if (proposal.kind === 'create' || proposal.kind === 'update') {
+          result = this._applyCreateOrUpdateLocked(packId, proposal.entry, proposal.kind)
+        } else if (proposal.kind === 'remove') {
+          if (!isEntryId(proposal.entry?.id)) throw new InvalidInputError('remove 提案缺少合法 entry.id')
+          result = this._applyRemoveLocked(packId, proposal.entry.id)
+        } else {
+          throw new InvalidInputError(`未知提案类型：${proposal.kind}`)
+        }
+      } catch (error) {
+        this.store.setProposalStatus(packId, proposalId, 'rejected', { reason: String(error?.message ?? error) })
+        this.store.auditAppend({ action: 'adopt', packId, proposalId, operator: 'user', source: this.sourceLabel, via: 'user-action', outcome: 'failed', detail: String(error?.message ?? error) })
+        throw error
       }
-    } catch (error) {
-      this.store.setProposalStatus(packId, proposalId, 'rejected', { reason: String(error?.message ?? error) })
-      this.store.auditAppend({ action: 'adopt', packId, proposalId, operator: 'user', outcome: 'failed', detail: String(error?.message ?? error) })
-      throw error
-    }
-    this.store.setProposalStatus(packId, proposalId, 'adopted', { entryId: result?.id ?? null })
-    this.store.auditAppend({ action: 'adopt', packId, proposalId, operator: 'user', outcome: 'ok', detail: `entry ${result?.id}` })
-    return { adopted: proposalId, result }
+      this.store.setProposalStatus(packId, proposalId, 'adopted', { entryId: result?.id ?? null })
+      this.store.auditAppend({ action: 'adopt', packId, proposalId, operator: 'user', source: this.sourceLabel, via: 'user-action', outcome: 'ok', detail: `entry ${result?.id}` })
+      return { adopted: proposalId, result }
+    })
   }
 
+  /** 驳回提案（锁内改状态 + 审计 + 尾部通知）。 */
   reject(packId, proposalId, reason) {
-    this.store.setProposalStatus(packId, proposalId, 'rejected', { reason: reason ?? '' })
-    this.store.auditAppend({ action: 'reject', packId, proposalId, operator: 'user', outcome: 'ok', detail: reason })
-    this._postChange({ action: 'reject', packId, proposalId })
+    return this.store.withWriteLock(() => {
+      this.store.setProposalStatus(packId, proposalId, 'rejected', { reason: reason ?? '' })
+      this.store.auditAppend({ action: 'reject', packId, proposalId, operator: 'user', source: this.sourceLabel, via: 'user-action', outcome: 'ok', detail: reason })
+      this._postChange({ action: 'reject', packId, proposalId })
+      return { rejected: proposalId }
+    })
   }
 
+  /**
+   * 恢复归档条目（公共入口：持锁）。恢复与 create/update 同一校验面：
+   * subjectKey 冲突 + pinned 预算——恢复不得绕过「一 subject 一活跃值」与
+   * 快照预算防线（此前 restore 直写可凭空突破两者）。
+   */
   restoreArchived(packId, name) {
-    // 与 create/update/remove 一致：读-查-写全周期持跨进程写锁，避免并发恢复竞态；
-    // 恢复成功后删除归档副本，避免条目同时存在于活跃集与归档集（此前漏删 → 状态漂移）。
     return this.store.withWriteLock(() => {
       const archived = this.store.listArchived(packId).find((item) => item.entry.name === name)
       if (archived === undefined) throw new NotFoundError(`归档条目不存在：${name}（pack ${packId}）`)
@@ -351,11 +467,13 @@ export class MemoryProtocolCore {
         archivedAt: undefined,
         revision: archived.entry.revision + 1,
       }
+      this.validatePinnedBudget(packId, restored)
+      this.assertSubjectFree(packId, restored)
       this.store.writeEntryFile(packId, restored)
       this.store.deleteArchivedFile(packId, name)
       this.store.rebuildIndex(packId)
       this.store.syncPackCount(packId)
-      this.store.auditAppend({ action: 'restore', packId, entryId: restored.id, operator: 'user', outcome: 'ok' })
+      this.store.auditAppend({ action: 'restore', packId, entryId: restored.id, operator: 'user', source: this.sourceLabel, via: 'user-action', outcome: 'ok' })
       this._postChange({ action: 'restore', packId, name: restored.name })
       return restored
     })

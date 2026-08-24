@@ -43,7 +43,7 @@ test('H-8：两实例并发创建同 subjectKey → 恰一个成功，一个 Sub
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('H-8：withWriteLock 可重入（每次写后锁已释放）', () => {
+test('H-8：withWriteLock 顺序复用（每次写后锁已释放；嵌套获取会等待超时——非可重入）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'memory-hub-h8b-'))
   const { store } = mount(dir)
   let calls = 0

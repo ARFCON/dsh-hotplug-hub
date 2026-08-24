@@ -135,8 +135,16 @@ namespace DSHHotplugHub
         /// 等待；否则清理目录重建为 v2 文件锁（与 JS checkV1DirectoryLock 语义一致）。</summary>
         public static FileStream AcquirePatchLock(string profileDir)
         {
-            string lockPath = PatchLockPath(profileDir);
-            Directory.CreateDirectory(profileDir);
+            return AcquireLockAtPath(PatchLockPath(profileDir));
+        }
+
+        /// <summary>通用文件锁（任意 lockPath；与 JS vendor-shared fs/lock 同一契约：
+        /// wx 独占创建 + token `pid\nunix_ms` + pid 探活 + 过期接管 + 他用户保守等待）。
+        /// memory-hub 的 .dsh-memory.lock 与 patch 锁共用此单一真源，杜绝两份实现漂移。</summary>
+        public static FileStream AcquireLockAtPath(string lockPath)
+        {
+            string parent = Path.GetDirectoryName(lockPath);
+            if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
             long deadline = Environment.TickCount + LockWaitMs;
             for (;;)
             {
@@ -177,7 +185,7 @@ namespace DSHHotplugHub
                 if (Environment.TickCount >= deadline) break;
                 Thread.Sleep(LockPollMs);
             }
-            throw new IOException("等待 cordis.patch.yml 写锁超时（" + LockWaitMs + "ms）：" + lockPath);
+            throw new IOException("等待文件锁超时（" + LockWaitMs + "ms）：" + lockPath);
         }
 
         /// <summary>v1 目录锁形态检测（C1：lockPath 是目录即旧锁）。</summary>
@@ -234,7 +242,12 @@ namespace DSHHotplugHub
         /// 的 fd，绝不删除锁文件（与 JS releaseLock 的"不匹配即拒绝 unlink"一致）。</summary>
         public static void ReleasePatchLock(FileStream handle, string profileDir)
         {
-            string lockPath = PatchLockPath(profileDir);
+            ReleaseLockAtPath(handle, PatchLockPath(profileDir));
+        }
+
+        /// <summary>释放任意路径文件锁（校验 token pid == 自己；不匹配仅关 fd 不删锁文件）。</summary>
+        public static void ReleaseLockAtPath(FileStream handle, string lockPath)
+        {
             bool refuse = false;
             try
             {

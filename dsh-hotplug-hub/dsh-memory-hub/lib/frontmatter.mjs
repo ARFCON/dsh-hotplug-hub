@@ -64,11 +64,19 @@ export function parseFrontmatter(text) {
 function decodeValue(raw, key) {
   const trimmed = raw.trim()
   if (trimmed === '') return ''
-  // 数组：[a, b, c]
+  // 数组：[a, b, c]。写入端 stringifyScalar 用 JSON.stringify 编码每个元素，
+  // 所以优先按 JSON 数组解析（引号/逗号/转义完全对称）；解析失败再降级到
+  // 引号感知切分（容忍手改的裸值数组）。旧 splitQuoted 对 `\"` 内的引号同样
+  // 触发开关，含「引号+逗号」的关键词会被切错位（往返破坏），JSON 优先根治之。
   if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (Array.isArray(parsed)) return parsed
+    } catch {
+      // 降级：手改过的非严格 JSON 数组走引号感知切分
+    }
     const inner = trimmed.slice(1, -1).trim()
     if (inner === '') return []
-    // 用引号感知切分：',' 分割，引号内不切。
     return splitQuoted(inner).map((part) => decodeScalar(part.trim(), key))
   }
   return decodeScalar(trimmed, key)
