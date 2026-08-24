@@ -111,9 +111,12 @@ function installFakePnpm(opts = {}) {
   // 目录不存在则创建（C3 的 ghost profile 场景）。
   // 审查修复（磁盘开销）：node.exe 副本 ~15 个测试各复制一份 ≈ 1.2GB/轮——改为
   // 文件级缓存 + 每测试硬链接（同卷 linkSync，失败回退复制），字节共享零重复写。
+  // CI 修复（POSIX）：ghost profile 目录创建提到平台分支之前——此前仅 Windows
+  // 分支建目录（add/remove 脚本须落位其中），POSIX 上 DSH_PROFILE=ghost 时
+  // runCli 以不存在的 cwd spawn → ENOENT → 挂载失败（ubuntu CI 红根因）。
+  mkdirSync(profileDir(), { recursive: true })
   if (process.platform === 'win32') {
     placeFakePnpmExe(join(iso.dshHome, 'pnpm.exe'))
-    mkdirSync(profileDir(), { recursive: true })
     writeFileSync(join(profileDir(), 'add'), `${core}\nhandle('add', process.argv.slice(2));`)
     writeFileSync(join(profileDir(), 'remove'), `${core}\nhandle('remove', process.argv.slice(2));`)
   } else {
