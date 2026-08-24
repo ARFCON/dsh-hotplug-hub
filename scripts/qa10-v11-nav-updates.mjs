@@ -11,7 +11,7 @@
  *   4) 插件变更重启流：postPluginOp 置 pending → __setPlugins 回推 → 重启 DSH 二次确认 →
  *      取消路径不发消息 / 双确认后发 restartHarness
  *
- * 用法：node scripts/qa10-v11-nav-updates.mjs（自起 3984 端口静态服务）
+ * 用法：node scripts/qa10-v11-nav-updates.mjs（自起 3985 端口静态服务；与 qa9 的 3984 错开，可并行）
  */
 import { launch } from 'puppeteer-core'
 import { createServer } from 'node:http'
@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const STATIC_ROOT = join(ROOT, 'dsh-hotplug-hub', 'dsh-pack-hub')
-const PORT = 3984
+const PORT = 3985
 
 const server = createServer((req, res) => {
   let f = (req.url || '/').split('?')[0]

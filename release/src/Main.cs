@@ -1303,9 +1303,10 @@ namespace DSHHotplugHub
                                 await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                             }
                         }
-                        else if (message == "setEnvMode")
+                        else if (message != null && message.StartsWith("setEnvMode:"))
                         {
-                            // 前端会发 setEnvMode:windows 或 setEnvMode:wsl
+                            // 前端会发 setEnvMode:windows 或 setEnvMode:wsl（带 payload 的前缀命令；
+                            // 此前误写成 == "setEnvMode" 精确匹配，页面实发永远不命中 → 环境切换静默失效）
                             string newMode = message.Length > "setEnvMode:".Length ? message.Substring("setEnvMode:".Length) : "";
                             SetEnvMode(newMode == "wsl" ? "wsl" : "windows");
                             await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('dsh 环境已切换为：" + (newMode == "wsl" ? "WSL 子系统" : "Windows 本机") + "');");
@@ -1629,6 +1630,8 @@ namespace DSHHotplugHub
                 "if(window.__nativeSelfCheck.latestVersion){var nCmp=nv(window.__nativeSelfCheck.latestVersion,window.__nativeSelfCheck.appVersion);r.push({name:'最新版本',desc:'GitHub 最新发布',val:window.__nativeSelfCheck.latestVersion,status:nCmp>0?'warn':'ok',text:nCmp>0?'可更新':'已最新'});}" +
                 "return r;};" +
                 "if(typeof renderCheck==='function'){renderCheck();}" +
+                // 客户端中心开着时同步重渲（setEnvMode 切换后 Windows/WSL 高亮即时刷新，与 toast 一致）
+                "if(document.getElementById('clientCenterBackdrop')&&document.getElementById('clientCenterBackdrop').classList.contains('show')&&typeof renderClientCenter==='function'){renderClientCenter();}" +
 
                 "})();";
             return js;
