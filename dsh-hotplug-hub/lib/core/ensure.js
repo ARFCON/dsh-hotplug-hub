@@ -45,6 +45,18 @@ export function innerPackageName(dir) {
   return meta && typeof meta.name === 'string' ? meta.name : null
 }
 
+/**
+ * npm 插件是否已就绪（版本 + 内部包名双校验）——单一真源，供 ensureNpm（reused）、
+ * statusSync（cached）、previewPack（action）复用，避免三处判定再次漂移。
+ * 串包（内部 name 不符、版本巧合相同）时返回 false（视为未就绪，触发重装/下载）。
+ * @param {string} name 清单声明的 npm 包名
+ * @param {string|undefined} version 清单声明的精确版本
+ * @returns {boolean}
+ */
+export function isNpmCached(name, version) {
+  return installedVersion(name) === version && innerPackageName(npmModuleDir(name)) === name
+}
+
 export async function ensureNpm(entry) {
   const current = installedVersion(entry.name)
   // 审计修复：reused 判定补齐包名校验（与 ensurePath/ensureGithub 一致）——只比对版本

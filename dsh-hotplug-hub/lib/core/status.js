@@ -7,7 +7,7 @@ import { VERSION, homeDir, memoryDir, packsDir, patchPath, profileDir, profileNa
 import { readJson, readPackManifest, listPackIds, readState, writeJsonSafe } from './state.js'
 import { runCli } from './run-cli.js'
 import { parseHotpack } from './hotpack.js'
-import { installedVersion, npmModuleDir, storeDirOf } from './ensure.js'
+import { installedVersion, isNpmCached, storeDirOf } from './ensure.js'
 import { findPatchBlock } from '../../vendor-shared/index.mjs'
 
 /** 取某包「最近一次」activate 事件的时间戳（反向遍历，避免 find 命中历史里最早一次激活）。
@@ -42,14 +42,15 @@ export function statusSync() {
       plugins: (manifest.plugins ?? []).map((entry) => {
         const dir = storeDirOf(entry)
         const present = existsSync(join(dir, 'package.json'))
-        const current = entry.source.type === 'npm' ? installedVersion(entry.name) : null
         return {
           id: entry.id,
           name: entry.name,
           version: entry.version ?? null,
           source: entry.source.type,
           path: dir,
-          cached: entry.source.type === 'npm' ? current === entry.version : present,
+          // npm cached 走单一真源 isNpmCached（版本 + 内部包名双校验，与 ensureNpm reused 一致）；
+          // 非 npm（path/github）按落地 package.json 存在性判定。
+          cached: entry.source.type === 'npm' ? isNpmCached(entry.name, entry.version) : present,
         }
       }),
     })
@@ -96,10 +97,13 @@ export async function previewPack(packId) {
   for (const entry of manifest.plugins ?? []) {
     if (entry.source.type === 'npm') {
       const current = installedVersion(entry.name)
+      // 审计修复：reused 判定走单一真源 isNpmCached（版本 + 内部包名双校验，与
+      // ensureNpm/statusSync 一致）——串包（name 不符、版本巧合相同）不得误报 reused。
+      const reused = isNpmCached(entry.name, entry.version)
       refs.push({
         id: entry.id, name: entry.name, version: entry.version, source: 'npm',
-        action: current === entry.version ? 'reused' : 'download',
-        detail: current === entry.version
+        action: reused ? 'reused' : 'download',
+        detail: reused
           ? `profile 已有 ${entry.name}@${entry.version}`
           : current === null
             ? `将从 npm registry 安装 ${entry.name}@${entry.version}`
@@ -131,6 +135,34 @@ export async function previewPack(packId) {
   }
 }
 
+/** 插件「同实体」指纹：源类型 + 版本/落地路径（github 的 path=storeDir 已含 ref）。 */
+function pluginFingerprint(plugin) {
+  if (plugin.source === 'npm') return `npm@${plugin.version ?? ''}`
+  if (plugin.source === 'github') return `github@${plugin.path ?? ''}`
+  return `path@${plugin.path ?? ''}`
+}
+
+/** 从 github storeDir（`<name>@<ref>`）提取 ref（ref 字符集无 @，lastIndexOf 可靠）。 */
+function refOf(plugin) {
+  const s = String(plugin.path ?? '')
+  const i = s.lastIndexOf('@')
+  return i >= 0 ? s.slice(i + 1) : '?'
+}
+
+/** 按差异类型生成冲突原因（版本 / 引用 / 路径 / 源类型），不再一律「版本冲突」。 */
+function conflictReason(name, a, b) {
+  if (a.source === 'npm' && b.source === 'npm') {
+    return `${name} 版本冲突 ${a.version || '?'} vs ${b.version || '?'}`
+  }
+  if (a.source === 'github' && b.source === 'github') {
+    return `${name} github 引用冲突 ${refOf(a)} vs ${refOf(b)}`
+  }
+  if (a.source === 'path' && b.source === 'path') {
+    return `${name} 路径冲突 ${a.path} vs ${b.path}`
+  }
+  return `${name} 源类型冲突 ${a.source} vs ${b.source}`
+}
+
 export async function checkAsync() {
   const status = statusSync()
   const state = readState()
@@ -139,22 +171,22 @@ export async function checkAsync() {
     const result = await runCli('pnpm', ['--version'], 5000)
     if (result.code === 0) pnpmVersion = (result.stdout || '').trim()
   } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
+  // 审计修复：冲突判定不再只比 version——github/path 源 version 恒为 null，同名不同
+  // ref/路径的插件被漏报；npm vs 非 npm 同名又被误报为「版本冲突」。现按「源类型 + 版本 +
+  // 落地路径」指纹判同：指纹不同（同名字符串）即冲突，reason 按差异类型区分。
   const allPlugins = new Map()
   const conflicts = []
   for (const pack of status.packs) {
     for (const plugin of pack.plugins) {
-      const key = plugin.name
+      const key = String(plugin.name).toLowerCase()
+      const fingerprint = pluginFingerprint(plugin)
       if (allPlugins.has(key)) {
         const prev = allPlugins.get(key)
-        if (prev.version !== plugin.version) {
-          conflicts.push({
-            packId: pack.id,
-            reason: plugin.name + ' 版本冲突 ' + (prev.version || '?') + ' vs ' + (plugin.version || '?'),
-            suggest: '停用其中一个包或更新到同一版本',
-          })
+        if (prev.fingerprint !== fingerprint) {
+          conflicts.push({ packId: pack.id, reason: conflictReason(plugin.name, prev, plugin), suggest: '停用其中一个包或统一版本/来源' })
         }
       } else {
-        allPlugins.set(key, plugin)
+        allPlugins.set(key, { ...plugin, fingerprint })
       }
     }
   }

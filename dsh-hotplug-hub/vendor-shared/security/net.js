@@ -3,14 +3,30 @@
 // 与 zip 成员安全（zip slip + 符号链接成员，M-39）
 const https = require('https');
 
-// 子进程 env 净化清单：任何被本仓库 spawn 的子进程都不得携带这些变量
-// （防 TLS 校验被静默关闭 / 防注入 NODE_OPTIONS 拦截）
+// 子进程 env 净化清单：任何被本仓库 spawn 的子进程都不得携带这些变量。
+// 审计修复（进程隔离缺口）：此前只含 5 个 TLS/Node 变量，与注释声称的「npm/git/dsh
+// 等包管理子进程一律全量剥离」不符——LD_PRELOAD / DYLD_* 可预加载库劫持原生子进程，
+// GIT_* 可注入 git clone 的命令/配置。现补齐动态链接器与 git 注入面。
 const CHILD_ENV_BLOCKLIST = [
+  // TLS 校验 / Node 行为（不可被静默关闭 / 不可被注入）
   'NODE_TLS_REJECT_UNAUTHORIZED',
   'NODE_OPTIONS',
   'NODE_EXTRA_CA_CERTS',
   'SSL_CERT_FILE',
-  'SSL_CERT_DIR'
+  'SSL_CERT_DIR',
+  // 动态链接器注入面（pnpm/git/curl/tar 等原生子进程可被预加载库劫持）
+  'LD_PRELOAD',
+  'LD_LIBRARY_PATH',
+  'DYLD_INSERT_LIBRARIES',
+  'DYLD_LIBRARY_PATH',
+  'DYLD_FRAMEWORK_PATH',
+  // git 命令/配置注入面（git clone 子进程）
+  'GIT_SSH_COMMAND',
+  'GIT_SSH',
+  'GIT_ASKPASS',
+  'GIT_EXEC_PATH',
+  'GIT_CONFIG_PARAMETERS',
+  'GIT_CONFIG_COUNT'
 ];
 
 /**
@@ -56,21 +72,36 @@ function httpsGetText(url, opts = {}) {
       // 合并末位：rejectUnauthorized 恒 true，调用方无法覆盖
       rejectUnauthorized: true
     };
-    const req = https.get(url, requestOptions, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && hops < 3) {
-        res.resume();
-        let next = res.headers.location;
-        if (next.startsWith('/')) {
-          try { next = new URL(url).origin + next; } catch (_) { done({ ok: false, status: 0, text: '' }); return; }
+    let req;
+    try {
+      req = https.get(url, requestOptions, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && hops < 3) {
+          res.resume();
+          let next = res.headers.location;
+          if (next.startsWith('/')) {
+            try { next = new URL(url).origin + next; } catch (_) { done({ ok: false, status: 0, text: '' }); return; }
+          } else {
+            // 审计修复：只允许继续 https 重定向。非 https 目标（http/ftp/file/…）会让
+            // 下一跳 https.get 同步抛 ERR_INVALID_PROTOCOL，此前该抛错在 response 回调内
+            // 裸抛 → 进程级 uncaughtException 且首 Promise 永不 settle；且存在 TLS 降级
+            // （302 → http://）。现显式拒绝并 settle，绝不降级、绝不崩溃。
+            try {
+              if (new URL(next).protocol !== 'https:') { done({ ok: false, status: 0, text: '' }); return; }
+            } catch (_) { done({ ok: false, status: 0, text: '' }); return; }
+          }
+          done(httpsGetText(next, { ...opts, _hops: hops + 1 }));
+          return;
         }
-        done(httpsGetText(next, { ...opts, _hops: hops + 1 }));
-        return;
-      }
-      let data = '';
-      res.setEncoding('utf8');
-      res.on('data', (chunk) => { if (data.length < 1000000) data += chunk; });
-      res.on('end', () => done(res.statusCode === 200 ? { ok: true, status: 200, text: data } : { ok: false, status: res.statusCode, text: '' }));
-    });
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { if (data.length < 1000000) data += chunk; });
+        res.on('end', () => done(res.statusCode === 200 ? { ok: true, status: 200, text: data } : { ok: false, status: res.statusCode, text: '' }));
+      });
+    } catch (_) {
+      // https.get 对非法 URL（非 http(s) scheme / 畸形 URL）同步抛错——归一为失败，不裸抛
+      done({ ok: false, status: 0, text: '' });
+      return;
+    }
     req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch (_) { /* 忽略 */ } });
     req.on('error', () => done({ ok: false, status: 0, text: '' }));
   });
