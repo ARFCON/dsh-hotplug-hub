@@ -78,6 +78,49 @@ namespace DSHHotplugHub
             return value;
         }
 
+        // 内嵌资源释放目录（与 Main.cs ExtractEmbeddedTgz 的落盘位置一致）
+        public static string EmbeddedTgzDir()
+        {
+            return Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embedded");
+        }
+
+        // 本地 tgz 文件名白名单（ExtractEmbeddedTgz 的 fileName 参数均为常量拼接）
+        private static readonly Regex EmbeddedFileNameRe = new Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$");
+
+        /// <summary>本地 tgz 路径级安全校验（EXE 内嵌资源释放的安装包）。
+        /// 审计修复（内嵌安装链静默失败回归）：ExtractEmbeddedTgz 返回的本地绝对路径
+        /// （含盘符与反斜杠）此前被 AssertShellSafeUrl 一律拒绝（"必须是 http(s) URL"），
+        /// 失败文案不含 ERR_PNPM/Error:/error:，被 InstallPluginsToHarness 当作成功静默
+        /// 吞掉。本地路径需要 \ 与 :，不能复用 CMD_SPECIAL_RE；此处改用更紧的契约：
+        /// 绝对路径 + 精确位于 <Temp>\dsh-hotplug-hub-embedded + 文件名白名单。
+        /// 空白放行（审查轮修正）：RunDshPluginAdd 以引号包裹整段参数，引号内空白安全；
+        /// 目录段来自系统 TEMP——Windows 用户名可含空格（高频），但账户名禁用
+        /// " /\[]:;|=,+*?&lt;&gt; 等，本契约拒绝的元字符在目录段不可达，文件名段由
+        /// 白名单兜底。% 在 cmd 引号内仍会展开变量，保持拒绝。</summary>
+        public static string AssertShellSafeLocalFile(string value, string what)
+        {
+            if (string.IsNullOrEmpty(value)) throw new ArgumentException(what + " 必须是非空字符串");
+            if (value.Length > 4096) throw new ArgumentException(what + " 过长");
+            if (value.IndexOf('"') >= 0 || value.IndexOf('\'') >= 0
+                || value.IndexOf('&') >= 0 || value.IndexOf('|') >= 0 || value.IndexOf('<') >= 0
+                || value.IndexOf('>') >= 0 || value.IndexOf('^') >= 0 || value.IndexOf('%') >= 0
+                || value.IndexOf(';') >= 0 || value.IndexOf('(') >= 0 || value.IndexOf(')') >= 0
+                || value.IndexOf('$') >= 0 || value.IndexOf('`') >= 0)
+                throw new ArgumentException(what + " 含 shell 元字符（引号内仍危险的 % 与逃逸字符）");
+            if (value.IndexOf('\n') >= 0 || value.IndexOf('\r') >= 0 || value.IndexOf('\t') >= 0)
+                throw new ArgumentException(what + " 含控制空白");
+            string fullPath = Path.GetFullPath(value);
+            if (!Path.IsPathRooted(fullPath)) throw new ArgumentException(what + " 必须是绝对路径");
+            string dir = Path.GetDirectoryName(fullPath);
+            if (!string.Equals(dir, EmbeddedTgzDir(), StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException(what + " 必须位于内嵌资源目录 " + EmbeddedTgzDir());
+            string file = Path.GetFileName(fullPath);
+            if (!EmbeddedFileNameRe.IsMatch(file)) throw new ArgumentException(what + " 文件名含非法字符");
+            // 审计修复（审查轮）：返回归一化后的绝对路径——原样返回相对输入会按进程 CWD
+            // 校验/执行，两条路径在 RunCliLong 未设 cwd 时不必然一致。
+            return fullPath;
+        }
+
         // ---------- 锁协议（CONTRACT.md §5；与 JS shared fs/lock 等价） ----------
 
         /// <summary>锁路径：<profile>/.dsh-patch.lock（四写者共用）。</summary>

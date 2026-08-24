@@ -1349,6 +1349,7 @@ const MARKET_SOURCE_OPTIONS = [MARKET_SOURCE_GITHUB, ...MARKET_MIRRORS.map((m) =
 const MARKET_PACK_CANDIDATES = ['hotpack.json', '.dshpack.json', 'dshpack.json'];
 const MARKET_README_CANDIDATES = ['README.zh.md', 'README.md', 'readme.md', 'README_CN.md', 'README_ZH.md', 'Readme.md', 'README.txt'];
 const MARKET_PAGE_SIZE = 10;
+const MARKET_MAX_PAGE = 10; // 与后端 lib/core/paths.js MARKET_MAX_PAGE 一致（分页上限；漂移由 crosslang 断言锁定）
 const MARKET_DETAIL_CONCURRENCY = 6;
 const MARKET_DEFAULT_TOPIC = 'dsh-plugin';
 let marketData = [];          // 抓取的条目 {repo,ref,name,author,stars,forks,license,description,topics,version,npmName,hasPack,intro,install,importable,importError,manifest}
@@ -1362,17 +1363,63 @@ let marketCachedAt = '';      // 缓存时间（localStorage）
 let marketTagsOpen = false;   // 标签面板是否展开（默认折叠）
 let marketAppending = false; // 加载更多时保留已有卡片，仅底部显示加载中
 let marketFetchedVia = '';   // 本次数据实际来源域名（官方 api.github.com 或命中的镜像站，如 ghfast.top）
+let marketLastPageItems = 0; // 最近一页返回的条数（hasMore 终止判据：不满页=结果耗尽）
 
-function marketCacheKey() { return 'dsh-market-' + marketTopic + '-' + (marketQuery || '').trim() + '-' + (marketSources ? marketSources.join(',') : 'default'); }
+// 市场缓存（localStorage）：TTL 10 分钟（陈旧列表自动重抓）；按 FIFO 只保留最近
+// 8 个键（每键一整页含 manifest，无上限会撑爆 ~5MB 配额——审计修复）。
+const MARKET_CACHE_TTL_MS = 10 * 60 * 1000;
+const MARKET_CACHE_MAX_KEYS = 8;
+function marketCacheKey() { return 'dsh-market-' + marketTopic + '-' + (marketQuery || '').trim() + '-' + (marketSources && marketSources.length ? marketSources.join(',') : 'default'); }
 
+/** 写入市场缓存并做 FIFO 淘汰（保留本键 + 最近 MARKET_CACHE_MAX_KEYS-1 个其他键）。 */
+function marketCacheWrite(key, payload) {
+  try {
+    const entries = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('dsh-market-') && k !== key) {
+        try {
+          const v = JSON.parse(localStorage.getItem(k) || 'null');
+          const parsedAt = v && v.cachedAt ? Date.parse(v.cachedAt) : NaN;
+          entries.push({ k, at: Number.isFinite(parsedAt) ? parsedAt : 0 });
+        } catch (_) { entries.push({ k, at: 0 }); }
+      }
+    }
+    entries.sort((a, b) => a.at - b.at);
+    const drop = entries.slice(0, Math.max(0, entries.length - (MARKET_CACHE_MAX_KEYS - 1)));
+    for (const e of drop) { try { localStorage.removeItem(e.k); } catch (_) { /* 尽力而为 */ } }
+    localStorage.setItem(key, JSON.stringify(payload));
+  } catch (_) { /* file:// 模式无 localStorage / 配额满：忽略 */ }
+}
+
+/** 「加载更多」终止判定：最近一页满页 && 未达分页上限 && 未加载完全部命中。
+ *  与后端 marketListAsync hasMore 契约一致（后端 page clamp MARKET_MAX_PAGE=10；
+ *  此前只判 marketData.length 非空，结果耗尽后按钮永在、每次点击都发空页请求——审计修复）。 */
+function marketHasMore(lastPageItems) {
+  if (marketError || !marketData.length) return false;
+  if (marketPage >= MARKET_MAX_PAGE) return false;
+  // 审计修复（审查轮）：lastPageItems 此前从未接线——「不满页=结果耗尽」判据失效，
+  // 小众标签（总数<页大小）的按钮永不消失、空页请求不断。
+  const last = typeof lastPageItems === 'number' ? lastPageItems : marketLastPageItems;
+  if (typeof last === 'number' && last < MARKET_PAGE_SIZE) return false;
+  return marketData.length < Math.max(marketTotal, MARKET_PAGE_SIZE);
+}
+
+// topic 校验与后端 sanitizeTopic 语义一致：所有 token 合法才通过；空输入返回 ''
+// （由 loadMarket 回落默认标签）；非法 token 返回 null（显式报错，不再静默过滤——
+// 审计修复：此前静默丢弃非法 token 搜索条件与界面显示不一致）。
 function sanitizeTopic(t) {
   const m = String(t || '').trim();
   if (!m) return '';
-  const parts = m.split(/\s+/).map((s) => s.toLowerCase());
+  // 与后端一致：逗号（中英文）/空白均可分隔（后端错误文案明示「逗号/空格分隔」——
+  // 审计修复：此前仅 \s+ 分词，桌面壳输入逗号分隔多标签报错而 DSH Desktop 正常）
+  const parts = m.split(/[,，\s]+/).map((s) => s.toLowerCase());
   const ok = [];
   for (const s of parts) {
-    if (/^[0-9a-z][0-9a-z._-]{0,31}$/.test(s)) ok.push(s);
+    if (!/^[0-9a-z][0-9a-z._-]{0,31}$/.test(s)) return null;
+    ok.push(s);
   }
+  if (ok.length > 4) return null;
   return ok.slice(0, 4).join(' ');
 }
 
@@ -1403,13 +1450,19 @@ function apiRepoUrls(repo, sources) {
   return candidatesFromSources(sources, 'https://api.github.com/repos/' + repo);
 }
 
-// 带超时的 fetch：浏览器 fetch 无自动超时，镜像挂起会永远不 settle，这里用 AbortController 兜底
+// 带超时的 fetch：浏览器 fetch 无自动超时，镜像挂起会永远不 settle，这里用 AbortController 兜底。
+// extSignal（可选）：竞速胜出后由调用方 abort 败者通道，释放连接（移动端/弱网不再空跑）。
 const FETCH_TIMEOUT_MS = 12000;
-async function fetchTimeout(url, opts) {
+async function fetchTimeout(url, opts, extSignal) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  const onAbort = () => ctrl.abort();
+  if (extSignal) {
+    if (extSignal.aborted) ctrl.abort();
+    else extSignal.addEventListener('abort', onAbort);
+  }
   try { return await fetch(url, Object.assign({}, opts, { signal: ctrl.signal })); }
-  finally { clearTimeout(timer); }
+  finally { clearTimeout(timer); if (extSignal) extSignal.removeEventListener('abort', onAbort); }
 }
 
 // 依次尝试多个 URL，全部失败返回最后一个错误信息
@@ -1427,26 +1480,33 @@ async function fetchAny(urls, opts) {
 
 // 多通道竞速：官方与镜像同时发起请求，取第一个成功响应（"哪个快用哪个"）。
 // 仅用于市场检索（searchMarketRepos）；raceFilesAny 处理原始文件全并发测速。
+// 审计修复：结算后 abort 败者通道（不再空跑到各自超时）。
 function raceFetchAny(urls, opts) {
   return new Promise((resolve) => {
     if (!Array.isArray(urls) || urls.length === 0) return resolve({ ok: false, error: '' });
     let settled = false;
     let failures = 0;
+    const ctrl = new AbortController();
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      ctrl.abort(); // 取消败者通道
+      resolve(value);
+    };
     for (const url of urls) {
-      fetchTimeout(url, opts).then(async (res) => {
+      fetchTimeout(url, opts, ctrl.signal).then(async (res) => {
         if (settled) return;
         if (res.ok) {
-          settled = true;
           const text = await res.text();
-          resolve({ ok: true, status: res.status, text, url, raced: true });
+          finish({ ok: true, status: res.status, text, url, raced: true });
           return;
         }
         failures += 1;
-        if (failures === urls.length) resolve({ ok: false, error: 'HTTP ' + res.status });
+        if (failures === urls.length) finish({ ok: false, error: 'HTTP ' + res.status });
       }).catch((e) => {
         if (settled) return;
         failures += 1;
-        if (failures === urls.length) resolve({ ok: false, error: e && e.message ? e.message : String(e) });
+        if (failures === urls.length) finish({ ok: false, error: e && e.message ? e.message : String(e) });
       });
     }
   });
@@ -1466,8 +1526,10 @@ function hostOf(url) {
 
 /**
  * 原始文件（README/package.json/hotpack 等）全并发测速：官方 + 所有镜像同时发起，
- * 取第一个成功响应（"哪个快用哪个"）。原 scanFiles 是顺序试（官方先、镜像逐个试）——
- * 是市场加载慢的主因。全失败则取第一个失败（404=文件不存在）。
+ * 取第一个「确定性结论」。确定性 = 成功(200) 或 明确不存在(404/410)——与后端
+ * lib/core/market.js raceFiles 语义一致（403 是限流/封禁不是「不存在」，须等镜像 200，
+ * 否则官方限流时镜像的合法结果被丢弃；审计修复：此前 404 也计入 failures 等全部通道，
+ * 文件不存在时要等所有镜像超时，是原型市场详情慢的根因）。结算后 abort 败者通道。
  */
 function raceFilesAny(urls, opts) {
   return new Promise((resolve) => {
@@ -1475,22 +1537,39 @@ function raceFilesAny(urls, opts) {
     let settled = false;
     let failures = 0;
     let first = null;
+    const ctrl = new AbortController();
+    // 外部取消（fetchFirstOkAny 的预算/胜出联动）：abort 时连带取消全部候选通道
+    const extSignal = opts && opts.signal;
+    if (extSignal) {
+      if (extSignal.aborted) ctrl.abort();
+      else extSignal.addEventListener('abort', () => ctrl.abort(), { once: true });
+    }
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      ctrl.abort(); // 取消败者通道
+      resolve(value);
+    };
+    const fetchOpts = opts ? { headers: opts.headers } : {};
     for (const url of urls) {
-      fetchTimeout(url, opts).then(async (res) => {
+      fetchTimeout(url, fetchOpts, ctrl.signal).then(async (res) => {
         if (settled) return;
         if (res.ok) {
-          settled = true;
           const text = await res.text();
-          resolve({ ok: true, status: res.status, text, url, raced: true });
+          done({ ok: true, status: res.status, text, url, raced: true });
+          return;
+        }
+        if (res.status === 404 || res.status === 410) {
+          done({ ok: false, status: res.status, url, error: 'HTTP ' + res.status });
           return;
         }
         if (!first) first = res;
         failures += 1;
-        if (failures === urls.length) resolve({ ok: false, error: 'HTTP ' + first.status, url: first.url });
+        if (failures === urls.length) done({ ok: false, error: 'HTTP ' + first.status, url: first.url });
       }).catch((e) => {
         if (settled) return;
         failures += 1;
-        if (failures === urls.length) resolve({ ok: false, error: e && e.message ? e.message : String(e), url: first ? first.url : '' });
+        if (failures === urls.length) done({ ok: false, error: e && e.message ? e.message : String(e), url: first ? first.url : '' });
       });
     }
   });
@@ -1595,8 +1674,46 @@ function dshpackToHotpack(text) {
   };
 }
 
+// 同步 SHA-1（UTF-8）——浏览器端无 node:crypto；跨语言等价由
+// shared-core crosslang-html 测试以 golden 值锁定（与 lib/core/market.js packIdOf 一致）。
+function sha1Hex(str) {
+  function rotl(n, s) { return (n << s) | (n >>> (32 - s)); }
+  const utf8 = unescape(encodeURIComponent(String(str)));
+  const bytes = [];
+  for (let i = 0; i < utf8.length; i++) bytes.push(utf8.charCodeAt(i));
+  const bitLen = bytes.length * 8;
+  bytes.push(0x80);
+  while (bytes.length % 64 !== 56) bytes.push(0);
+  for (let i = 7; i >= 0; i--) bytes.push(Math.floor(bitLen / Math.pow(2, i * 8)) & 0xff);
+  let h0 = 0x67452301, h1 = 0xEFCDAB89, h2 = 0x98BADCFE, h3 = 0x10325476, h4 = 0xC3D2E1F0;
+  const w = new Array(80);
+  for (let off = 0; off < bytes.length; off += 64) {
+    for (let i = 0; i < 16; i++) w[i] = (bytes[off + i * 4] << 24) | (bytes[off + i * 4 + 1] << 16) | (bytes[off + i * 4 + 2] << 8) | bytes[off + i * 4 + 3];
+    for (let i = 16; i < 80; i++) w[i] = rotl(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    let a = h0, b = h1, c = h2, d = h3, e = h4;
+    for (let i = 0; i < 80; i++) {
+      let f, k;
+      if (i < 20) { f = (b & c) | (~b & d); k = 0x5A827999; }
+      else if (i < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
+      else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
+      else { f = b ^ c ^ d; k = 0xCA62C1D6; }
+      const t = (rotl(a, 5) + f + e + k + w[i]) | 0;
+      e = d; d = c; c = rotl(b, 30); b = a; a = t;
+    }
+    h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0; h3 = (h3 + d) | 0; h4 = (h4 + e) | 0;
+  }
+  const hex = (n) => (n >>> 0).toString(16).padStart(8, '0');
+  return hex(h0) + hex(h1) + hex(h2) + hex(h3) + hex(h4);
+}
+
+// 与后端 lib/core/market.js packIdOf 完全一致：'/'→'-' 有损清洗 + 8 位 sha1 短哈希后缀
+// （单射：a-b/c 与 a/b-c 清洗后同基名，靠哈希区分；≤64 字符）。
 function packIdOf(repo) {
-  return 'pack.' + String(repo).toLowerCase().replace(/[^a-z0-9._-]/g, '-').slice(0, 64);
+  const s = String(repo).toLowerCase();
+  const base = ('pack.' + s).replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  const digest = sha1Hex(s).slice(0, 8);
+  const head = base.length <= 55 ? base : base.slice(0, 55);
+  return head + '-' + digest;
 }
 
 function buildGithubPluginPack(repo, ref, npmName, version, meta) {
@@ -1663,15 +1780,23 @@ async function fetchRepoDetail(repo, ref, meta, sources) {
 
   // 竞速取第一个成功的候选文件：各候选（含其镜像 URL）并发发起，任一命中立即结算，
   // 不必等其余候选（否则 7 个 README 候选逐个串行会拖慢整页）。
+  // 审计修复：done 后清理 budget timer 并 abort 全部候选竞速（败者不空跑、timer 不悬挂）。
   const fetchFirstOkAny = (candidateUrlLists, budgetMs) => {
     return new Promise((resolve) => {
       let settled = false;
-      const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+      const ctrl = new AbortController();
+      const done = (v) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(budget);
+        ctrl.abort();
+        resolve(v);
+      };
       const budget = setTimeout(() => done(null), budgetMs);
       let pending = 0;
       for (const urls of candidateUrlLists) {
         pending += 1;
-        raceFilesAny(urls, {}).then((r) => {
+        raceFilesAny(urls, { signal: ctrl.signal }).then((r) => {
           if (settled) return;
           if (r.ok) { done(r); return; }
           pending -= 1;
@@ -1772,6 +1897,12 @@ async function searchMarketRepos(topic, q, page, sources) {
 /* ---- 5. 市场加载：搜索 → 并发详情 → 分页去重 → 缓存 ---- */
 async function loadMarket(params) {
   const topic = sanitizeTopic(params && params.topic !== undefined ? params.topic : marketTopic);
+  // 审计修复：非法 topic 显式报错（与后端 sanitizeTopic 一致），不再静默回退默认标签
+  if (topic === null) {
+    marketError = '标签只能包含字母数字 . _ -（每个最长 32 字符，最多 4 个，逗号/空格分隔）';
+    renderMarket();
+    return { ok: false, error: marketError };
+  }
   const q = (params && params.q) || marketQuery || '';
   const page = (params && params.page) || 1;
   const sources = (params && params.sources) || marketSources || null;
@@ -1784,20 +1915,25 @@ async function loadMarket(params) {
   marketAppending = page > 1; // 加载更多时不清空已有卡片
   marketError = '';
 
-  // 缓存：仅第一页可命中；加载更多（page>1）与 refresh 都绕过缓存直接抓取
+  // 缓存：仅第一页可命中（TTL 内）；加载更多（page>1）与 refresh 都绕过缓存直接抓取
   const cacheKey = marketCacheKey();
   if (!refresh && page === 1) {
     try {
       const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
-      if (cached && cached.entries && cached.entries.length) {
+      const fresh = cached && cached.entries && cached.entries.length
+        && cached.cachedAt && (Date.now() - Date.parse(cached.cachedAt)) < MARKET_CACHE_TTL_MS;
+      if (fresh) {
         marketData = cached.entries;
         marketTotal = cached.total || marketData.length;
         marketCachedAt = cached.cachedAt || '';
         marketFetchedVia = cached.fetchedVia || '';
+        marketLastPageItems = cached.entries.length;
         marketLoading = false;
         renderMarket();
         return { ok: true, cached: true, entries: marketData, total: marketTotal, sources, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia };
       }
+      // 过期缓存直接清除（不占配额）
+      if (cached) { try { localStorage.removeItem(cacheKey); } catch (_) { /* 尽力而为 */ } }
     } catch (e) { /* 缓存读取失败忽略 */ }
   }
 
@@ -1814,7 +1950,8 @@ async function loadMarket(params) {
   // 分页去重：只抓取尚未加载的仓库，已加载的不再重复抓取
   // 第 1 页必须从空集开始去重，否则“刷新”时旧数据会把本次结果全部判为已加载，列表被清空
   const loadedRepos = new Set((page === 1 ? [] : marketData).map((e) => e.repo));
-  const metas = search.items.slice(0, 12).filter((m) => !loadedRepos.has(m.repo));
+  const metas = search.items.filter((m) => !loadedRepos.has(m.repo));
+  marketLastPageItems = search.items.length;
 
   // 立即渲染元数据卡片（详情占位），不等待详情返回
   const metaEntries = metas.map(metaEntry);
@@ -1842,15 +1979,16 @@ async function loadMarket(params) {
   for (let i = 0; i < Math.min(MARKET_DETAIL_CONCURRENCY, metas.length || 1); i++) workers.push(worker());
   Promise.all(workers).then(() => {
     if (page === 1) {
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify({ topic: marketTopic, sources, entries: marketData, total: search.total, cachedAt: new Date().toISOString(), fetchedVia: marketFetchedVia }));
-      } catch (e) { /* file:// 模式无 localStorage */ }
+      marketCachedAt = new Date().toISOString(); // 本次会话状态行立即显示缓存时间
+      marketCacheWrite(cacheKey, { topic: marketTopic, sources, entries: marketData, total: search.total, cachedAt: marketCachedAt, fetchedVia: marketFetchedVia });
+      renderMarket();
     }
   });
   return { ok: true, cached: false, entries: marketData, total: search.total, sources, cachedAt: null, fetchedVia: marketFetchedVia };
 }
 
-function doMarketSearch() { currentView = 'market'; marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: true }); }
+// 搜索（refresh:false 命中 TTL 缓存秒回）/ 刷新（refresh:true 强制重抓）/ 加载更多（翻页）
+function doMarketSearch() { currentView = 'market'; marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: false }); }
 function doMarketRefresh() { currentView = 'market'; marketPage = 1; loadMarket({ topic: marketTopic, q: marketQuery, page: 1, sources: marketSources, refresh: true }); }
 function doMarketMore() { currentView = 'market'; marketPage += 1; loadMarket({ topic: marketTopic, q: marketQuery, page: marketPage, sources: marketSources, refresh: true }); }
 
@@ -2697,24 +2835,6 @@ function packCard(p, showManage = false) {
     </div>`;
 }
 
-function marketEntryToImport(entry) {
-  const m = entry.manifest || {};
-  return {
-    packId: m.id || packIdOf(entry.repo),
-    name: m.name || entry.name || entry.repo,
-    version: m.version || entry.version || '0.0.0',
-    tags: m.tags || entry.topics || [],
-    description: m.description || entry.intro || entry.description || '',
-    bundles: (m.plugins || []).map((pl) => ({
-      package: pl.name,
-      role: pl.id === 'main' ? (entry.name || '主插件') : pl.id,
-      version: pl.version || '0.0.0',
-      source: pl.source
-    })),
-    market: { author: entry.author, stars: entry.stars, license: entry.license, source: entry.repo }
-  };
-}
-
 /* ---- 6. 市场渲染层：卡片与页面 ---- */
 function installedPluginNames() {
   var out = {};
@@ -2727,33 +2847,64 @@ function installedPluginNames() {
   return out;
 }
 
+// 已安装判定候选：npmName / 显示名 / manifest 插件名 / 仓库短名 / 仓库全名 +
+// 从插件行 spec 提取的 codeload/github URL 里的仓库路径（URL 安装的权威比对通道）。
 function marketEntryInstalled(e) {
   if (!e) return false;
-  var names = installedPluginNames();
+  var rows = (window.__pluginsData && window.__pluginsData.length ? window.__pluginsData : (state.plugins || []));
+  var repo = String(e.repo || '').toLowerCase();
+  var repoShort = repo.split('/')[1] || '';
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (!r) continue;
+    var names = [r.id, r.name].map(function (x) { return x ? String(x).toLowerCase() : ''; }).filter(Boolean);
+    if (repoShort && names.indexOf(repoShort) >= 0) return true;
+    // spec 形如 https://codeload.github.com/<owner>/<repo>/tar.gz/refs/<ref>：
+    // 含本仓库路径 → 同一仓库已按 URL 安装（审计修复：包名与仓库名不一致时此前恒 miss，
+    // 同一仓库可被重复「安装」且按钮永不显示已安装）。
+    var spec = r.spec ? String(r.spec).toLowerCase() : '';
+    if (repo && spec.indexOf('codeload.github.com/' + repo + '/') >= 0) return true;
+    if (repo && (spec === 'github:' + repo || spec === 'github:' + repo + '#main')) return true;
+  }
+  var names2 = installedPluginNames();
   var cands = [];
   if (e.npmName) cands.push(e.npmName);
   if (e.name) cands.push(e.name);
   var m = e.manifest || {};
   (m.plugins || []).forEach(function (p) { if (p && p.name) cands.push(p.name); });
-  return cands.some(function (c) { return names[String(c).toLowerCase()] === true; });
+  return cands.some(function (c) { return names2[String(c).toLowerCase()] === true; });
 }
 
+// codeload tarball URL：ref 为版本号形态走 tags/，否则走 heads/（default_branch 恒为分支）。
+// 审计修复（审查轮 P1）：此前 `/tar.gz/refs/<ref>` 缺 heads|tags 段，codeload 实测 404
+// （正确形态见 Main.cs EnsureDshHub 的 refs/heads/main 与后端 ensure.js githubZipUrls
+// 的 heads/tags 双形态）——github 源安装全部失败的根因。
+function codeloadTarUrl(repo, ref) {
+  const r = ref || 'main';
+  const kind = /^v?\d+\.\d+/.test(r) ? 'tags' : 'heads';
+  return 'https://codeload.github.com/' + repo + '/tar.gz/refs/' + kind + '/' + r;
+}
+
+// 安装 spec 生成：manifest 源优先（github tarball / npm 精确版本），npmName 兜底。
+// 审计修复：此前 npmName 优先——npmName 只是仓库 package.json 的 name（可能未发布到
+// npm 或被第三方抢注同名包），按 npm spec 安装会拉到错误/恶意包；manifest 的
+// source 才是市场详情生成的精确安装源。
 function marketInstallSpec(e) {
   var m = e.manifest || {};
   var plugins = Array.isArray(m.plugins) ? m.plugins : [];
-  if (e.npmName) return e.version ? e.npmName + "@" + e.version : e.npmName;
   for (var i = 0; i < plugins.length; i++) {
     var p = plugins[i] || {};
     var src = p.source || {};
     if (src.type === "github" && src.repo) {
-      return "https://codeload.github.com/" + src.repo + "/tar.gz/refs/" + (src.ref || e.ref || "main");
+      return codeloadTarUrl(src.repo, src.ref || e.ref);
     }
     if (src.type === "npm" && p.name) {
       return p.version && p.version !== "latest" ? p.name + "@" + p.version : p.name;
     }
     if (p.name && !src.type) return p.name;
   }
-  if (e.repo) return "https://codeload.github.com/" + e.repo + "/tar.gz/refs/" + (e.ref || "main");
+  if (e.repo) return codeloadTarUrl(e.repo, e.ref);
+  if (e.npmName) return e.version ? e.npmName + "@" + e.version : e.npmName;
   return "";
 }
 function renderMarketCard(e) {
@@ -2856,11 +3007,13 @@ function renderMarket() {
     <div class="pack-grid">
       ${body}
     </div>
-    ${marketData.length && !marketError ? `<div style="text-align:center;margin:14px 0"><button class="btn" id="moreMarket">${ICONS.refresh} 加载更多</button></div>` : ''}
-    ${marketData.length ? '' : ''}`;
+    ${marketHasMore(marketLastPageItems) ? `<div style="text-align:center;margin:14px 0"><button class="btn" id="moreMarket">${ICONS.refresh} 加载更多</button></div>` : ''}`;
 
   $('marketSearch').addEventListener('input', (e) => { marketQuery = e.target.value; });
   $('marketSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') doMarketSearch(); });
+  // 审计修复：topic 输入框绑定 input——此前只绑 Enter，修改标签后点「搜索」用的仍是
+  // 旧 marketTopic，搜索条件与界面显示不一致。
+  $('marketTopic').addEventListener('input', (e) => { marketTopic = e.target.value; });
   $('marketTopic').addEventListener('keydown', (e) => { if (e.key === 'Enter') doMarketSearch(); });
   document.querySelectorAll('#marketSourcesWrap .chip').forEach((c) => c.addEventListener('click', () => {
     const v = c.dataset.src;
@@ -2868,7 +3021,9 @@ function renderMarket() {
     else {
       const cur = marketSources ? [...marketSources] : [...MARKET_SOURCE_OPTIONS];
       const next = cur.includes(v) ? cur.filter((x) => x !== v) : cur.concat(v);
-      marketSources = next.length === MARKET_SOURCE_OPTIONS.length ? null : next;
+      // 全选或全不选都归一 null（默认=官方+全部镜像）——与 client.js 对齐：
+      // 空数组会让 UI 无任何选中却实际全网请求（candidatesFromSources 空回落全量）
+      marketSources = next.length === MARKET_SOURCE_OPTIONS.length || next.length === 0 ? null : next;
     }
     renderMarket();
   }));

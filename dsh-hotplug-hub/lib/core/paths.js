@@ -42,6 +42,16 @@ export const MARKET_CACHE_FILE = () => join(hotplugRoot(), 'market-cache.json')
 // 单仓库详情缓存：marketDetail 逐条抓取后单独缓存，命中即秒回（上游 v0.9.7 对齐）
 export const MARKET_DETAIL_CACHE_FILE = () => join(hotplugRoot(), 'market-detail-cache.json')
 export const MARKET_PAGE_SIZE = 10
+// 分页上限（GitHub Search API 硬顶 1000 条 = 100 页 × 10；同时是 UI「加载更多」的
+// 终止依据之一）：page clamp 与 hasMore 契约共用此常量，防两处手写漂移。
+export const MARKET_MAX_PAGE = 10
+// 列表缓存 TTL：列表元数据（stars 等）变化不频繁，10 分钟内命中缓存不再打 GitHub API。
+export const MARKET_CACHE_TTL_MS = 10 * 60 * 1000
+// 详情缓存 TTL：README/manifest 较稳定，1 小时；此前无 TTL，陈旧数据无限期存留。
+export const MARKET_DETAIL_CACHE_TTL_MS = 60 * 60 * 1000
+// 单次抓取响应体上限（码点）：fetch 分支与 curl 兜底分支共用——此前 fetch 无上限
+// （超大响应耗内存）而 curl 被 runCli OUTPUT_CAP=64KB 截断，两通道行为漂移。
+export const MARKET_MAX_BODY_CHARS = 500_000
 // 注：详情并发抓取上限由客户端 hydrateMarketDetails 自行限制（client.js MARKET_DETAIL_CONCURRENCY），
 // 后端 marketDetailAsync 每个请求独立、不做并发限制，故此处不设同名常量（审计修复：删除死常量防漂移）。
 export const MARKET_TIMEOUT_MS = 15000

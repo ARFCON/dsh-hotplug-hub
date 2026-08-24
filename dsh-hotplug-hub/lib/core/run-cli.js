@@ -54,6 +54,10 @@ export function runCli(command, args, timeoutMs, options = {}) {
       bin = process.env.ComSpec || 'cmd.exe'
       argv = ['/d', '/c', command, ...args]
     }
+    // 审计修复（通道行为对齐）：输出上限可由调用方放宽（默认 OUTPUT_CAP 不变）——
+    // 市场抓取的 curl 兜底需要与 fetch 分支一致的 MARKET_MAX_BODY_CHARS 上限，
+    // 而此前两通道一个无上限、一个被 64KB 截断，同一 README 结果漂移。
+    const outputCap = typeof options.maxOutput === 'number' && options.maxOutput > 0 ? options.maxOutput : OUTPUT_CAP
     const child = spawn(bin, argv, {
       cwd: options.cwd ?? profileDir(),
       env: sanitizeChildEnv(process.env),
@@ -73,10 +77,10 @@ export function runCli(command, args, timeoutMs, options = {}) {
     }, timeoutMs)
     if (typeof timer.unref === 'function') timer.unref()
     child.stdout.on('data', (chunk) => {
-      if (stdout.length < OUTPUT_CAP) stdout += String(chunk)
+      if (stdout.length < outputCap) stdout += String(chunk)
     })
     child.stderr.on('data', (chunk) => {
-      if (stderr.length < OUTPUT_CAP) stderr += String(chunk)
+      if (stderr.length < outputCap) stderr += String(chunk)
     })
     child.on('error', (error) => {
       clearTimeout(timer)

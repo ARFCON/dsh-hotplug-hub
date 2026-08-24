@@ -397,12 +397,16 @@ window.__ModuleLoader__.load({
 						setMarketError(String(result.message ?? result.error ?? "?"));
 					} else if (result && Array.isArray(result.entries)) {
 						const listEntries = result.entries;
+						// hasMore 是服务端权威契约（本页满页 && page < 分页上限）——
+						// 审计修复：此前用 entries.length < total 判断，GitHub total_count
+						// 动辄上千而 page 被服务端 clamp 到上限，按钮永不消失、末页重复请求。
+						const hasMore = result.hasMore === true;
 						setMarketData((prev) => {
 							if (!prev || (params.page ?? 1) === 1) {
-								return { entries: listEntries, total: result.total ?? listEntries.length, sources: result.sources ?? params.sources ?? null, cachedAt: result.cachedAt ?? null, cached: result.cached === true };
+								return { entries: listEntries, total: result.total ?? listEntries.length, sources: result.sources ?? params.sources ?? null, cachedAt: result.cachedAt ?? null, cached: result.cached === true, hasMore };
 							}
 							const seen = new Set(prev.entries.map((e) => e.id));
-							return { ...prev, entries: [...prev.entries, ...listEntries.filter((e) => !seen.has(e.id))], total: result.total ?? prev.total };
+							return { ...prev, entries: [...prev.entries, ...listEntries.filter((e) => !seen.has(e.id))], total: result.total ?? prev.total, hasMore };
 						});
 						// 列表已渲染；逐条并发抓详情，谁先返回谁先填进卡片，不等待其余。
 						hydrateMarketDetails(listEntries, result.sources ?? params.sources ?? null, params.refresh === true);
@@ -526,10 +530,15 @@ window.__ModuleLoader__.load({
 				if (!key) { say("warn", "未填写 API Key：无法测试（留空走服务端环境变量）"); return; }
 				if (!/^https:\/\//i.test(baseURL)) { say("warn", "Base URL 必须以 https:// 开头（TLS 铁律）"); return; }
 				setAiTesting(true);
+				// 审计修复：连接测试加超时——此前 fetch 挂起则 aiTesting 永久为 true、
+				// 按钮永久禁用（prototype 端同功能一直有 15s 超时，两端安全网不一致）。
+				const ctrl = new AbortController();
+				const timer = setTimeout(() => ctrl.abort(), 15000);
 				fetch(baseURL.replace(/\/+$/, "") + "/chat/completions", {
 					method: "POST",
 					headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-					body: JSON.stringify({ model, messages: [{ role: "user", content: "ping" }], max_tokens: 8, temperature: 0 })
+					body: JSON.stringify({ model, messages: [{ role: "user", content: "ping" }], max_tokens: 8, temperature: 0 }),
+					signal: ctrl.signal
 				})
 					.then(async (res) => {
 						if (res.ok) say("ok", "✓ 连接成功：" + model);
@@ -538,8 +547,8 @@ window.__ModuleLoader__.load({
 							say("error", "连接失败 HTTP " + res.status + "：" + t.slice(0, 120));
 						}
 					})
-					.catch((e) => say("error", "连接失败：" + String((e && e.message) || e)))
-					.finally(() => setAiTesting(false));
+					.catch((e) => say("error", "连接失败：" + (ctrl.signal.aborted ? "超时（15s）" : String((e && e.message) || e))))
+					.finally(() => { clearTimeout(timer); setAiTesting(false); });
 			};
 			const doAiNewSession = () => {
 				if (aiMessages.length === 0 && !aiSessionId) return;
@@ -666,7 +675,9 @@ window.__ModuleLoader__.load({
 			const sourceEntries = marketData ? marketData.entries : [];
 			const marketCats = ["全部", ...new Set(sourceEntries.length ? sourceEntries.flatMap((p) => p.topics ?? p.tags ?? []) : CATALOG.flatMap((p) => p.tags))];
 			const marketQ = marketQuery.trim().toLowerCase();
-			const marketPool = sourceEntries.length ? sourceEntries : CATALOG;
+			// 审计修复：空结果是真实搜索结果（显示「没有匹配的插件」），不再回退内置示例
+			// 目录——CATALOG 只在「尚无数据」（初始态/网络失败）时作为离线展示。
+			const marketPool = marketData ? sourceEntries : CATALOG;
 			const shown = marketPool.filter((p) => {
 				const tags = p.topics ?? p.tags ?? [];
 				const hay = (p.name || "").toLowerCase() + " " + tags.join(" ").toLowerCase() + " " + String(p.intro || p.description || p.desc || "").toLowerCase();
@@ -728,7 +739,7 @@ window.__ModuleLoader__.load({
 									const cur = prev ? [...prev] : [...MARKET_SOURCE_OPTIONS];
 									const has = cur.includes(s);
 									const next = has ? cur.filter((x) => x !== s) : [...cur, s];
-									return next.length === MARKET_SOURCE_OPTIONS.length ? null : next;
+									return next.length === MARKET_SOURCE_OPTIONS.length || next.length === 0 ? null : next;
 								});
 								setMarketPage(1);
 							} }, s === "github" ? t("marketSourceGithub") : s);
@@ -751,7 +762,9 @@ window.__ModuleLoader__.load({
 				h("div", { className: "hp_grid" },
 					shown.length ? shown.map(renderMarketCard) : h("p", { className: "hp_empty" }, t("marketEmpty"))
 				),
-				marketData && marketData.entries.length < (marketData.total ?? 0) ? h("div", { className: "hp_bar", style: { justifyContent: "center" } },
+				// 审计修复：hasMore 为服务端权威契约（hasMore:true 才显示；旧网关无该字段
+				// 时按钮不出现——保守方向，杜绝「末页重复请求永不消失」）。
+				marketData && marketData.hasMore === true ? h("div", { className: "hp_bar", style: { justifyContent: "center" } },
 					h("button", { className: "hp_btn", disabled: marketLoading, onClick: doMarketMore }, marketLoading ? t("marketFetching") : t("marketMore"))
 				) : null,
 				marketData ? h("p", { className: "hp_info" }, t("marketNote")) : null
@@ -1025,6 +1038,7 @@ window.__ModuleLoader__.load({
 				check: () => remote().then((face) => face.check()),
 				marketList: (params) => remote().then((face) => face.marketList(params)),
 				marketDetail: (params) => remote().then((face) => face.marketDetail(params)),
+				aiAssemble: (params) => remote().then((face) => face.aiAssemble(params)),
 				aiChat: (params) => remote().then((face) => face.aiChat(params))
 			});
 			ctx.slots.inject("settings.section", () => ctx.slots.register({
