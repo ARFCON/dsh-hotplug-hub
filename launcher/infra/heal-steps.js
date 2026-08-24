@@ -97,21 +97,18 @@ async function executeAction(core, action, ctx) {
         break;
       }
       case 'rebuild-link': {
-        // 重建 path 源链接：校验目标存在并复制 package.json
-        const fsPort = core.ports.fs;
-        const path = require('path');
+        // R3：复用 installPathPlugin（单一真源）——此前手搓 mkdir+copy package.json
+        // （复制壳），自愈后插件劣化：无真实链接（DSH require 不到代码）、陈旧占位
+        // 目录不被清理（复制壳混进残留垃圾）。installPathPlugin 的语义与 install
+        // 阶段完全一致（校验目标存在 → 清占位 → junction/dir symlink → 失败回退复制壳）。
+        const { installPathPlugin } = require('./install');
         for (const p of ctx.plugins || []) {
           if (p.source.type !== 'path') continue;
-          const target = p.installPath;
-          if (!target || !fsPort.existsSync(target)) {
-            r = { ok: false, error: makeError('ERR_INSTALL_DEP', `path 目标不存在：${target}`) };
+          const lr = installPathPlugin(core, p, ctx.profile);
+          if (!lr.ok) {
+            r = { ok: false, error: lr.error };
             break;
           }
-          const linkDir = path.join(ctx.profile, 'node_modules', p.name);
-          fsPort.mkdirSync(path.dirname(linkDir), { recursive: true });
-          fsPort.mkdirSync(linkDir, { recursive: true });
-          const srcPkg = path.join(target, 'package.json');
-          if (fsPort.existsSync(srcPkg)) fsPort.copyFileSync(srcPkg, path.join(linkDir, 'package.json'));
         }
         break;
       }
@@ -119,6 +116,10 @@ async function executeAction(core, action, ctx) {
         // bundle↔cordis 重分类：重写 profile package.json 的 dsh.profile.bundles
         const fsPort = core.ports.fs;
         const path = require('path');
+        // R3：原子写直依赖本地 shim（与 ./install 的 require 模式一致）——此前
+        // writeFileSync 裸写 profile 产物，崩溃时留下半截 package.json；且不经
+        // core.infra.atomic（最小测试内核无该字段）。
+        const { writeFileAtomic } = require('./atomic');
         const manifestFile = path.join(ctx.profile, 'package.json');
         if (fsPort.existsSync(manifestFile)) {
           let manifest;
@@ -138,11 +139,12 @@ async function executeAction(core, action, ctx) {
           manifest.dsh = manifest.dsh || {};
           manifest.dsh.profile = manifest.dsh.profile || {};
           manifest.dsh.profile.bundles = fixed;
-          try {
-            fsPort.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
-          } catch (writeErr) {
+          // R3：原子写（writeFileAtomic tmp+rename）——此前 writeFileSync 裸写
+          // profile 产物，崩溃时留下半截 package.json（违反统一原子写原则）。
+          const w = writeFileAtomic(fsPort, manifestFile, JSON.stringify(manifest, null, 2) + '\n');
+          if (!w.ok) {
             // C1 修复：写路径不裸抛（此前异常穿透到 index.js FATAL）
-            r = { ok: false, error: makeError('ERR_HEAL_ROLLBACK', `重写 profile package.json 失败：${writeErr.message}`) };
+            r = { ok: false, error: makeError('ERR_HEAL_ROLLBACK', `重写 profile package.json 失败：${w.error.message}`) };
             break;
           }
         }
@@ -151,17 +153,19 @@ async function executeAction(core, action, ctx) {
       case 'regenerate-patch': {
         // 重新生成 cordis.patch.yml（UTF-8 损坏修复）
         const { serializePatch } = require('../domain/patch');
+        const { writeFileAtomic } = require('./atomic');
         const path = require('path');
         const patchFile = path.join(ctx.profile, 'cordis.patch.yml');
         const pack = ctx.pack || { id: ctx.state && ctx.state.id, plugins: ctx.plugins || [] };
         const sp = serializePatch(pack);
         if (!sp.ok) r = { ok: false, error: sp.error };
         else {
-          try {
-            core.ports.fs.writeFileSync(patchFile, sp.yamlText, 'utf8');
-          } catch (writeErr) {
+          // R3：原子写（writeFileAtomic tmp+rename）——此前 writeFileSync 裸写
+          // cordis.patch.yml，崩溃时留下半截 patch 文件。
+          const w = writeFileAtomic(core.ports.fs, patchFile, sp.yamlText);
+          if (!w.ok) {
             // C1 修复：写路径不裸抛
-            r = { ok: false, error: makeError('ERR_YAML_SERIALIZE', `重写 cordis.patch.yml 失败：${writeErr.message}`) };
+            r = { ok: false, error: makeError('ERR_YAML_SERIALIZE', `重写 cordis.patch.yml 失败：${w.error.message}`) };
           }
         }
         break;

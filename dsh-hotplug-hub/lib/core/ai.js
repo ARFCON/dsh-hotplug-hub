@@ -28,7 +28,9 @@
  *
  * 最小真实调用验证：scripts/qa5-ai-assemble.mjs（进程隔离，key 经 env 注入）。
  */
-import { parseHotpack } from '../../vendor-shared/index.mjs'
+// R3：改走 hub 适配层（core/hotpack）——AI 产物与 importPack 同一权威路径，
+// 补齐展示适配（tags 码点安全截断）与 hotplug 附加语义（memory:{keep:true}）。
+import { parseHotpack } from './hotpack.js'
 import { PERSONAS, DEFAULT_PERSONA, buildSystemPrompt, resolvePersona, diffPacks, personaReaction } from './ai-persona.js'
 import { loadSession, saveSession, newSessionId, trimMessages, deleteSession, listSessions } from './ai-session.js'
 
@@ -327,7 +329,7 @@ async function runAssemblyTurn(cfg, endpoint, messages, opts) {
     // 权威校验（LLM 输出不可信：全量白名单/格式校验）
     const check = parseHotpack(manifest)
     if (!check.ok) {
-      lastErr = `AI 产物未通过校验：${check.code} ${check.message}（已重试）`
+      lastErr = `AI 产物未通过校验：${check.code} ${check.error}（已重试）`
       continue
     }
     const pack = check.pack

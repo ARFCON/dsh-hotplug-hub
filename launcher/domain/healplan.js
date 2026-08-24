@@ -28,7 +28,9 @@ const ACTIONS = {
     trigger: 'install 退出码非 0 / node_modules 缺失',
     steps: [{ type: 'reinstall' }],
     verify: '重跑 install 并校验产物（node_modules 存在）',
-    rollback: '恢复 lockfile 快照',
+    // R3 文本校准：实际回滚由 heal-verify 的 rollbackAction 统一执行（恢复 profile
+    // 快照）；无 lockfile 快照机制，原描述与实现不符。
+    rollback: '恢复 profile 快照（heal-verify 统一执行）',
     budget: DEFAULT_RETRY_BUDGET
   },
   GITHUB_ACQUIRE_FAIL: {
@@ -55,7 +57,9 @@ const ACTIONS = {
     // 失败时永不运行（隔离冲突插件的本意落空）。重 pin 成功即无冲突，失败即诚实报错。
     steps: [{ type: 'pin-compatible' }],
     verify: '重跑 resolve 无冲突',
-    rollback: '恢复原 pin',
+    // R3 文本校准：pin 结果写回 state.resolved（持久化于命令收尾），失败路径无
+    // 单独的「原 pin 恢复」步骤；描述与实现不符已纠正。
+    rollback: '失败即报错（不落盘坏 pin，原 resolved 保持）',
     budget: 2
   },
   CRASH_LOOP: {

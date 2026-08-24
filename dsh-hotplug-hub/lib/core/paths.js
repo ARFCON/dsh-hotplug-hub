@@ -19,8 +19,15 @@ export const VERSION = (() => {
 })()
 
 export const IS_WIN = process.platform === 'win32'
-export const CURL_BIN = IS_WIN ? 'curl.exe' : 'curl'
-export const TAR_BIN = IS_WIN ? 'tar.exe' : 'tar'
+// 下载/解压工具二进制：默认系统 curl/tar；可用 DSH_CURL_BIN / DSH_TAR_BIN 覆盖
+// （嵌入式宿主与进程隔离测试用——测试把假 curl/tar（.cmd / shebang 脚本）放进隔离
+// PATH 后经此指名，避免依赖真实网络与系统二进制；默认行为完全不变）。
+export const CURL_BIN = (typeof process.env.DSH_CURL_BIN === 'string' && process.env.DSH_CURL_BIN.trim() !== '')
+  ? process.env.DSH_CURL_BIN.trim()
+  : (IS_WIN ? 'curl.exe' : 'curl')
+export const TAR_BIN = (typeof process.env.DSH_TAR_BIN === 'string' && process.env.DSH_TAR_BIN.trim() !== '')
+  ? process.env.DSH_TAR_BIN.trim()
+  : (IS_WIN ? 'tar.exe' : 'tar')
 export const ENSURE_TIMEOUT_MS = 5 * 60 * 1000
 export const DOWNLOAD_TIMEOUT_MS = 120 * 1000
 export const OUTPUT_CAP = 65536

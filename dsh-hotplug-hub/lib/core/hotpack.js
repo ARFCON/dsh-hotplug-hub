@@ -13,11 +13,14 @@ import { parseHotpack as sharedParseHotpack, dshpackToHotpack as sharedDshpackTo
 
 const SHARED_OPTS = { maxNameLength: 214, maxDescLength: 300, allowLegacy: false }
 
-/** 展示适配：tags 截断（12×24）+ memory:{keep:true}（hotplug 附加语义）。 */
+/** 展示适配：tags 截断（12×24）+ memory:{keep:true}（hotplug 附加语义）。
+ *  审计修复（R3）：tag 截断按【码点】而非 UTF-16 码元——String.slice(0,24) 会把
+ *  代理对（emoji 等增补平面字符）劈成孤立高/低代理（与 market.js truncateCodePoints
+ *  修复的同类问题）；Array.from 按码点切分，截断点永不落在代理对中间。 */
 function adapt(pack) {
   return {
     ...pack,
-    tags: pack.tags.slice(0, 12).map((tag) => tag.slice(0, 24)),
+    tags: pack.tags.slice(0, 12).map((tag) => Array.from(tag).slice(0, 24).join('')),
     memory: { keep: true },
   }
 }

@@ -57,6 +57,20 @@ export function isNpmCached(name, version) {
   return installedVersion(name) === version && innerPackageName(npmModuleDir(name)) === name
 }
 
+/**
+ * 插件落地是否就绪（R3 单一真源统一）：npm 走 isNpmCached（版本 + 内部包名双校验）；
+ * path/github 与 ensurePath / ensureGithub 的复用判定同一逻辑——落地目录
+ * package.json 存在【且】内部包名与清单声明一致。此前 statusSync/previewPack 对
+ * 非 npm 源只看存在性，串包/篡改残留被误报 cached/reused（预演与激活行为漂移）。
+ * @param {object} entry 清单插件条目
+ * @returns {boolean}
+ */
+export function isEntryCached(entry) {
+  if (entry.source.type === 'npm') return isNpmCached(entry.name, entry.version)
+  const dir = storeDirOf(entry)
+  return existsSync(join(dir, 'package.json')) && innerPackageName(dir) === entry.name
+}
+
 export async function ensureNpm(entry) {
   const current = installedVersion(entry.name)
   // 审计修复：reused 判定补齐包名校验（与 ensurePath/ensureGithub 一致）——只比对版本
@@ -163,8 +177,11 @@ export async function ensureGithub(entry) {
     }
   }
   const zipPath = join(tmpdir(), `hotplug-${Date.now()}-${Math.random().toString(36).slice(2)}.zip`)
-  const extractDir = mkdtempSync(join(tmpdir(), 'hotplug-x-'))
+  let extractDir = null
   try {
+    // mkdtemp 失败也要走 finally 的 extractDir 判空清理（R3：置于 try 内，
+    // 异常不得绕过调用方 mountPack 的事务回滚语义之外的自身清理职责）
+    extractDir = mkdtempSync(join(tmpdir(), 'hotplug-x-'))
     let downloaded = false
     for (const url of githubZipUrls(entry.source.repo, entry.source.ref)) {
       try { rmSync(zipPath, { force: true }) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
@@ -195,7 +212,9 @@ export async function ensureGithub(entry) {
     return { ok: true, status: 'downloaded', path: dest, detail: `已下载 ${entry.source.repo}@${entry.source.ref} 到 hotplug-store` }
   } finally {
     try { rmSync(zipPath, { force: true }) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
-    try { rmSync(extractDir, { recursive: true, force: true }) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
+    if (extractDir !== null) {
+      try { rmSync(extractDir, { recursive: true, force: true }) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
+    }
   }
 }
 

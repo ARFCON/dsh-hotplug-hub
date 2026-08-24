@@ -69,7 +69,11 @@ describe('QA4 installNpmPlugin（dsh 通道 + npm 降级）', () => {
     expect(r.ok).toBe(true);
     expect(r.channel).toBe('npm');
     expect(rec.calls).toHaveLength(1);
-    expect(rec.calls[0].bin).toBe('cmd.exe');
+    // R3：cmd 解释器统一 resolveCmdBin（ComSpec/System32 绝对路径；仅极端环境回落裸名）
+    expect(
+      rec.calls[0].bin === 'cmd.exe' ||
+      (path.isAbsolute(rec.calls[0].bin) && path.basename(rec.calls[0].bin).toLowerCase() === 'cmd.exe')
+    ).toBe(true);
     expect(rec.calls[0].args).toEqual(['/c', 'npm', 'install', '--no-audit', '--no-fund', 'pkg-a@1.0.0']);
     fs.rmSync(profile, { recursive: true, force: true });
   });

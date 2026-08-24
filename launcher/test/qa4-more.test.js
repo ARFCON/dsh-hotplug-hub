@@ -104,11 +104,15 @@ describe('QA4 dsh-cli（三优先级探测）', () => {
     r = findDshCli(core, { profile: 'demo' });
     expect(r.ok).toBe(true);
     expect(r.args[0]).toBe(alt);
-    // 3) PATH 回退（win32 cmd /c）
+    // 3) PATH 回退（win32 cmd /c；R3：解释器解析为 ComSpec/System32 绝对路径，
+    //    仅在宿主无 ComSpec/SystemRoot 的极端环境回落裸 'cmd.exe'——CI POSIX 宿主即如此）
     fs.rmSync(path.join(home, '.dsh'), { recursive: true, force: true });
     r = findDshCli(core, { profile: 'demo' });
     expect(r.ok).toBe(true);
-    expect(r.bin).toBe('cmd.exe');
+    expect(
+      r.bin === 'cmd.exe' ||
+      (path.isAbsolute(r.bin) && path.basename(r.bin).toLowerCase() === 'cmd.exe')
+    ).toBe(true);
     expect(r.args).toEqual(['/c', 'dsh', 'plugin', '--profile', 'demo', 'add']);
     fs.rmSync(home, { recursive: true, force: true });
   });

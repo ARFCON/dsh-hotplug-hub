@@ -6,7 +6,7 @@
 const path = require('path');
 const { GITHUB_MIRRORS } = require('../contracts/constants');
 const { makeError } = require('../contracts/errors');
-const { CMD_EXE_SPECIAL_RE } = require('./dsh-cli');
+const { CMD_EXE_SPECIAL_RE, resolveCmdBin } = require('./dsh-cli');
 const { sanitizeChildEnv } = require('@dsh/shared-core/security/net');
 
 /**
@@ -32,10 +32,12 @@ async function installNpmPlugin(core, plugin, profile) {
 
   // 2) 降级：npm install <name>@<version>
   // C6 修复：win32 下 npm 是 npm.cmd，spawnSync('npm') 直接执行返回 ENOENT——
-  // 降级通道在 Windows 恒失败；与 findDshCli 相同处理：cmd.exe /c 包装。
+  // 降级通道在 Windows 恒失败；经 cmd.exe /c 包装。
+  // R3（审查修复）：cmd 解释器统一走 resolveCmdBin（ComSpec/System32 绝对路径）——
+  // 此前裸 'cmd.exe' 与 findDshCli 的加固不一致（PATH 被隔离时 ENOENT）。
   const spec = version ? `${plugin.name}@${version}` : plugin.name;
   const isWin = core.config.platform === 'win32';
-  const npmBin = isWin ? 'cmd.exe' : 'npm';
+  const npmBin = isWin ? resolveCmdBin(core) : 'npm';
   const npmArgs = isWin
     ? ['/c', 'npm', 'install', '--no-audit', '--no-fund', spec]
     : ['install', '--no-audit', '--no-fund', spec];
@@ -176,7 +178,8 @@ async function installGithubPluginWithMirror(core, plugin, profile, explicitMirr
       return { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', `git 目标路径含 cmd 特殊字符，拒绝经 cmd 执行：${target}`) };
     }
   }
-  const gitBin = isWin ? 'cmd.exe' : 'git';
+  // R3（审查修复）：同 npm 降级通道——cmd 解释器走 resolveCmdBin 绝对路径
+  const gitBin = isWin ? resolveCmdBin(core) : 'git';
   const gitBaseArgs = ['clone', '--depth', '1', '--branch', ref];
   const directUrl = `https://github.com/${repo}.git`;
   const urls = explicitMirror
