@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * scripts/qa10-v11-nav-updates.mjs — v3 PCL 启动器交互契约验收（puppeteer-core + 本机 Edge）
+ * scripts/qa10-v11-nav-updates.mjs — v4 一体化总控台大面板交互契约验收（puppeteer-core + 本机 Edge）
  *
- * 覆盖（v3 顶部横排导航 + PCL 主页的端到端契约）：
+ * 覆盖（v4 顶部横排导航 + 大面板主页的端到端契约）：
  *   1) 顶部横排主导航：9 视图项横排 → 当前项高亮 → 点击跳转 → 插件更新角标（.n-count.upd）
- *   2) 左侧女仆坞：头像展开/收起 → AI 装配间入住坞内 → switchView('ai') 转义为展开 →
- *      开合状态刷新后持久恢复 → 主区视图切换不影响坞
+ *   2) 主页大面板 AI 装配间常驻左栏：女仆坞已移除 → ai-zone 渲染 → 欢迎卡 →
+ *      switchView('ai') 回到主页 → 刷新后会话续接
  *   3) 主页插件更新卡：无更新（全部最新）/有更新（计数+清单）→ 检查更新=checkPlugins →
  *      一键更新确认=updateAllPlugins → 卡主体点击跳转插件管理
  *   4) 插件变更重启流：postPluginOp 置 pending → __setPlugins 回推 → 重启 DSH 二次确认 →
@@ -81,84 +81,33 @@ try {
   check('插件管理项带更新角标（1）', badge.trim() === '1', badge)
   await page.evaluate(() => switchView('home'))
 
-  console.log('== 2. 左侧女仆坞（AI 装配间 · v1.2 仅主页 + 玻璃标签） ==')
-  await page.evaluate(() => switchView('home')) // 女仆坞仅存在于主页
-  await new Promise((r) => setTimeout(r, 300))
-  check('初始收起（左缘玻璃标签，无文字提示）', await page.evaluate(() => {
-    const d = document.getElementById('maidDock')
-    const ui = d.querySelector('.maid-open-ui')
-    return !d.classList.contains('open') && !d.classList.contains('hidden') && getComputedStyle(ui).display === 'none'
-  }))
-  check('悬停自动延伸玻璃条（peek）', await (async () => {
-    await page.hover('#maidDock')
-    await new Promise((r) => setTimeout(r, 400))
-    return page.evaluate(() => document.getElementById('maidDock').classList.contains('peek') && document.getElementById('maidDock').getBoundingClientRect().width > 60)
-  })())
-  // 悬停会改变头像几何（中心移动），测试统一 JS click 保证确定性；真实用户点击视觉头像不受影响
-  await page.evaluate(() => document.getElementById('maidAvatar').click())
-  await new Promise((r) => setTimeout(r, 400))
-  check('点击头像 → 弹出 AI 装配间（open + view-ai 可见）', await page.evaluate(() =>
-    document.getElementById('maidDock').classList.contains('open') && !document.getElementById('view-ai').classList.contains('hidden')))
-  check('坞内 AI 欢迎卡（小织问候）', await page.$eval('.ai-welcome .greet', (e) => e.textContent.includes('小织') || e.textContent.includes('装配间')))
-  check('AI 不在主区（view-ai 位于 maidDock 内）', await page.evaluate(() =>
-    document.getElementById('maidDock').contains(document.getElementById('view-ai'))))
-  // 点击坞外页面：scrim 遮罩拦截——仅收起、零副作用（悬停/按压/聚焦特效到不了底下按钮）
-  const scrimTop = await page.evaluate(() => {
-    const cell = document.querySelector('.home-tile[data-goto="market"]')
-    const r = cell.getBoundingClientRect()
-    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
-    return !!(top && top.id === 'maidScrim')
-  })
-  check('坞展开时遮罩为按钮位置最顶层（特效不可达）', scrimTop)
-  await page.mouse.click(900, 500)
-  await new Promise((r) => setTimeout(r, 320))
-  check('点击坞外 → 仅收起 + 焦点不落按钮（无选中特效）', await page.evaluate(() =>
-    !document.getElementById('maidDock').classList.contains('open')
-    && !/^BUTTON$|^SELECT$|^INPUT$|^A$/.test(document.activeElement.tagName)))
-  check('收起后按钮位置恢复直达（遮罩退场）', await page.evaluate(() => {
-    const cell = document.querySelector('.home-tile[data-goto="market"]')
-    const r = cell.getBoundingClientRect()
-    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
-    return !!(top && (top === cell || cell.contains(top)))
-  }))
-  await page.click('.home-tile[data-goto="ai"]')
-  await new Promise((r) => setTimeout(r, 320))
-  check('点击主页 AI 入口 → 正常展开（不被外点收起误关）', await page.evaluate(() => document.getElementById('maidDock').classList.contains('open')))
-  // 坞内点击（如输入框）不触发收起
-  await page.click('#reqInput')
-  await new Promise((r) => setTimeout(r, 200))
-  check('坞内点击不收起', await page.evaluate(() => document.getElementById('maidDock').classList.contains('open')))
-  // 顶栏 = 应用骨架（永远可交互）：窗口控制与导航按钮不被遮罩盖住
-  const chromeOk = await page.evaluate(() => {
-    const pick = (id) => { const el = document.getElementById(id); if (!el) return false; const r = el.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!(top && (top === el || el.contains(top) || el.contains(top))); };
-    const navBtn = document.querySelector('#mainNav .nav-item'); const nr = navBtn && navBtn.getBoundingClientRect(); const ntop = nr && document.elementFromPoint(nr.left + nr.width / 2, nr.top + nr.height / 2);
-    return { winMax: pick('winMax'), winClose: pick('winClose'), navBtn: !!(ntop && (ntop === navBtn || navBtn.contains(ntop))) };
-  });
-  check('坞展开时窗口控制/导航按钮仍直达（顶栏不被遮罩）', chromeOk.winMax && chromeOk.winClose && chromeOk.navBtn, JSON.stringify(chromeOk))
-  // 重新展开坞，保持后续「刷新恢复展开」断言的前置状态
-  await page.evaluate(() => switchView('ai'))
-  await new Promise((r) => setTimeout(r, 320))
-  await page.reload({ waitUntil: 'networkidle2' })
-  await new Promise((r) => setTimeout(r, 400))
-  check('刷新后开合状态持久恢复（展开）', await page.evaluate(() => document.getElementById('maidDock').classList.contains('open')))
-  await page.keyboard.press('Escape')
-  await new Promise((r) => setTimeout(r, 400))
-  check('Esc → 收起（AI 隐藏；✕ 按钮已按需求移除）', await page.evaluate(() =>
-    !document.getElementById('maidDock').classList.contains('open') && document.getElementById('view-ai').classList.contains('hidden')))
-  await page.evaluate(() => switchView('ai'))
-  await new Promise((r) => setTimeout(r, 300))
-  check("switchView('ai') 转义为展开女仆坞", await page.evaluate(() => document.getElementById('maidDock').classList.contains('open')))
-  // v1.2：坞仅主页——切走隐藏、回主页恢复
-  await page.evaluate(() => switchView('market'))
-  await new Promise((r) => setTimeout(r, 300))
-  check('切走主页 → 女仆坞整体隐藏（仅主页保留）', await page.evaluate(() => document.getElementById('maidDock').classList.contains('hidden')))
+  console.log('== 2. 主页大面板 · AI 装配间常驻左栏（v4） ==')
   await page.evaluate(() => switchView('home'))
   await new Promise((r) => setTimeout(r, 300))
-  check('回主页 → 女仆坞恢复展开', await page.evaluate(() =>
-    document.getElementById('maidDock').classList.contains('open') && !document.getElementById('view-home').classList.contains('hidden')))
-  // 收起坞再进入第 3 节：装配间展开时主页点击会被「只收起不透传」拦截
-  await page.keyboard.press('Escape')
-  await new Promise((r) => setTimeout(r, 320))
+  check('女仆坞已移除（无 maidDock/maidScrim/maidAvatar）', await page.evaluate(() =>
+    !document.getElementById('maidDock') && !document.getElementById('maidScrim') && !document.getElementById('maidAvatar')))
+  check('大面板 .home-console 渲染', await page.evaluate(() => !!document.querySelector('.home-console')))
+  check('AI 装配间常驻左栏（home-ai-col + homeAiPanel）', await page.evaluate(() =>
+    !!document.querySelector('.home-ai-col') && !!document.getElementById('homeAiPanel')))
+  check('AI 装配间已渲染（ai-zone）', await page.evaluate(() =>
+    !!document.querySelector('#homeAiPanel .ai-zone')))
+  check('AI 欢迎卡（小织问候）', await page.$eval('.ai-welcome .greet', (e) => e.textContent.includes('小织') || e.textContent.includes('装配间')))
+  // AI 装配间在左栏可交互（输入框聚焦）
+  await page.click('#reqInput')
+  await new Promise((r) => setTimeout(r, 200))
+  check('AI 输入框可聚焦', await page.evaluate(() => document.activeElement && document.activeElement.id === 'reqInput'))
+  // switchView('ai') → 回到主页，AI 装配间仍在
+  await page.evaluate(() => switchView('market'))
+  await new Promise((r) => setTimeout(r, 300))
+  check('切走主页 → 市场视图显示', await page.evaluate(() => !document.getElementById('view-market').classList.contains('hidden')))
+  await page.evaluate(() => switchView('ai'))
+  await new Promise((r) => setTimeout(r, 300))
+  check("switchView('ai') 转义为回到主页", await page.evaluate(() => !document.getElementById('view-home').classList.contains('hidden')))
+  check('回主页后 AI 装配间仍在左栏', await page.evaluate(() => !!document.querySelector('#homeAiPanel .ai-zone')))
+  await page.reload({ waitUntil: 'networkidle2' })
+  await new Promise((r) => setTimeout(r, 400))
+  check('刷新后 AI 装配间会话续接（ai-zone 仍在）', await page.evaluate(() => !!document.querySelector('#homeAiPanel .ai-zone')))
+  await page.evaluate(() => switchView('home'))
 
   console.log('== 3. 主页插件更新面板 ==')
   // 刷新会清掉运行时 __pluginsData：重注入并触发回推钩子（等价 C# __setPlugins）

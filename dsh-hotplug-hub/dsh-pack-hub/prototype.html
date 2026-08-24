@@ -147,9 +147,7 @@ button { font: inherit; color: inherit; }
   position: sticky; top: calc(var(--nav-h) + var(--menu-h)); z-index: 10;
   transition: padding-left .26s var(--ease);
 }
-/* 主页态：给左侧女仆坞玻璃标签让位（34px），标题与中控台/启动卡左缘对齐成一条竖线
-   （86 = wrap 22 + home-shell 左让位 64；其他视图标题 22 同样与其内容对齐，惯例一致） */
-body.on-home .topbar { padding-left: 86px; }
+/* v4：女仆坞已移除，主页标题与内容左缘统一对齐，无需为玻璃标签让位 */
 .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; line-height: 1.3; letter-spacing: .01em; }
 .topbar .ctx { font-size: 12px; color: var(--muted); letter-spacing: .02em; }
 .topbar .spacer { flex: 1; }
@@ -261,14 +259,9 @@ body.on-home .topbar { padding-left: 86px; }
   background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--rad); padding: 16px;
 }
-/* ===== 沉浸式聊天（AI 装配间 v2.1：为女仆坞 400px 窄栏重设计——单行工具栏/单列表单/轻量欢迎） ===== */
-/* 女仆坞内主题统一为「小织粉」：覆盖强调色变量，坞内全部控件（按钮/焦点环/气泡/徽标）随之和谐 */
-.maid-dock {
-  --teal: #db2777;
-  --teal-dark: #be1e64;
-  --accent: #db2777;
-  --accent-strong: #be1e64;
-}
+/* ===== 沉浸式聊天（AI 装配间）：单行工具栏/单列表单/轻量欢迎 =====
+ * v4：AI 装配间改为主页大面板左栏常驻舱，不再覆盖粉色主题——控件统一走全局主题绿，
+ * 仅头部保留小织粉色头像作角色锚点。 */
 .ai-zone { display: flex; flex-direction: column; height: 100%; min-height: 460px; }
 /* 工具栏：单行不换行——徽标 + 人设名 + 轮次 … 人设切换/模型/新会话；文案与图标瘦身保证 400px 内一行收纳 */
 .ai-topbar {
@@ -564,8 +557,7 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
   .grid-4, .pack-grid, .mem-list { grid-template-columns: 1fr; }
   .pcl-home { grid-template-columns: 1fr; }          /* 启动卡与卡片列纵向堆叠 */
   .home-tiles { grid-template-columns: 1fr; }        /* 快捷入口单列 */
-  .home-shell { padding: 14px 14px 32px 52px; }
-  body.on-home .topbar { padding-left: 66px; } /* 与 52px 面板左缘对齐（wrap 14 + 52） */
+  .home-shell { padding: 14px 14px 32px 14px; }
   .wrap { padding: 14px; }
   .topbar { padding: 12px 14px; }
 }
@@ -700,27 +692,54 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
   .cat-item { width: auto; }
 }
 
-/* ===== 主页（v3 · PCL 启动器风）：左启动卡（大绿启动键 + 环境自检）+ 右卡片列（更新/快捷入口） ===== */
+/* ===== 主页（v4 · 一体化总控台大面板） =====
+ * 设计契约：产品信号 = 一块精致的总控台面板；信息形状 = 左栏女仆 AI 装配间（常驻对话舱）
+ * + 右栏启动/状态/入口；视觉前提 = 高级感（克制留白、统一绿强调、细分割线、去嵌套卡片）；
+ * 签名 = 女仆从悬浮玻璃条改为大面板左栏常驻舱，粉色头像做唯一角色锚点。 */
 .home-shell {
   box-sizing: border-box;
-  /* 左 64px 让位女仆坞玻璃标签；底部小留白（无悬浮簇后不再需 130px） */
-  padding: 20px 22px 40px 64px;
+  padding: 20px 22px 40px 22px;
   min-height: calc(100vh - 172px);
 }
-.pcl-home {
+.home-console {
   display: grid;
-  grid-template-columns: minmax(300px, 5fr) minmax(340px, 7fr);
-  gap: 20px; align-items: start;
-  max-width: 1120px;
+  grid-template-columns: minmax(360px, 42%) minmax(0, 58%);
+  max-width: 1200px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--rad-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  min-height: 600px;
 }
-/* —— 启动卡：PCL「启动游戏」区，白卡 + 大绿按钮 —— */
-.launch-card {
-  background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--rad-lg); box-shadow: var(--shadow-card);
-  padding: 26px 22px 20px;
-  display: flex; flex-direction: column; align-items: center; gap: 14px;
-  text-align: center;
+/* —— 左栏：女仆 AI 装配间（常驻对话舱） —— */
+.home-ai-col {
+  display: flex; flex-direction: column;
+  min-width: 0; min-height: 0;
+  border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--neutral-soft) 40%, var(--panel));
 }
+.home-ai-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; flex: 0 0 auto;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.home-ai-panel {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+}
+.home-ai-panel .ai-zone { flex: 1 1 auto; min-height: 0; height: 100%; }
+/* —— 右栏：启动 / 状态 / 入口（去嵌套卡片，用分割线分区） —— */
+.home-main-col {
+  display: flex; flex-direction: column;
+  min-width: 0;
+  padding: 28px 30px 20px;
+}
+.hm-launch { display: flex; flex-direction: column; align-items: center; gap: 14px; padding-bottom: 26px; }
+.hm-divider { height: 1px; background: var(--line); margin-bottom: 20px; }
+.hm-sec-title { font-size: 11px; color: var(--muted); letter-spacing: .08em; margin-bottom: 10px; }
+
 .launch-brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; letter-spacing: .01em; }
 .launch-brand .brand-mark { width: 36px; height: 36px; margin: 0; }
 .launch-btn {
@@ -744,8 +763,8 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .launch-env .hc-dot { width: 7px; height: 7px; }
 .launch-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 
-/* —— 右侧卡片列 —— */
-.home-cards { display: grid; gap: 14px; align-content: start; }
+/* 右栏内容块间距（更新条 / 快捷入口之间） */
+.hm-block { margin-bottom: 18px; }
 /* 插件更新卡：有更新时琥珀提示条，无更新时绿色安心卡 */
 .home-update-card {
   background: var(--panel); border: 1px solid var(--line);
@@ -877,58 +896,7 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 /* ===== v1.2 左侧女仆坞（仅主页）：左缘玻璃标签 → 悬停延伸玻璃条（无文字）→ 点击弹出 AI 装配间 ===== */
 .app-body { flex: 1 1 auto; min-height: 0; display: flex; }
 .app-body > .main { flex: 1 1 auto; }
-.maid-dock {
-  position: fixed; left: 0; top: calc(var(--nav-h) + var(--menu-h)); bottom: 0; z-index: 18;
-  width: 34px;
-  display: flex; flex-direction: column; align-items: center;
-  overflow: hidden;
-  border-radius: 0 16px 16px 0;
-  border: 1px solid transparent;
-  /* 玻璃质感：半透明底 + 背景模糊（color-mix 随主题自适应；不支持时回退浅色半透明） */
-  background: rgba(255, 255, 255, .55);
-  background: color-mix(in srgb, var(--panel) 55%, transparent);
-  backdrop-filter: blur(16px) saturate(1.35);
-  -webkit-backdrop-filter: blur(16px) saturate(1.35);
-  box-shadow: 2px 0 18px rgba(17, 24, 39, .08);
-  transition: width .3s cubic-bezier(.33, 1, .68, 1), background .3s ease, border-radius .3s ease, box-shadow .3s ease;
-}
-/* 悬停热区：向右多探 30px，鼠标靠近即延伸（不需要精确命中 34px 细条）；展开态隐藏，避免挡住右侧内容的点击 */
-.maid-hit { position: absolute; left: 100%; top: 0; bottom: 0; width: 30px; }
-.maid-dock.open .maid-hit { display: none; }
-.maid-dock.peek { width: 78px; }
-.maid-dock.open {
-  width: 400px; align-items: stretch; border-radius: 0;
-  background: rgba(255, 255, 255, .8);
-  background: color-mix(in srgb, var(--panel) 80%, transparent);
-  border-right: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
-  box-shadow: 14px 0 44px rgba(17, 24, 39, .2);
-}
-/* 收起/悬停态：仅头像标记（垂直居中）+ 悬停态三枚小圆点装饰——按要求无任何文字提示 */
-.maid-avatar {
-  margin: auto 0; width: 26px; height: 26px; border-radius: 50%;
-  display: grid; place-items: center; font-weight: 800; font-size: 11px; color: #fff;
-  background: linear-gradient(135deg, #db2777, #f472b6);
-  box-shadow: 0 3px 10px rgba(219, 39, 119, .4);
-  cursor: pointer; border: 0; font-family: inherit; flex: 0 0 auto;
-  transition: transform var(--dur) var(--ease), width .3s cubic-bezier(.33,1,.68,1), height .3s cubic-bezier(.33,1,.68,1), font-size .3s;
-}
-.maid-dock.peek .maid-avatar { width: 40px; height: 40px; font-size: 15px; margin: auto 0; }
-/* 展开态：悬浮头像隐去（头部行内已有 .maid-head-ava），不再多占一整行 */
-.maid-dock.open .maid-avatar { display: none; }
-.maid-avatar:hover { transform: scale(1.08); }
-.maid-dots { display: none; gap: 5px; margin-top: 14px; }
-.maid-dock.peek .maid-dots { display: flex; }
-.maid-dots i { width: 4px; height: 4px; border-radius: 50%; background: #db2777; opacity: .35; }
-.maid-dots i:nth-child(2) { opacity: .6; }
-.maid-dots i:nth-child(3) { opacity: .9; }
-/* 弹出界面（仅 .open 可见）：头部 + AI 装配间 */
-.maid-open-ui { display: none; flex: 1 1 auto; min-height: 0; flex-direction: column; width: 100%; }
-.maid-dock.open .maid-open-ui { display: flex; }
-.maid-open-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px 10px 14px; flex: 0 0 auto;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-}
+/* v4：女仆坞玻璃条/悬浮头像/遮罩已移除——AI 装配间改为主页大面板左栏常驻舱（见 .home-ai-col） */
 /* 头部行内头像：与标题同排（应用标题栏惯例），替代展开态的悬浮大头像 */
 .maid-head-ava {
   width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
@@ -939,18 +907,7 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .maid-head-info { min-width: 0; flex: 1 1 auto; }
 .maid-name { font-size: 14px; font-weight: 700; color: #db2777; line-height: 1.3; letter-spacing: .01em; white-space: nowrap; }
 .maid-sub { font-size: 10.5px; color: var(--muted); white-space: nowrap; margin-top: 2px; letter-spacing: .03em; }
-.maid-dock-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; }
-.maid-dock .ai-zone { height: 100%; min-height: 0; flex: 1 1 auto; }
-.maid-dock #view-ai { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-/* ===== 遮罩（scrim）统一模型：女仆坞展开时，顶栏之下的页面区域由透明遮罩接管，
- * 点击遮罩 = 仅收起浮层（零副作用）。显隐由 CSS 兄弟选择器驱动，与浮层状态永不失步。
- * z 序 48：盖住页面内容；让位于对话框(50)/客户端中心(60)/Toast(70)。 ===== */
-.maid-scrim {
-  display: none; position: fixed; top: calc(var(--nav-h) + var(--menu-h)); right: 0; bottom: 0;
-  z-index: 48; cursor: default; -webkit-user-select: none; user-select: none;
-}
-/* 女仆坞遮罩：坞右侧（left 贴坞右缘 400px） */
-.maid-dock.open:not(.hidden) ~ .maid-scrim { display: block; left: 400px; }
+/* v4：maid-scrim 遮罩已随女仆坞移除 */
 
 /* v3：旧插件更新格（.home-update）已由 .home-update-card 取代 */
 
@@ -1010,27 +967,6 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
     <nav class="mainnav" id="mainNav" aria-label="主导航"></nav>
   </header>
   <div class="app-body">
-    <!-- 左侧女仆坞（v1.2，仅主页显示）：左缘玻璃标签 → 悬停延伸玻璃条（无文字）→ 点击弹出 AI 装配间 -->
-    <aside class="maid-dock" id="maidDock" aria-label="DeepSeek Harness 女仆 · AI 装配间">
-      <span class="maid-hit" aria-hidden="true"></span>
-      <button class="maid-avatar" id="maidAvatar" title="小织 · 点击打开 AI 装配间">织</button>
-      <div class="maid-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-      <div class="maid-open-ui">
-        <div class="maid-open-head">
-          <span class="maid-head-ava" aria-hidden="true">织</span>
-          <div class="maid-head-info">
-            <div class="maid-name"><span id="aiTitleName">小织女仆</span> · AI 装配间</div>
-            <div class="maid-sub">DeepSeek Harness 女仆</div>
-          </div>
-        </div>
-        <div class="maid-dock-body">
-          <section id="view-ai" class="view hidden"></section>
-        </div>
-      </div>
-    </aside>
-    <!-- 女仆坞展开时的交互遮罩：右侧页面完全不响应鼠标（悬停/按压/聚焦特效都不可能出现），
-         点击任意处 = 仅收起坞。z 序在菜单(45)之上、对话框(50)与客户端中心(60)之下，模态层不受影响 -->
-    <div class="maid-scrim" id="maidScrim" aria-hidden="true"></div>
   <main class="main">
     <header class="topbar"></header>
     <div class="wrap">
@@ -1064,10 +1000,10 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 </div>
 
 <script>
-/* ===== 导航契约（v1.1）=====
- * NAV          —— 全部主区视图（不含 ai：AI 装配间住在左侧女仆坞 #maidDock）
+/* ===== 导航契约（v4）=====
+ * NAV          —— 全部主区视图（AI 装配间常驻主页大面板左栏，不入 NAV）
  * NAV_GROUPS   —— 顶部折叠菜单的分组呈现（总览 / 插件 / 管理 / 系统）
- * 视图切换     —— switchView(id)；switchView('ai') 转义为展开女仆坞
+ * 视图切换     —— switchView(id)；switchView('ai') 转义为回到主页（AI 装配间常驻主页大面板左栏）
  * 前后端契约   —— window.chrome.webview.postMessage('<command>[:payload]')，与 Main.cs
  *                WebMessageReceived 一一对应。本版新增命令：
  *                · checkPlugins      强制刷新远端版本后回推 __setPlugins
@@ -1075,9 +1011,6 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
  *                · restartHarness    重启 dsh web + DSH 独立程序（用于插件更改后生效）
  *                回推钩子：window.__onPluginsData(rows)（由外壳注入的 __setPlugins 调用，
  *                页面侧只读消费，不做任何 DOM 假设之外的副作用）。
- * 浮层交互模型（v1.2）：顶栏 = 应用骨架永远可交互；浮层（女仆坞/折叠菜单）展开期间，
- *                页面区域由对应透明遮罩接管（.maid-scrim / .menu-scrim，CSS 兄弟选择器
- *                驱动显隐）——点外 = 仅收起该浮层（零副作用），Esc 关最上层（菜单优先）。
  */
 const NAV = [
   { id: 'home', label: '主页', icon: 'home' },
@@ -1224,9 +1157,8 @@ if (!Array.isArray(state.installed)) state.installed = [];
 state.installed = state.installed.filter((i) => i && DEMO_PACK_IDS.indexOf(i.packId) === -1);
 if (!Array.isArray(state.imported)) state.imported = [];
 state.imported = state.imported.filter((i) => i && DEMO_PACK_IDS.indexOf(i.packId || i.id) === -1);
-// v1.1：AI 装配间移入左侧女仆坞；旧会话停留在 ai 页时回到主页并自动展开女仆坞
-if (state.currentView === 'ai') { state.currentView = 'home'; state.maidDockOpen = true; }
-if (typeof state.maidDockOpen !== 'boolean') state.maidDockOpen = false;
+// v4：AI 装配间常驻主页大面板左栏；旧会话停留在 ai 页时回到主页
+if (state.currentView === 'ai') state.currentView = 'home';
 if (typeof state.currentView !== 'string' || !NAV.some((n) => n.id === state.currentView)) state.currentView = 'home';
 if (!state.theme || typeof state.theme !== 'object') state.theme = { activeSkin: 'default', skins: [] };
 if (typeof state.theme.activeSkin !== 'string') state.theme.activeSkin = 'default';
@@ -2073,22 +2005,7 @@ function renderMainNav() {
   nav.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
 }
 
-/* ===== 左侧女仆坞（v1.2，仅主页）：玻璃标签 → 悬停延伸（无文字）→ 点击弹出 AI 装配间 ===== */
-let maidOpen = false;
-
-function openMaidDock(open) {
-  maidOpen = !!open;
-  state.maidDockOpen = maidOpen;
-  save();
-  const dock = $('maidDock');
-  if (dock) {
-    dock.classList.toggle('open', maidOpen);
-    if (!maidOpen) dock.classList.remove('peek'); // 收起时同时退出悬停态
-  }
-  const v = $('view-ai');
-  if (v) v.classList.toggle('hidden', !maidOpen);
-  if (maidOpen) renderAi();
-}
+/* ===== v4：女仆坞已移除——AI 装配间改为主页大面板左栏常驻舱，由 renderHome 内嵌渲染 ===== */
 
 /* ===== 插件数据契约（v1.1）=====
  * pluginRows()          —— 插件行统一入口（WebView 用 __pluginsData，浏览器用 state.plugins）
@@ -2131,7 +2048,7 @@ function maybePromptDshRestart() {
 }
 
 function renderShell() {
-  // 主页态标记：驱动标题条为女仆坞让位（body.on-home，见 .topbar 规则）
+  // v4：无女仆坞让位
   document.body.classList.toggle('on-home', currentView === 'home');
   renderMainNav();
   const restartable = state.pendingRestart > 0;
@@ -2157,21 +2074,13 @@ function renderShell() {
 }
 
 function switchView(id) {
-  // v1.2：AI 装配间住在左侧女仆坞（仅主页）；从其他视图进入时先回主页再展开
-  if (id === 'ai') {
-    if (currentView !== 'home') switchView('home');
-    openMaidDock(true);
-    return;
-  }
+  // v4：AI 装配间已常驻主页大面板左栏——switchView('ai') 直接回到主页
+  if (id === 'ai') id = 'home';
   currentView = id;
   state.currentView = id;
   save();
-  // view-ai 归女仆坞管（openMaidDock 控制显隐），主区视图循环跳过它
-  document.querySelectorAll('.view').forEach((v) => { if (v.id !== 'view-ai') v.classList.add('hidden'); });
+  document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
   $('view-' + id).classList.remove('hidden');
-  // v1.2：女仆坞玻璃标签仅存在于主页，其余视图整块隐藏
-  const dock = $('maidDock');
-  if (dock) dock.classList.toggle('hidden', id !== 'home');
   renderShell(); renderCurrent();
   window.scrollTo(0, 0);
 }
@@ -2458,7 +2367,7 @@ function renderTheme() {
   });
 }
 
-/* ===== 主页（v3 · PCL 启动器风）：左启动卡（大绿启动键 + 环境自检）+ 右卡片列（更新/快捷入口） ===== */
+/* ===== 主页（v4 · 一体化总控台大面板）：左栏女仆 AI 装配间常驻舱 + 右栏启动/状态/入口 ===== */
 function renderHome() {
   const installed = state.installed.length + state.imported.length;
   const harnessOk = !!(window.__nativeSelfCheck && window.__nativeSelfCheck.dshVersion);
@@ -2474,28 +2383,34 @@ function renderHome() {
   const env = (ok, name, onTxt, offTxt) => `<span class="env"><span class="hc-dot ${ok ? 'ok' : 'err'}"></span>${name} ${ok ? onTxt : offTxt}</span>`;
   $('view-home').innerHTML = `
     <div class="home-shell">
-      <div class="pcl-home">
-        <div class="launch-card">
-          <div class="launch-brand"><span class="brand-mark" aria-hidden="true">⚡</span>DSH 插座中枢</div>
-          <button class="launch-btn" id="homeLaunchBtn" title="启动 DSH"><span class="fl-play">▶</span>启动 DSH</button>
-          <div class="launch-ver">dsh ${dshVer ? esc(dshVer) : '未安装'} · 程序 ${appVer ? 'v' + esc(appVer) : '—'}</div>
-          <div class="launch-state">
-            <div class="ls-label">环境自检</div>
-            <div class="launch-env">
-              ${env(harnessOk, 'DSH', dshVer ? esc(dshVer) : '就绪', '未检测')}
-              ${env(nodeOk, 'Node', '就绪', '缺失')}
-              ${env(pnpmOk, 'pnpm', '就绪', '缺失')}
+      <div class="home-console">
+        <div class="home-ai-col">
+          <div class="home-ai-head">
+            <span class="maid-head-ava" aria-hidden="true">织</span>
+            <div class="maid-head-info">
+              <div class="maid-name"><span id="aiTitleName">小织女仆</span> · AI 装配间</div>
+              <div class="maid-sub">DeepSeek Harness 女仆</div>
             </div>
           </div>
-          <div class="launch-actions">
-            <button class="btn sm" id="homeApiBtn">⚙ API 配置</button>
-            <button class="btn sm" id="homeClientBtn">🖥 客户端中心</button>
-            <button class="btn sm" id="homeRepairBtn" title="检查并修复 dsh 配置文件">🔧 修改配置</button>
-            <button class="btn sm" id="homeChooseBtn" title="选择 dsh 客户端">🔌 选择客户端</button>
-          </div>
+          <div class="home-ai-panel" id="homeAiPanel"></div>
         </div>
-        <div class="home-cards">
-          <div class="home-update-card ${updCount ? 'has-upd' : 'ok'}" id="homeUpdatePanel" title="点击进入插件管理">
+        <div class="home-main-col">
+          <div class="hm-launch">
+            <div class="launch-brand"><span class="brand-mark" aria-hidden="true">⚡</span>DSH 插座中枢</div>
+            <button class="launch-btn" id="homeLaunchBtn" title="启动 DSH"><span class="fl-play">▶</span>启动 DSH</button>
+            <div class="launch-ver">dsh ${dshVer ? esc(dshVer) : '未安装'} · 程序 ${appVer ? 'v' + esc(appVer) : '—'}</div>
+            <div class="launch-state">
+              <div class="ls-label">环境自检</div>
+              <div class="launch-env">
+                ${env(harnessOk, 'DSH', dshVer ? esc(dshVer) : '就绪', '未检测')}
+                ${env(nodeOk, 'Node', '就绪', '缺失')}
+                ${env(pnpmOk, 'pnpm', '就绪', '缺失')}
+              </div>
+            </div>
+          </div>
+          <div class="hm-divider"></div>
+          <div class="hm-sec-title">插件状态</div>
+          <div class="home-update-card ${updCount ? 'has-upd' : 'ok'} hm-block" id="homeUpdatePanel" title="点击进入插件管理">
             <div class="hu-top">
               <span class="hu-title">${updCount ? '插件更新' : '插件状态'}</span>
               <span class="hu-count">${updCount ? updCount + ' 个可更新' : '全部最新'}</span>
@@ -2509,7 +2424,8 @@ function renderHome() {
               ${updCount ? `<button class="btn sm primary" id="homeUpdateAllBtn" title="依次更新全部可更新插件">${ICONS.download} 一键更新</button>` : ''}
             </div>
           </div>
-          <div class="home-tiles">
+          <div class="hm-sec-title">快捷入口</div>
+          <div class="home-tiles hm-block">
             <button class="home-tile" data-goto="hub">
               <div class="ht-top"><span class="ht-icon ti-blue">${ICONS.box}</span><span class="ht-name">插件中枢</span><span class="ht-num">${installed} 包</span></div>
               <div class="ht-desc">已装清单 · 健康状态</div>
@@ -2526,16 +2442,21 @@ function renderHome() {
               <div class="ht-top"><span class="ht-icon ti-slate">${ICONS.spark}</span><span class="ht-name">Skill 面板</span></div>
               <div class="ht-desc">技能编排 · 热加载</div>
             </button>
-            <button class="home-tile" data-goto="ai">
-              <div class="ht-top"><span class="ht-icon ti-pink">织</span><span class="ht-name">AI 装配间</span></div>
-              <div class="ht-desc">小织 · 把插件织成 hotpack</div>
-            </button>
             <button class="home-tile" data-goto="check">
               <div class="ht-top"><span class="ht-icon ti-blue">${ICONS.shield}</span><span class="ht-name">自检更新</span></div>
               <div class="ht-desc">运行环境 · 程序版本</div>
             </button>
+            <button class="home-tile" data-goto="theme">
+              <div class="ht-top"><span class="ht-icon ti-pink">${ICONS.palette}</span><span class="ht-name">主题设置</span></div>
+              <div class="ht-desc">换肤 · 颜色 · 字体</div>
+            </button>
           </div>
+          <div class="hm-divider"></div>
           <div class="home-foot">
+            <button class="btn sm" id="homeApiBtn">⚙ API 配置</button>
+            <button class="btn sm" id="homeClientBtn">🖥 客户端中心</button>
+            <button class="btn sm" id="homeRepairBtn" title="检查并修复 dsh 配置文件">🔧 修改配置</button>
+            <button class="btn sm" id="homeChooseBtn" title="选择 dsh 客户端">🔌 选择客户端</button>
             <span class="spacer"></span>
             <button class="btn sm danger" id="homeHarnessStopBtn" title="停止 dsh web 与 DSH 程序">⏻ 关闭 DSH</button>
           </div>
@@ -2580,6 +2501,8 @@ function renderHome() {
     homeUpdateAll();
   });
   document.querySelectorAll('[data-goto]').forEach((c) => c.addEventListener('click', () => switchView(c.dataset.goto)));
+  // v4：AI 装配间常驻左栏——渲染主页大面板后，立即填充左栏对话舱
+  renderAi();
 }
 
 /** 一键更新（v1.1）：确认清单后发 updateAllPlugins；结果由 __setPlugins 回推刷新。 */
@@ -3026,7 +2949,7 @@ function renderAi() {
         : '');
   // v2.2 头部整合：坞头部（静态）= [织头像] 人设名 · AI 装配间 …… [✕]；工具栏（本模板）= 纯会话控件行
   const personaOpts = [['maid', '🧹 小织'], ['butler', '🎩 执事'], ['neko', '🐱 猫娘'], ['assistant', '🤖 助手']];
-  $('view-ai').innerHTML = `
+  $('homeAiPanel').innerHTML = `
     <div class="ai-zone">
       <div class="ai-topbar">
         <span class="ai-turn-badge" id="aiTurnBadge">${aiSession ? `第 ${aiMessages.filter((m) => m.role === 'user').length} 轮` : ''}</span>
@@ -3391,8 +3314,8 @@ function buildAiSystem(persona, mode) {
 
 let aiActionsBound = false;
 function bindResultActions() {
-  const zone = $('view-ai');
-  if (!zone || aiActionsBound) return; // 委托绑定一次：产物卡片异步插入也能命中（view-ai 容器不重建，监听不失效）
+  const zone = $('homeAiPanel');
+  if (!zone || aiActionsBound) return; // 委托绑定一次：产物卡片异步插入也能命中（homeAiPanel 容器不重建，监听不失效）
   aiActionsBound = true;
   zone.addEventListener('click', (e) => {
     const card = e.target.closest('.ai-pack-card');
@@ -4567,35 +4490,10 @@ document.addEventListener('DOMContentLoaded', () => {
   applyTheme();
   bindWindowControls();
   bindClientCenterBackdrop();
-  bindMaidDock();
   renderAll();
-  // v1.2：女仆坞仅存在于主页——非主页进入时隐藏玻璃标签；主页则恢复上次开合状态
-  const dockInit = document.getElementById('maidDock');
-  if (dockInit && state.currentView !== 'home') dockInit.classList.add('hidden');
-  openMaidDock(state.maidDockOpen === true);
 });
 
-// 左侧女仆坞交互（v1.2）：悬停自动延伸玻璃条（260ms 防抖回缩）；点击头像弹出/收起界面；Esc 收起
-function bindMaidDock() {
-  const dock = document.getElementById('maidDock');
-  if (!dock) return;
-  let peekTimer = null;
-  const avatar = document.getElementById('maidAvatar');
-  if (avatar) avatar.addEventListener('click', () => openMaidDock(!maidOpen));
-  dock.addEventListener('mouseenter', () => {
-    clearTimeout(peekTimer);
-    if (!maidOpen) dock.classList.add('peek');
-  });
-  dock.addEventListener('mouseleave', () => {
-    peekTimer = setTimeout(() => { if (!maidOpen) dock.classList.remove('peek'); }, 260);
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && maidOpen) openMaidDock(false);
-  });
-  // 点击遮罩 = 仅收起（遮罩已拦截全部鼠标事件，底下按钮无任何悬停/按压/聚焦副作用）
-  const scrim = document.getElementById('maidScrim');
-  if (scrim) scrim.addEventListener('click', () => { if (maidOpen) openMaidDock(false); });
-}
+// v4：女仆坞交互已移除（bindMaidDock 删除），AI 装配间常驻主页大面板左栏
 
 function bindWindowControls() {
   // 双保险拖拽：WebView2 原生 app-region: drag 为主，JS mousedown 桥接为兜底。
