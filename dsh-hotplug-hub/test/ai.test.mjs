@@ -13,8 +13,9 @@ import {
   aiAssemble, aiChat, extractJson, buildReadme, AI_MAX_RETRIES, AI_PROVIDERS, resolveAiProvider, callCompletions,
   PERSONAS, DEFAULT_PERSONA, buildSystemPrompt, diffPacks, personaReaction, resolvePersona,
 } from '../lib/core/ai.js'
-import { saveSession, loadSession, trimMessages, sessionsDir, listSessions, sessionPath, deleteSession } from '../lib/core/ai-session.js'
-import { HotplugGateway, RPC_ERROR_CODE } from '../lib/gateway.js'
+import { saveSession, loadSession, trimMessages, sessionsDir, listSessions, sessionPath, deleteSession, SESSION_MAX_MESSAGE_CHARS } from '../lib/core/ai-session.js'
+import { HotplugGateway, AI_ERROR_CODE } from '../lib/gateway.js'
+import { aiTestConnection, AI_MAX_OUTPUT_TOKENS, newSessionId as newSidDirect } from '../lib/core/ai.js'
 import { isolatedDsh, applyIsolatedEnv } from './helpers.mjs'
 
 const VALID_PACK = {
@@ -38,6 +39,7 @@ function stubFetch(handler) {
     return {
       ok: r.status >= 200 && r.status < 300,
       status: r.status,
+      headers: r.headers, // 透传（429 Retry-After / Content-Length 预检用例）
       text: async () => r.text,
       json: async () => JSON.parse(r.text),
       // 精确切片：小 Buffer 来自共享池，.buffer 是整池（8192B）
@@ -365,7 +367,7 @@ describe('aiAssemble（mock fetch）', () => {
     expect(r.error).toContain('解析失败')
   })
 
-  it('超时（abort）→ 网络错误分支失败', async () => {
+  it('超时（abort）→ 独立超时语义（与网络错误区分，便于判断换模型还是重试）', async () => {
     stubFetch(async (_url, init) => {
       // 模拟 abort：signal 被触发时抛 AbortError
       await new Promise((resolve, reject) => {
@@ -374,7 +376,8 @@ describe('aiAssemble（mock fetch）', () => {
     })
     const r = await aiAssemble('x', { apiKey: KEY, timeoutMs: 10 })
     expect(r.ok).toBe(false)
-    expect(r.error).toContain('网络/TLS 错误')
+    expect(r.error).toContain('超时')
+    expect(r.error).not.toContain('网络/TLS')
   })
 
   it('LLM 产物字段越界（非法插件 id/name/version）→ 权威校验拒绝', async () => {
@@ -549,14 +552,41 @@ describe('aiChat（人设化对话式装配）', () => {
     expect(r.session.pack.id).toBe('pack.ai.test')
   })
 
-  it('对话轮输出坏产物（plugins 空）→ 按纯文本回复处理，不覆盖既有产物', async () => {
+  it('对话轮输出坏产物（plugins 空）→ 纠错重试仍失败 → 本轮失败（不落盘、不把非法 JSON 当闲聊展示）', async () => {
     stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
     const first = await aiChat('做笔记', { apiKey: KEY })
+    const before = loadSession(first.session.id)
     stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify({ ...VALID_PACK, plugins: [] }) } }] }) }))
     const r = await aiChat('精简一下', { apiKey: KEY, sessionId: first.session.id })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('未通过校验')
+    // 会话不被失败轮污染：turn/pack/消息与失败前一致
+    const after = loadSession(first.session.id)
+    expect(after.turn).toBe(before.turn)
+    expect(after.pack.plugins).toHaveLength(1)
+    expect(after.messages.length).toBe(before.messages.length)
+  })
+
+  it('对话轮坏产物 → 纠错重试（带失败反馈）成功 → 新产物生效', async () => {
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
+    const first = await aiChat('做笔记', { apiKey: KEY })
+    const calls = stubFetch(async () => {
+      if (calls.length === 1) {
+        return { status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify({ ...VALID_PACK, plugins: [] }) } }] }) }
+      }
+      const fixed = { ...VALID_PACK, plugins: [...VALID_PACK.plugins, { id: 'search', name: 'dsh-search', version: '1.1.0', source: { type: 'npm' }, config: {} }] }
+      return { status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(fixed) } }] }) }
+    })
+    const r = await aiChat('加一个搜索插件', { apiKey: KEY, sessionId: first.session.id })
     expect(r.ok).toBe(true)
-    expect(r.pack).toBeNull()
-    expect(r.session.pack.plugins).toHaveLength(1)
+    expect(calls.length).toBe(2) // 失败一次 + 纠错重试一次
+    expect(r.pack.plugins).toHaveLength(2)
+    expect(r.diff.added).toHaveLength(1)
+    // 纠错请求携带失败反馈（assistant 原文 + 纠错指令）
+    const retryBody = JSON.parse(calls[1].init.body)
+    expect(retryBody.messages.at(-1).content).toContain('校验')
+    expect(retryBody.messages.at(-1).content).toContain('ERR_ASSEMBLY_FIELD')
+    expect(retryBody.messages.at(-2).role).toBe('assistant')
   })
 
   it('首轮坏产物重试后成功（沿用重试语义）', async () => {
@@ -582,14 +612,20 @@ describe('aiChat（人设化对话式装配）', () => {
     expect(r2.reply).toContain('先生')
   })
 
-  it('会话持久化：续接时 persona 沿用会话记录（新 persona 参数不覆盖）', async () => {
+  it('会话持久化：续接时显式 persona 切换会话人设并持久化（缺省沿用会话记录）', async () => {
     stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
     const first = await aiChat('做笔记', { apiKey: KEY, persona: 'neko' })
     expect(first.session.persona).toBe('neko')
     stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: '喵呜～好的主人喵' } }] }) }))
-    const r = await aiChat('好的', { apiKey: KEY, sessionId: first.session.id, persona: 'butler' })
-    expect(r.ok).toBe(true)
-    expect(r.session.persona).toBe('neko') // 会话已有 persona 时以会话为准
+    // 显式切换：生效并落盘（UI 中途换人设不再被静默忽略/回弹）
+    const switched = await aiChat('好的', { apiKey: KEY, sessionId: first.session.id, persona: 'butler' })
+    expect(switched.ok).toBe(true)
+    expect(switched.session.persona).toBe('butler')
+    expect(loadSession(first.session.id).persona).toBe('butler')
+    // 缺省：沿用会话记录（刷新恢复/旧客户端不带 persona 参数）
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: '遵命' } }] }) }))
+    const kept = await aiChat('继续', { apiKey: KEY, sessionId: first.session.id })
+    expect(kept.session.persona).toBe('butler')
   })
 
   it('key 绝不落盘/绝不回显：会话文件与响应（含历史与用户输入）无 key', async () => {
@@ -667,12 +703,13 @@ describe('gateway.aiChat（RPC 面）', () => {
     expect(JSON.stringify(r)).not.toContain(KEY)
   })
 
-  it('无 key → 失败归一化 {ok:false, code:ERR_HOTPLUG_FAILED, message 含 API Key}', async () => {
+  it('无 key → 失败归一化 {ok:false, code:ERR_AI_ASSEMBLE, message 含 API Key}', async () => {
     const gateway = new HotplugGateway({ reflect: { provide: () => {} } })
     const r = await gateway.aiChat({ input: '做笔记' })
     expect(r.ok).toBe(false)
-    expect(r.code).toBe(RPC_ERROR_CODE)
+    expect(r.code).toBe(AI_ERROR_CODE)
     expect(r.message).toContain('API Key')
+    expect(typeof r.exitCode).toBe('number')
   })
 
   it('会话续接：两次 aiChat 调用返回同一会话 id', async () => {
@@ -690,5 +727,373 @@ describe('gateway.aiChat（RPC 面）', () => {
     expect(second.data.session.turn).toBe(2)
     expect(second.data.diff.added).toHaveLength(1)
     expect(second.data.firstTurn).toBe(false)
+  })
+})
+
+describe('extractJson（多围栏与类型守卫）', () => {
+  it('多围栏：解释围栏在前、产物围栏在后 → 取产物（最后一个可解析对象围栏）', () => {
+    const text = '先说明一下：\n```json\n{"note":"这不是产物"}\n```\n以下是清单：\n```json\n{"hotpack":"1.0"}\n```'
+    const v = extractJson(text)
+    expect(v).toEqual({ hotpack: '1.0' })
+  })
+
+  it('围栏内是数组/数字/字符串 → 不当作产物（全落空返回 null）', () => {
+    expect(extractJson('```json\n[1,2,3]\n```')).toBeNull()
+    expect(extractJson('```json\n42\n```')).toBeNull()
+    expect(extractJson('```json\n"plain"\n```')).toBeNull()
+  })
+
+  it('围栏未闭合但尾随裸 JSON 可解析 → 大括号子串兜底生效', () => {
+    expect(extractJson('```json\n{"hotpack":"1.0"}')).toEqual({ hotpack: '1.0' })
+  })
+})
+
+describe('callCompletions（限流/体积/脱敏/参数面）', () => {
+  it('429 + Retry-After → 返回 status/retryAfterMs（供上层退避）', async () => {
+    stubFetch(async () => ({ status: 429, text: 'rate limited', headers: { get: (k) => (k.toLowerCase() === 'retry-after' ? '2' : null) } }))
+    const r = await callCompletions(KEY, 'x', { endpoint: 'https://e.example.com/v1/chat/completions', model: 'm' })
+    expect(r.ok).toBe(false)
+    expect(r.status).toBe(429)
+    expect(r.retryAfterMs).toBe(2000)
+    expect(r.error).toContain('429')
+  })
+
+  it('429 无 Retry-After → retryAfterMs undefined，语义仍是限流', async () => {
+    stubFetch(async () => ({ status: 429, text: 'rate limited', headers: { get: () => null } }))
+    const r = await callCompletions(KEY, 'x', { endpoint: 'https://e.example.com/v1/chat/completions', model: 'm' })
+    expect(r.status).toBe(429)
+    expect(r.retryAfterMs).toBeUndefined()
+  })
+
+  it('HTTP 错误体回显 key 两次 → 全量脱敏（不残留第二次出现）', async () => {
+    stubFetch(async () => ({ status: 401, text: `bad ${KEY} and again ${KEY} here` }))
+    const r = await callCompletions(KEY, 'x', { endpoint: 'https://e.example.com/v1/chat/completions', model: 'm' })
+    expect(r.ok).toBe(false)
+    expect(r.error).not.toContain(KEY)
+    expect(r.error.split('***').length - 1).toBe(2)
+  })
+
+  it('Content-Length 超限 → 预检拒绝，不读响应体', async () => {
+    let bodyRead = false
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: (k) => (k.toLowerCase() === 'content-length' ? String((1 << 20) + 1) : null) },
+      text: async () => { bodyRead = true; return '' },
+      arrayBuffer: async () => { bodyRead = true; return new ArrayBuffer(0) },
+    }))
+    const r = await callCompletions(KEY, 'x', { endpoint: 'https://e.example.com/v1/chat/completions', model: 'm' })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('Content-Length')
+    expect(bodyRead).toBe(false)
+  })
+
+  it('max_tokens 默认 AI_MAX_OUTPUT_TOKENS（4096），可显式覆盖', async () => {
+    const calls = stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: 'ok' } }] }) }))
+    await callCompletions(KEY, 'x', { endpoint: 'https://e.example.com/v1/chat/completions', model: 'm' })
+    expect(JSON.parse(calls[0].init.body).max_tokens).toBe(AI_MAX_OUTPUT_TOKENS)
+    expect(AI_MAX_OUTPUT_TOKENS).toBe(4096)
+    await callCompletions(KEY, 'x', { endpoint: 'https://e.example.com/v1/chat/completions', model: 'm', maxTokens: 64 })
+    expect(JSON.parse(calls[1].init.body).max_tokens).toBe(64)
+  })
+
+  it('装配重试带纠错反馈：第二次请求含第一次失败原文与校验错误', async () => {
+    let n = 0
+    const calls = stubFetch(async () => {
+      n += 1
+      if (n === 1) return { status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify({ ...VALID_PACK, plugins: [] }) } }] }) }
+      return { status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }
+    })
+    const r = await aiAssemble('做笔记', { apiKey: KEY })
+    expect(r.ok).toBe(true)
+    expect(calls.length).toBe(2)
+    const retryBody = JSON.parse(calls[1].init.body)
+    expect(retryBody.messages.at(-1).content).toContain('ERR_ASSEMBLY_FIELD')
+    expect(retryBody.messages.at(-2).role).toBe('assistant')
+    expect(retryBody.messages.at(-2).content).toContain('plugins')
+  })
+
+  it('429 Retry-After ≤5s → 装配轮等待后重试（时间可观测推进）', async () => {
+    let n = 0
+    let firstAt = 0
+    let secondAt = 0
+    stubFetch(async () => {
+      n += 1
+      if (n === 1) { firstAt = Date.now(); return { status: 429, text: 'rate limited', headers: { get: (k) => (k.toLowerCase() === 'retry-after' ? '0.15' : null) } } }
+      secondAt = Date.now()
+      return { status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }
+    })
+    const r = await aiAssemble('做笔记', { apiKey: KEY })
+    expect(r.ok).toBe(true)
+    expect(secondAt - firstAt).toBeGreaterThanOrEqual(140) // ≥150ms 退避（容差）
+  })
+})
+
+describe('aiTestConnection（连接测试核心）', () => {
+  it('成功：返回 provider/model/latencyMs；请求体是最小 ping（max_tokens 64）', async () => {
+    const calls = stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: 'pong' } }] }) }))
+    const r = await aiTestConnection({ apiKey: KEY, provider: 'opencode' })
+    expect(r.ok).toBe(true)
+    expect(r.provider).toBe('opencode')
+    expect(r.model).toBe('deepseek-v4-flash')
+    expect(typeof r.latencyMs).toBe('number')
+    expect(calls[0].url).toBe('https://opencode.ai/zen/go/v1/chat/completions')
+    expect(JSON.parse(calls[0].init.body).max_tokens).toBe(64)
+  })
+
+  it('失败：错误透出且脱敏；无 key → 明确提示', async () => {
+    stubFetch(async () => ({ status: 401, text: `bad ${KEY}` }))
+    const r = await aiTestConnection({ apiKey: KEY })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('401')
+    expect(r.error).not.toContain(KEY)
+    const noKey = await aiTestConnection({})
+    expect(noKey.ok).toBe(false)
+    expect(noKey.error).toContain('API Key')
+  })
+
+  it('非 https 注入端点 → 拒绝（不发起请求）', async () => {
+    stubFetch(async () => { throw new Error('must not be called') })
+    const r = await aiTestConnection({ apiKey: KEY, endpoint: 'http://insecure.test/chat/completions' })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('https')
+  })
+})
+
+describe('推理类模型兼容（content 为空 / reasoning_content）', () => {
+  it('callCompletions 默认严格：content 为空 → 失败（装配路径不受影响）', async () => {
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: '', reasoning_content: 'thinking...' } }] }) }))
+    const r = await callCompletions(KEY, 'x', { endpoint: 'https://e.example.com/v1/chat/completions', model: 'm' })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('缺少 choices')
+  })
+
+  it('aiTestConnection 宽松：推理模型小预算全花在 reasoning → 连接仍判可用', async () => {
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ finish_reason: 'length', message: { role: 'assistant', content: '', reasoning_content: '1. Analyze' } }] }) }))
+    const r = await aiTestConnection({ apiKey: KEY, provider: 'zhipu' })
+    expect(r.ok).toBe(true)
+    expect(r.provider).toBe('zhipu')
+  })
+
+  it('aiTestConnection ping 预算 64（普通模型可完整作答，推理模型够思考起步）', async () => {
+    const calls = stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: 'pong' } }] }) }))
+    await aiTestConnection({ apiKey: KEY })
+    expect(JSON.parse(calls[0].init.body).max_tokens).toBe(64)
+  })
+})
+
+describe('aiChat 请求端点与输入契约', () => {
+  it('非 https 测试注入 endpoint → 拒绝（TLS 铁律无旁路）', async () => {
+    stubFetch(async () => { throw new Error('must not be called') })
+    const r = await aiChat('做笔记', { apiKey: KEY, endpoint: 'http://insecure.test/chat/completions' })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('https')
+  })
+
+  it('4000 字符需求：当前轮全文进请求（截断只作用于历史落盘形态）', async () => {
+    const calls = stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
+    const long = '需'.repeat(4000)
+    const r = await aiChat(long, { apiKey: KEY })
+    expect(r.ok).toBe(true)
+    const body = JSON.parse(calls[0].init.body)
+    const lastUser = body.messages.at(-1)
+    expect(lastUser.content).toContain(long)
+    expect(lastUser.content.length).toBeGreaterThan(4000)
+  })
+
+  it('首轮成功返回 raw（LLM 原文，含围栏）；aiAssemble 的 raw 契约成立', async () => {
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: '```json\n' + JSON.stringify(VALID_PACK) + '\n```' } }] }) }))
+    const r = await aiAssemble('做笔记', { apiKey: KEY })
+    expect(r.ok).toBe(true)
+    expect(typeof r.raw).toBe('string')
+    expect(r.raw).toContain('hotpack')
+    expect(r.manifest).toEqual(VALID_PACK)
+  })
+
+  it('newSessionId 用 CSPRNG（hex 随机段，格式稳定）', () => {
+    expect(newSidDirect()).toMatch(/^ai-[a-z0-9]+-[0-9a-f]{12}$/)
+  })
+})
+
+describe('闲聊轮等价守卫（echo guard）', () => {
+  it('对话轮回显当前清单（内容等价、键序不同）→ 零变更说明，不覆盖产物、不产 diff', async () => {
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
+    const first = await aiChat('做笔记', { apiKey: KEY })
+    const packBefore = JSON.stringify(first.session.pack)
+    const shuffled = { plugins: VALID_PACK.plugins, tags: VALID_PACK.tags, description: VALID_PACK.description, version: VALID_PACK.version, name: VALID_PACK.name, id: VALID_PACK.id, hotpack: VALID_PACK.hotpack }
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: '```json\n' + JSON.stringify(shuffled) + '\n```' } }] }) }))
+    const r = await aiChat('为什么选这些？', { apiKey: KEY, sessionId: first.session.id })
+    expect(r.ok).toBe(true)
+    expect(r.pack).toBeNull()
+    expect(r.diff).toBeNull()
+    expect(r.reply).toContain('一样')
+    expect(JSON.stringify(r.session.pack)).toBe(packBefore)
+    // 回显的 JSON 形态消息标记 kind='pack'（不进下一轮上下文）
+    const stored = loadSession(first.session.id)
+    expect(stored.messages.at(-1).kind).toBe('pack')
+  })
+
+  it('插件仅调序（内容等价）→ 同样按零变更处理（顺序无关等价）', async () => {
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
+    const two = { ...VALID_PACK, plugins: [...VALID_PACK.plugins, { id: 'extra', name: 'dsh-extra', version: '2.0.0', source: { type: 'npm' }, config: {} }] }
+    const first = await aiChat('做笔记', { apiKey: KEY })
+    expect(first.pack.plugins).toHaveLength(1)
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(two) } }] }) }))
+    const second = await aiChat('再加一个', { apiKey: KEY, sessionId: first.session.id })
+    expect(second.pack.plugins).toHaveLength(2)
+    // 回显同一清单但插件顺序对调 → nochange（不覆盖、无 diff）
+    const reordered = { ...two, plugins: [two.plugins[1], two.plugins[0]] }
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(reordered) } }] }) }))
+    const r = await aiChat('为什么这么选？', { apiKey: KEY, sessionId: first.session.id })
+    expect(r.pack).toBeNull()
+    expect(r.diff).toBeNull()
+    expect(r.session.pack.plugins).toHaveLength(2)
+  })
+
+  it('纠错重试成功但回显等价清单 → 同样按零变更处理（守卫覆盖纠错路径）', async () => {
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
+    const first = await aiChat('做笔记', { apiKey: KEY })
+    // 第一次：坏产物；纠错后：与当前清单等价（键序打乱）
+    stubFetch(async (_u, _i, n) => {
+      if (n === 1) return { status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify({ ...VALID_PACK, plugins: [] }) } }] }) }
+      const shuffled = { plugins: VALID_PACK.plugins, tags: VALID_PACK.tags, id: VALID_PACK.id, hotpack: VALID_PACK.hotpack, name: VALID_PACK.name, version: VALID_PACK.version, description: VALID_PACK.description }
+      return { status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(shuffled) } }] }) }
+    })
+    const r = await aiChat('调整一下', { apiKey: KEY, sessionId: first.session.id })
+    expect(r.ok).toBe(true)
+    expect(r.pack).toBeNull()
+    expect(r.reply).toContain('一样')
+    expect(r.session.pack.plugins).toHaveLength(1)
+  })
+
+  it('plugins 超过 5 个 → AI 层规则拒绝（ERR_AI_RULE 标记，不冒用权威码），纠错后收敛', async () => {
+    const tooMany = {
+      ...VALID_PACK,
+      plugins: Array.from({ length: 6 }, (_, i) => ({ id: 'p' + i, name: 'dsh-p' + i, version: '1.0.0', source: { type: 'npm' }, config: {} })),
+    }
+    stubFetch(async (_u, _i, n) => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(n === 1 ? tooMany : VALID_PACK) } }] }) }))
+    const r = await aiAssemble('大而全的需求', { apiKey: KEY })
+    expect(r.ok).toBe(true) // 纠错重试收敛到 1 插件
+    // 全程失败路径的错误信息用 ERR_AI_RULE
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(tooMany) } }] }) }))
+    const fail = await aiAssemble('大而全的需求', { apiKey: KEY })
+    expect(fail.ok).toBe(false)
+    expect(fail.error).toContain('ERR_AI_RULE')
+    expect(fail.error).not.toContain('ERR_ASSEMBLY_FIELD plugins 最多')
+  })
+
+  it('对话轮输出"不同"合法清单 → 仍按新产物处理（修改协议语义保留）', async () => {
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
+    const first = await aiChat('做笔记', { apiKey: KEY })
+    const bigger = { ...VALID_PACK, plugins: [...VALID_PACK.plugins, { id: 'extra', name: 'dsh-extra', version: '2.0.0', source: { type: 'npm' }, config: {} }] }
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(bigger) } }] }) }))
+    const r = await aiChat('闲聊一句', { apiKey: KEY, sessionId: first.session.id })
+    expect(r.pack.plugins).toHaveLength(2)
+    expect(r.diff.added).toHaveLength(1)
+  })
+})
+
+describe('会话级互斥（同 sessionId 并发不丢更新）', () => {
+  it('两个并发后续轮 → 串行落盘，两条用户消息与轮次都保留', async () => {
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
+    const first = await aiChat('做笔记', { apiKey: KEY })
+    const sid = first.session.id
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: '好的主人～' } }] }) }))
+    const [a, b] = await Promise.all([
+      aiChat('第一条跟进', { apiKey: KEY, sessionId: sid }),
+      aiChat('第二条跟进', { apiKey: KEY, sessionId: sid }),
+    ])
+    expect(a.ok).toBe(true)
+    expect(b.ok).toBe(true)
+    const stored = loadSession(sid)
+    expect(stored.turn).toBe(3)
+    const userTexts = stored.messages.filter((m) => m.role === 'user').map((m) => m.content)
+    expect(userTexts).toContain('第一条跟进')
+    expect(userTexts).toContain('第二条跟进')
+  })
+
+  it('不同会话并发 → 互不阻塞（各自成功）', async () => {
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
+    const [a, b] = await Promise.all([
+      aiChat('需求甲', { apiKey: KEY }),
+      aiChat('需求乙', { apiKey: KEY }),
+    ])
+    expect(a.ok).toBe(true)
+    expect(b.ok).toBe(true)
+    expect(a.session.id).not.toBe(b.session.id)
+  })
+})
+
+describe('落盘失败告警（磁盘错误不静默）', () => {
+  it('会话文件只读 → 第二轮返回 warning，会话内容仍在响应中可用', async () => {
+    const { chmodSync } = await import('node:fs')
+    stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: JSON.stringify(VALID_PACK) } }] }) }))
+    const first = await aiChat('做笔记', { apiKey: KEY })
+    const file = join(sessionsDir(), first.session.id + '.json')
+    chmodSync(file, 0o444) // Windows：只读属性 → rename 覆盖失败
+    try {
+      stubFetch(async () => ({ status: 200, text: JSON.stringify({ choices: [{ message: { content: '好的～' } }] }) }))
+      const r = await aiChat('继续', { apiKey: KEY, sessionId: first.session.id })
+      expect(r.ok).toBe(true)
+      expect(r.warning).toContain('保存失败')
+      expect(r.reply).toBe('好的～')
+    } finally {
+      chmodSync(file, 0o666)
+    }
+  })
+})
+
+describe('trimMessages（码点安全）', () => {
+  it('代理对不被劈开：截断边界不产生孤立代理', () => {
+    const emoji = '😀'.repeat(SESSION_MAX_MESSAGE_CHARS + 50) // 每个 emoji 是一个代理对（2 码元）
+    const out = trimMessages([{ role: 'user', content: emoji }])
+    // 契约按码点数封顶：截到整 3000 个 emoji（6000 码元），不劈开最后一个代理对
+    expect(Array.from(out[0].content).length).toBe(SESSION_MAX_MESSAGE_CHARS)
+    expect(out[0].content.length).toBe(SESSION_MAX_MESSAGE_CHARS * 2)
+    const s = out[0].content
+    expect(s.length % 2).toBe(0) // 全由完整代理对构成（无孤立代理）
+    const rebuilt = Array.from(s).map((ch) => String.fromCodePoint(ch.codePointAt(0))).join('')
+    expect(rebuilt).toBe(s)
+  })
+})
+
+describe('diffPacks（config 语义）', () => {
+  const P = (over = {}) => ({ id: 'p1', name: 'dsh-p1', version: '1.0.0', source: { type: 'npm' }, config: {}, ...over })
+
+  it('纯 config 变化 → changed 含 configChanged 且 from/to 版本相同', () => {
+    const old = { plugins: [P()] }
+    const next = { plugins: [P({ config: { theme: 'dark' } })] }
+    const d = diffPacks(old, next)
+    expect(d.changed).toHaveLength(1)
+    expect(d.changed[0].configChanged).toBe(true)
+    expect(d.changed[0].from.version).toBe(d.changed[0].to.version)
+  })
+
+  it('config 键序不同但内容相同 → 不算变更（规范化比较）', () => {
+    const old = { plugins: [P({ config: { a: 1, b: { x: 1, y: 2 } } })] }
+    const next = { plugins: [P({ config: { b: { y: 2, x: 1 }, a: 1 } })] }
+    const d = diffPacks(old, next)
+    expect(d.changed).toHaveLength(0)
+    expect(d.kept).toHaveLength(1)
+  })
+
+  it('config 变化 + 版本变化 → 同时携带 configChanged 与新旧版本', () => {
+    const old = { plugins: [P()] }
+    const next = { plugins: [P({ version: '1.1.0', config: { a: 1 } })] }
+    const d = diffPacks(old, next)
+    expect(d.changed[0].configChanged).toBe(true)
+    expect(d.changed[0].from.version).toBe('1.0.0')
+    expect(d.changed[0].to.version).toBe('1.1.0')
+  })
+})
+
+describe('personaReaction（nochange 语义）', () => {
+  it('四个人设都有 nochange 文案；未知 kind 返回空串', () => {
+    for (const id of Object.keys(PERSONAS)) {
+      const text = personaReaction(PERSONAS[id], 'nochange', VALID_PACK)
+      expect(typeof text).toBe('string')
+      expect(text.length).toBeGreaterThan(0)
+    }
+    expect(personaReaction(PERSONAS.maid, 'unknown-kind', VALID_PACK)).toBe('')
   })
 })

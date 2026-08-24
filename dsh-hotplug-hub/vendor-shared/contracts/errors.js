@@ -1,5 +1,5 @@
 'use strict';
-// contracts/errors.js — CLI 域错误码（32 码）与退出码映射（0-12）
+// contracts/errors.js — CLI 域错误码（34 个错误码）与退出码映射（0-12）
 //
 // 退出码约定：
 //   2=参数/安全  3=装配  4=冲突  5=YAML  6=安装  7=harness
@@ -56,6 +56,8 @@ const ERROR_CODES = {
   ERR_LOCK_ACQUIRE: 'ERR_LOCK_ACQUIRE',
   // --- 日志（退出码 11）---
   ERR_LOG_WRITE: 'ERR_LOG_WRITE',
+  // --- AI 装配间（RPC 域内消费，无独立退出码——经 exitCodeForCode 兜底为 1）---
+  ERR_AI_SESSION_WRITE: 'ERR_AI_SESSION_WRITE',
   // --- 环境（退出码 12）---
   ERR_ENV_UNSUPPORTED: 'ERR_ENV_UNSUPPORTED'
 };
@@ -72,7 +74,8 @@ const EXIT_CODE_BY_PREFIX = {
   ERR_HEAL_: 9,
   ERR_LOCK_: 10,
   ERR_LOG_: 11,
-  ERR_ENV_: 12
+  ERR_ENV_: 12,
+  ERR_AI_: 1 // RPC 域（AI 装配间等，不经 CLI 退出码语义，兜底 1）
 };
 
 /**

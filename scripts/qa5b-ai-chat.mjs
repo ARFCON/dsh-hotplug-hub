@@ -58,24 +58,29 @@ async function main() {
     const provider = process.env.DSH_AI_PROVIDER || 'deepseek'
     console.log('== QA5b AI 装配间复杂对话真实链路（provider=' + provider + '，model=' + (process.env.DSH_AI_MODEL || 'default') + '）==')
 
-    // 首轮：带重试等待（hy3 上游 "Model is unavailable" 时等待重试）
+    // 瞬时错误重试（所有轮共用）：上游超时/网络/限流/模型暂不可用是真实链路的
+    // 正常瞬态——产品端已返回明确错误语义，QA 端等待后重试以获得确定性结论。
     const maxAttempts = Number(process.env.DSH_QA5B_MAX_ATTEMPTS || 3)
-    const retryMs = Number(process.env.DSH_QA5B_RETRY_MS || 60000)
-    let round1 = null
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      round1 = await gateway.aiChat({
-        input: '我要搭建一套面向科研人员的文献阅读与论文写作工作流：需要支持 PDF 文献管理、参考文献自动格式化（GB/T 7714 风格）、Markdown 写作、中英文语法检查、笔记双链；插件要尽量轻量、彼此不重叠，优先选维护活跃的真实 npm 包',
-        persona: 'maid',
-      })
-      if (round1.ok) break
-      const unavailable = /Model is unavailable|server_error/i.test(round1.message || '')
-      if (attempt < maxAttempts && unavailable) {
-        console.log(`[首轮] 上游模型暂不可用（${round1.message}），${retryMs / 1000}s 后重试（${attempt}/${maxAttempts}）…`)
-        await sleep(retryMs)
-      } else {
-        break
+    const retryMs = Number(process.env.DSH_QA5B_RETRY_MS || 20000)
+    const transient = (r) => /超时|网络\/TLS|HTTP 429|HTTP 5\d\d|Model is unavailable|server_error/i.test((r && r.message) || '')
+    const chatWithRetry = async (label, params) => {
+      let r = null
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        r = await gateway.aiChat(params)
+        if (r.ok) break
+        if (attempt < maxAttempts && transient(r)) {
+          console.log(`[${label}] 瞬时错误（${String(r.message).slice(0, 120)}），${retryMs / 1000}s 后重试（${attempt}/${maxAttempts}）…`)
+          await sleep(retryMs)
+        } else {
+          break
+        }
       }
+      return r
     }
+    const round1 = await chatWithRetry('首轮', {
+      input: '我要搭建一套面向科研人员的文献阅读与论文写作工作流：需要支持 PDF 文献管理、参考文献自动格式化（GB/T 7714 风格）、Markdown 写作、中英文语法检查、笔记双链；插件要尽量轻量、彼此不重叠，优先选维护活跃的真实 npm 包',
+      persona: 'maid',
+    })
     if (!round1.ok) { fail('轮1 首轮装配：' + round1.message); return }
     const d1 = round1.data
     const sessionId = d1.session.id
@@ -84,15 +89,16 @@ async function main() {
     for (const p of d1.pack.plugins) console.log(`      - ${p.id} | ${p.name}@${p.version}`)
 
     // 轮2：明确修改指令 → 产物 diff 必须非空
-    const round2 = await gateway.aiChat({
+    const round2 = await chatWithRetry('轮2', {
       input: '把第一个插件换掉，换成更主流的替代品',
       sessionId,
-      persona: 'butler', // 会话已存在 → 应沿用 maid（验证人设不随参数切换）
+      persona: 'butler', // 显式切换人设 → 应生效并落盘（UI 中途换人设不再被静默忽略）
     })
     if (!round2.ok) { fail('轮2 修改：' + round2.message); return }
     const d2 = round2.data
     if (d2.session.id !== sessionId) { fail('轮2 会话 id 不一致'); return }
-    if (d2.session.persona !== 'maid') { fail('轮2 人设被参数覆盖（应沿用会话 maid，实际 ' + d2.session.persona + '）'); return }
+    if (d2.session.persona !== 'butler') { fail('轮2 显式人设切换未生效（应 butler，实际 ' + d2.session.persona + '）'); return }
+    console.log('      人设切换生效：maid → butler')
     if (d2.pack) {
       const changed = (d2.diff.added || []).length + (d2.diff.removed || []).length + (d2.diff.changed || []).length
       if (changed === 0) { fail('轮2 明确修改指令但产物无任何变化（对话式修改不可靠）'); return }
@@ -104,14 +110,14 @@ async function main() {
     }
 
     // 轮3：闲聊 → 必须纯文本回复、产物不变
-    const round3 = await gateway.aiChat({ input: '这些插件为什么要选它们？有什么搭配逻辑吗', sessionId })
+    const round3 = await chatWithRetry('轮3', { input: '这些插件为什么要选它们？有什么搭配逻辑吗', sessionId })
     if (!round3.ok) { fail('轮3 闲聊：' + round3.message); return }
     const d3 = round3.data
     if (d3.pack) { fail('轮3 闲聊不应产出新产物'); return }
     console.log(`[3/6] 闲聊 PASS：纯文本回复（${String(d3.reply).length} 字符，turn=${d3.session.turn}）`)
 
     // 轮4：加功能 → diff 新增
-    const round4 = await gateway.aiChat({ input: '再加一个功能：从文献 PDF 自动提取摘要和关键词', sessionId })
+    const round4 = await chatWithRetry('轮4', { input: '再加一个功能：从文献 PDF 自动提取摘要和关键词', sessionId })
     if (!round4.ok) { fail('轮4 加功能：' + round4.message); return }
     const d4 = round4.data
     if (d4.pack) {
@@ -124,7 +130,7 @@ async function main() {
     }
 
     // 轮5：指令性总结（须体现产物上下文——信息是否给足）
-    const round5 = await gateway.aiChat({ input: '总结一下当前包里的插件清单和各自作用', sessionId })
+    const round5 = await chatWithRetry('轮5', { input: '总结一下当前包里的插件清单和各自作用', sessionId })
     if (!round5.ok) { fail('轮5 总结：' + round5.message); return }
     const d5 = round5.data
     if (d5.pack) { fail('轮5 总结不应产出新产物'); return }
@@ -133,15 +139,15 @@ async function main() {
     console.log(`[5/6] 总结 PASS：回复含产物上下文（${String(d5.reply).slice(0, 100)}…，turn=${d5.session.turn}）`)
 
     // 轮6：人设切换参数（会话沿用原人设）
-    const round6 = await gateway.aiChat({ input: '谢谢，做得很好', sessionId, persona: 'neko' })
+    const round6 = await chatWithRetry('轮6', { input: '谢谢，做得很好', sessionId, persona: 'neko' })
     if (!round6.ok) { fail('轮6 人设：' + round6.message); return }
     const d6 = round6.data
-    if (d6.session.persona !== 'maid') { fail('轮6 会话人设被参数覆盖（应沿用 maid）'); return }
-    console.log(`[6/6] 人设沿用 PASS：persona=${d6.session.persona}，回复：${String(d6.reply).slice(0, 80)}…`)
+    if (d6.session.persona !== 'neko') { fail('轮6 显式人设切换未生效（应 neko，实际 ' + d6.session.persona + '）'); return }
+    console.log(`[6/6] 人设切换 PASS：persona=${d6.session.persona}，回复：${String(d6.reply).slice(0, 80)}…`)
 
     // 落地：importPack（最新产物）+ status 可见
     const finalPack = (d4.pack || d2.pack || d1.pack)
-    const imported = gateway.importPack(JSON.stringify(finalPack))
+    const imported = await gateway.importPack(JSON.stringify(finalPack))
     if (!imported.ok) { fail('importPack：' + imported.error); return }
     const st = gateway.status()
     if (!(st.packs || []).some((p) => p.id === imported.pack.id)) { fail('status 未列出已导入包'); return }

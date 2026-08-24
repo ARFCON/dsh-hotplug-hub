@@ -14,6 +14,7 @@ import {
   closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync,
   renameSync, rmSync, unlinkSync, writeFileSync,
 } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { writeFileAtomic } from '../../vendor-shared/index.mjs'
 import { hotplugRoot } from './paths.js'
@@ -28,14 +29,29 @@ export const SESSION_MAX_MESSAGES = 16
 /** 单条消息内容截断上限（防超大上下文）。 */
 export const SESSION_MAX_MESSAGE_CHARS = 3000
 
+/**
+ * 码点安全截断（Array.from 按码点迭代）：避免 String.slice 按 UTF-16 码元切割
+ * 把 emoji/增补平面字符劈成孤立代理对（与 hotpack.js tags 截断同一教训）。
+ * @param {string} s
+ * @param {number} maxChars
+ */
+function sliceByCodePoints(s, maxChars) {
+  return Array.from(s).slice(0, maxChars).join('')
+}
+
 /** 会话目录（<dshRoot>/hotplug-hub/ai-sessions）。 */
 export function sessionsDir() {
   return join(hotplugRoot(), 'ai-sessions')
 }
 
-/** 生成会话 id（时间基 + 随机后缀，无敏感信息）。 */
+/**
+ * 生成会话 id（时间基 + CSPRNG 随机后缀，无敏感信息）。
+ * 审计修复：随机段改用 crypto.randomBytes——Math.random 可预测，配合网关不校验
+ * 会话属主的 RPC 面，等于降低"猜 id 续接他人会话"的门槛。
+ * @returns {string}
+ */
 export function newSessionId() {
-  return 'ai-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
+  return 'ai-' + Date.now().toString(36) + '-' + randomBytes(6).toString('hex')
 }
 
 /** 会话 id 合法字符集：生成 id（ai-<ts>-<rand>）恒匹配；用户传入非安全 id 一律拒绝。 */
@@ -67,7 +83,7 @@ export function trimMessages(messages) {
     .slice(-SESSION_MAX_MESSAGES)
     .map((m) => ({
       role: m && m.role === 'assistant' ? 'assistant' : 'user',
-      content: typeof m.content === 'string' ? m.content.slice(0, SESSION_MAX_MESSAGE_CHARS) : String(m.content ?? ''),
+      content: typeof m.content === 'string' ? sliceByCodePoints(m.content, SESSION_MAX_MESSAGE_CHARS) : String(m.content ?? ''),
       ...(m && m.kind === 'pack' ? { kind: 'pack' } : {}),
     }))
 }
@@ -120,7 +136,8 @@ export function saveSession(session) {
     })
     const file = sessionPath(session.id)
     if (file === null) return false
-    const r = writeFileAtomic(atomicFsPort, file, payload, { errorCode: 'ERR_LOG_WRITE' })
+    // errorCode 按语义传入（shared 契约：避免一律归日志/安装错误码）
+    const r = writeFileAtomic(atomicFsPort, file, payload, { errorCode: 'ERR_AI_SESSION_WRITE' })
     return r.ok
   } catch {
     return false

@@ -117,9 +117,9 @@ if (!hasKey) {
             // 3) 网关 importPack（落盘隔离根；用最新产物）
             const pack = d2.pack || pack1
             console.log('[3/4] 网关 importPack（落盘隔离根）…')
-            const imported = gateway.importPack(JSON.stringify(pack))
+            const imported = await gateway.importPack(JSON.stringify(pack))
             if (!imported.ok) {
-              console.error(`FAIL: importPack：${imported.error}`)
+              console.error(`FAIL: importPack：${imported.message ?? imported.error}`)
               exitCode = 1
             } else {
               console.log(`PASS: 已导入（${imported.pack.id}，${imported.pack.plugins} 个插件）`)

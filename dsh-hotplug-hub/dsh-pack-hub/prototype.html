@@ -1147,10 +1147,10 @@ const CATALOG = [
     id: 'pack-research', name: '科研插座包', author: 'Arito', stars: 2840, version: '1.0.0',
     tags: ['科研', '论文', '文献'], desc: '文献检索、综述、论文写作、引用与审稿建议',
     bundles: [
-      { name: '@dsh-community/dsh-tool-literature', role: '文献检索', version: '1.2.3' },
-      { name: '@dsh-community/dsh-cite', role: '引用管理', version: '0.9.1' },
-      { name: '@dsh-community/dsh-paper-writer', role: '论文写作', version: '2.0.0' },
-      { name: '@dsh-community/dsh-review-board', role: '审稿建议', version: '1.1.0' }
+      { name: '@dsh-community/dsh-tool-literature', pid: 'literature', role: '文献检索', version: '1.2.3' },
+      { name: '@dsh-community/dsh-cite', pid: 'cite', role: '引用管理', version: '0.9.1' },
+      { name: '@dsh-community/dsh-paper-writer', pid: 'paper-writer', role: '论文写作', version: '2.0.0' },
+      { name: '@dsh-community/dsh-review-board', pid: 'review-board', role: '审稿建议', version: '1.1.0' }
     ],
     memory: ['global.research'], accent: '#2563eb'
   },
@@ -1158,10 +1158,10 @@ const CATALOG = [
     id: 'pack-video', name: '视频制作插座包', author: '清泫', stars: 1920, version: '0.8.2',
     tags: ['视频', '剪辑', '字幕'], desc: '脚本、分镜、剪辑清单、字幕与封面生成',
     bundles: [
-      { name: '@dsh-community/dsh-video-script', role: '脚本', version: '1.4.0' },
-      { name: '@dsh-community/dsh-shots', role: '分镜', version: '0.6.2' },
-      { name: '@dsh-community/dsh-subtitle', role: '字幕', version: '1.0.5' },
-      { name: '@dsh-community/dsh-cover', role: '封面', version: '0.3.1' }
+      { name: '@dsh-community/dsh-video-script', pid: 'script', role: '脚本', version: '1.4.0' },
+      { name: '@dsh-community/dsh-shots', pid: 'shots', role: '分镜', version: '0.6.2' },
+      { name: '@dsh-community/dsh-subtitle', pid: 'subtitle', role: '字幕', version: '1.0.5' },
+      { name: '@dsh-community/dsh-cover', pid: 'cover', role: '封面', version: '0.3.1' }
     ],
     memory: ['global.video'], accent: 'var(--amber)'
   },
@@ -1169,9 +1169,9 @@ const CATALOG = [
     id: 'pack-social', name: '自媒体插座包', author: '笑笑熊', stars: 1530, version: '1.1.0',
     tags: ['自媒体', '选题', '文案'], desc: '热点选题、拆解、文案与发布清单',
     bundles: [
-      { name: '@dsh-community/dsh-topic-radar', role: '选题', version: '1.0.2' },
-      { name: '@dsh-community/dsh-copy-kit', role: '文案', version: '2.2.1' },
-      { name: '@dsh-community/dsh-crosspost', role: '发布', version: '0.5.0' }
+      { name: '@dsh-community/dsh-topic-radar', pid: 'topic-radar', role: '选题', version: '1.0.2' },
+      { name: '@dsh-community/dsh-copy-kit', pid: 'copy-kit', role: '文案', version: '2.2.1' },
+      { name: '@dsh-community/dsh-crosspost', pid: 'crosspost', role: '发布', version: '0.5.0' }
     ],
     memory: ['global.social'], accent: '#8b5e3c'
   },
@@ -1179,9 +1179,9 @@ const CATALOG = [
     id: 'pack-kaoyan', name: '考研冲刺插座包', author: 'Moss 小组', stars: 980, version: '0.6.1',
     tags: ['考研', '学习', '闪卡'], desc: '背诵计划、真题梳理、中日双语文法和闪卡导出',
     bundles: [
-      { name: '@dsh-community/dsh-recall', role: '背诵', version: '1.3.0' },
-      { name: '@dsh-community/dsh-paper-miner', role: '真题', version: '0.8.3' },
-      { name: '@dsh-community/dsh-flashcard', role: '闪卡', version: '1.2.0' }
+      { name: '@dsh-community/dsh-recall', pid: 'recall', role: '背诵', version: '1.3.0' },
+      { name: '@dsh-community/dsh-paper-miner', pid: 'paper-miner', role: '真题', version: '0.8.3' },
+      { name: '@dsh-community/dsh-flashcard', pid: 'flashcard', role: '闪卡', version: '1.2.0' }
     ],
     memory: ['global.study'], accent: '#1d5f9e'
   },
@@ -1189,10 +1189,10 @@ const CATALOG = [
     id: 'pack-fullstack', name: '全栈开发插座包', author: '黄昏', stars: 2160, version: '1.4.0',
     tags: ['开发', '全栈', 'DevOps'], desc: '脚手架、代码评审、测试和安全检查',
     bundles: [
-      { name: '@dsh-community/dsh-scaffold', role: '脚手架', version: '3.0.0' },
-      { name: '@dsh-community/dsh-review', role: '评审', version: '1.8.1' },
-      { name: '@dsh-community/dsh-test-runner', role: '测试', version: '0.9.6' },
-      { name: '@dsh-community/dsh-sec-scan', role: '安全', version: '1.0.4' }
+      { name: '@dsh-community/dsh-scaffold', pid: 'scaffold', role: '脚手架', version: '3.0.0' },
+      { name: '@dsh-community/dsh-review', pid: 'review', role: '评审', version: '1.8.1' },
+      { name: '@dsh-community/dsh-test-runner', pid: 'test-runner', role: '测试', version: '0.9.6' },
+      { name: '@dsh-community/dsh-sec-scan', pid: 'sec-scan', role: '安全', version: '1.0.4' }
     ],
     memory: ['global.dev'], accent: '#5b5488'
   },
@@ -1200,9 +1200,9 @@ const CATALOG = [
     id: 'pack-notes', name: '知识管理插座包', author: '清泫', stars: 1240, version: '1.0.3',
     tags: ['笔记', '知识库', '整理'], desc: '网页收藏、笔记整理、书摘提取与双链',
     bundles: [
-      { name: '@dsh-community/dsh-web-clipper', role: '收藏', version: '1.1.1' },
-      { name: '@dsh-community/dsh-notes', role: '笔记', version: '2.0.2' },
-      { name: '@dsh-community/dsh-book-extract', role: '书摘', version: '0.7.0' }
+      { name: '@dsh-community/dsh-web-clipper', pid: 'web-clipper', role: '收藏', version: '1.1.1' },
+      { name: '@dsh-community/dsh-notes', pid: 'notes', role: '笔记', version: '2.0.2' },
+      { name: '@dsh-community/dsh-book-extract', pid: 'book-extract', role: '书摘', version: '0.7.0' }
     ],
     memory: ['global.knowledge'], accent: '#237a57'
   }
@@ -1216,7 +1216,6 @@ const DEFAULT_STATE = {
   pendingRestart: 0,
   installed: [],
   imported: [],
-  aiCount: 0,
   memories: [],
   memoryLog: [],
     panelInstalled: null,
@@ -1306,6 +1305,12 @@ let aiKeyMem = '';
 let aiBaseUrlMem = '';
 let aiModelMem = '';
 let msgSeq = 0; // 消息 uid 计数：产物卡按钮按卡片绑定数据（刷新/多张卡/切人设都不错位）
+// 空态（会话未建）人设选择独立持久化：否则 renderAi 重建后静默回落 maid
+let aiPersonaSel = (() => { try { return localStorage.getItem('dshAiPersona') || 'maid'; } catch (_) { return 'maid'; } })();
+function setAiPersonaSel(v) {
+  aiPersonaSel = v;
+  try { localStorage.setItem('dshAiPersona', v); } catch (_) { /* 尽力而为 */ }
+}
 
 /** 会话持久化（刷新/重启续接；不含任何凭据——key 从不入 aiSession/aiMessages）。 */
 function aiPersist() {
@@ -1321,6 +1326,11 @@ function aiRestore() {
     if (d && d.session && d.session.id && Array.isArray(d.messages) && d.messages.length > 0) {
       aiSession = { id: d.session.id, persona: d.session.persona || 'maid', messages: Array.isArray(d.session.messages) ? d.session.messages : [], pack: d.session.pack || null };
       aiMessages = d.messages.filter((m) => m && (m.role === 'user' || m.role === 'assistant'));
+      // uid 计数器按恢复消息重算（max+1）：防止新消息 uid 与旧消息撞车导致产物卡错绑
+      for (const m of aiMessages) {
+        const mm = /^m(\d+)$/.exec(String(m.uid || ''));
+        if (mm) msgSeq = Math.max(msgSeq, parseInt(mm[1], 10));
+      }
       return aiMessages.length > 0;
     }
   } catch (_) { /* 尽力而为 */ }
@@ -1844,20 +1854,40 @@ async function fetchRepoDetail(repo, ref, meta, sources) {
   return entry;
 }
 
-// 兼容宿主端 parseHotpack 的核心校验（prototype 内联精简版；
-// M-51/R-v5-2：与 shared-core parseHotpack 的接受/拒绝行为等价，由跨语言断言测试锁定）
+// 兼容宿主端 parseHotpack 的核心校验（prototype 内联精简版；核心子集与
+// shared-core parseHotpack 等价——包/插件 id、精确版本、去重、源类型白名单等，
+// 由 prototype-ai.test.mjs 跨语言断言锁定；包 id 与插件 name 的完整格式、
+// path/github 源必填字段由服务端导入时权威复验）。
+// 审计修复：包级 version 必须 semver（'latest' 不再放行——此前页面接受、后端拒绝，
+// 产物"看起来有效"却在导入时失败）；npm 源插件 version 必填精确版本；插件 id/name
+// 大小写不敏感去重；name 空白串拒绝——四处与权威解析器对齐。
 function parseHotpackJson(text) {
   let data;
   try { data = JSON.parse(text); } catch (e) { return null; }
   if (!data || data.hotpack !== '1.0') return null;
-  // 版本必填（精确版本校验在安装侧；此处保证缺 version 直接拒绝，与权威解析器一致）
   if (!data.id || !data.name || !data.version || !Array.isArray(data.plugins)) return null;
+  if (!String(data.name).trim()) return null;
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(data.version)) return null;
   if (data.plugins.length < 1 || data.plugins.length > 5) return null;
+  const seenIds = new Set();
+  const seenNames = new Set();
   for (const p of data.plugins) {
     if (!p || typeof p !== 'object') return null;
     if (!p.id || !/^[a-z0-9][a-z0-9_-]{0,39}$/.test(p.id)) return null;
-    if (!p.name || typeof p.name !== 'string' || p.name.trim() === '') return null;
-    if (p.version && !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(p.version)) return null;
+    if (!p.name || typeof p.name !== 'string' || !p.name.trim()) return null;
+    // source.type 缺省= npm；显式空串/空白=拒绝（与权威解析器一致，不与缺省混同）
+    const rawType = p.source && p.source.type !== undefined && p.source.type !== null ? p.source.type : undefined
+    if (rawType !== undefined && String(rawType).trim() === '') return null;
+    const type = rawType === undefined ? 'npm' : rawType;
+    if (type !== 'npm' && type !== 'path' && type !== 'github') return null;
+    const VER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
+    if (type === 'npm' && !VER.test(p.version || '')) return null;
+    if (p.version && !VER.test(p.version)) return null;
+    const idKey = String(p.id).toLowerCase();
+    const nameKey = String(p.name).toLowerCase();
+    if (seenIds.has(idKey) || seenNames.has(nameKey)) return null;
+    seenIds.add(idKey);
+    seenNames.add(nameKey);
   }
   return data;
 }
@@ -3054,7 +3084,7 @@ function renderAi() {
   const prevScroll = $('aiScroll') ? $('aiScroll').scrollTop : 0;
   const prevInput = $('reqInput') ? $('reqInput').value : '';
   const hadFocus = !!(document.activeElement && document.activeElement.id === 'reqInput');
-  const curPersona = (aiSession && aiSession.persona) || 'maid';
+  const curPersona = (aiSession && aiSession.persona) || aiPersonaSel;
   const sample = personaSamples(curPersona);
   const personaGreet = {
     maid: '主人，欢迎来到装配间～小织已经把织布机准备好啦！',
@@ -3080,7 +3110,7 @@ function renderAi() {
       <div class="ai-topbar">
         <span class="ai-turn-badge" id="aiTurnBadge">${aiSession ? `第 ${aiMessages.filter((m) => m.role === 'user').length} 轮` : ''}</span>
         <div class="spacer"></div>
-        <select id="aiPersona" class="ai-chip-btn" title="切换装配女仆">
+        <select id="aiPersona" class="ai-chip-btn" title="切换装配女仆" ${aiRunning ? 'disabled' : ''}>
           ${personaOpts.map(([id, label]) => `<option value="${id}"${id === curPersona ? ' selected' : ''}>${label}</option>`).join('')}
         </select>
         <button class="ai-chip-btn${aiSettingsOpen ? ' active' : ''}" id="aiSettingsBtn" title="模型与连接设置">⚙ 模型</button>
@@ -3124,7 +3154,7 @@ function renderAi() {
         </div>
       </div>
       <div class="ai-scroll" id="aiScroll">
-        <div class="ai-col" id="aiCol">${chatHtml}</div>
+        <div class="ai-col" id="aiCol" aria-live="polite">${chatHtml}</div>
       </div>
       <div class="ai-dock">
         <div class="ai-dock-inner">
@@ -3135,7 +3165,7 @@ function renderAi() {
             </button>
           </div>
           <div class="ai-dock-note">
-            <span id="aiConnNote">${connNote()}</span>
+            <span id="aiConnNote">${esc(connNote())}</span>
             <span class="spacer" style="flex:1"></span>
             <span>Enter 发送 · Shift+Enter 换行</span>
           </div>
@@ -3160,6 +3190,8 @@ function renderAi() {
   const ns = $('aiNewSessionBtn');
   if (ns) ns.addEventListener('click', () => { if (!confirm('开始新会话？当前对话与产物将清空。')) return; aiSession = null; aiMessages = []; aiResult = null; aiClearRoom(); renderAi(); });
   $('aiPersona').addEventListener('change', (e) => {
+    if (aiRunning) { e.target.value = (aiSession && aiSession.persona) || aiPersonaSel; return; } // 在途轮次锁定人设
+    setAiPersonaSel(e.target.value);
     if (aiSession) aiSession.persona = e.target.value;
     aiPersist(); // 人设变更随会话续接
     const titleName = $('aiTitleName');
@@ -3265,7 +3297,7 @@ async function aiTestConnection() {
     } finally { clearTimeout(timer); }
     if (res.ok) toast('✓ 连接成功：' + model);
     else {
-      const t = (await res.text()).slice(0, 160).replace(apiKey, '***');
+      const t = (await res.text()).slice(0, 160).split(apiKey).join('***');
       toast('连接失败 HTTP ' + res.status + '：' + t);
     }
   } catch (e) {
@@ -3307,7 +3339,7 @@ function msgHtml(m, persona) {
   const content = m.text;
   const packCard = m.pack ? packCardHtml(m.pack, m.diff, m.uid) : '';
   const av = m.error ? '!' : personaBadge(m.persona || persona);
-  return `<div class="ai-msg assistant${m.error ? ' err' : ''}"><div class="ai-avatar${m.error ? ' av-err' : ''}">${av}</div><div class="ai-bubble">${fmtAiText(content)}</div></div>${packCard}`;
+  return `<div class="ai-msg assistant${m.error ? ' err' : ''}"${m.error ? ' role="alert"' : ''}><div class="ai-avatar${m.error ? ' av-err' : ''}">${av}</div><div class="ai-bubble">${fmtAiText(content)}</div></div>${packCard}`;
 }
 
 /* ---- 聊天流增量渲染（不重建 DOM：保持输入聚焦与沉浸） ---- */
@@ -3463,7 +3495,7 @@ function bindResultActions() {
     if (e.target.closest('.ai-act-export')) {
       const pid = (res.manifest.packId || 'ai-pack');
       download(pid + '.dshpack.json', JSON.stringify(res.manifest, null, 2), 'application/json');
-      setTimeout(() => download(pid + '-README.md', res.readme || '', 'text/markdown'), 500);
+      download(pid + '-README.md', res.readme || '', 'text/markdown');
       toast('pack + README 已导出');
       return;
     }
@@ -3616,6 +3648,7 @@ function endTurnState() {
   aiRunning = false;
   const sb = $('composeBtn'); if (sb) sb.disabled = false;
   const nsb = $('aiNewSessionBtn'); if (nsb) nsb.disabled = false;
+  const psel = $('aiPersona'); if (psel) psel.disabled = false; // 轮次中 renderAi 可能把下拉带上 disabled
   const badge = $('aiTurnBadge');
   if (badge) badge.textContent = '第 ' + aiMessages.filter((m) => m.role === 'user').length + ' 轮';
   aiPersist();
@@ -3637,6 +3670,17 @@ function failAssistTurn(text, persona) {
   aiMessages.push({ role: 'assistant', text, persona, error: true, uid: 'm' + (++msgSeq) });
   appendMsgEl(aiMessages[aiMessages.length - 1], persona);
   endTurnState();
+}
+
+/** LLM 原文分类（对齐后端 aiChat 的三态判定；等价守卫属后端会话层逻辑，页面演示路径不重复实现）：
+ *  'product'=过权威校验的清单；'chat'=对话轮纯文本；
+ *  'invalid'=有 JSON 但校验失败 或 首轮无 JSON（可纠错重试的失败形态）。 */
+function classifyAiRaw(content, isFirstTurn) {
+  const manifest = extractJson(content);
+  const hp = manifest ? parseHotpackJson(JSON.stringify(manifest)) : null;
+  if (hp) return { status: 'product', manifest, hp };
+  if (manifest || isFirstTurn) return { status: 'invalid', manifest };
+  return { status: 'chat' };
 }
 
 /** LLM 原文 → 权威校验 → 产物/回复（原型与 EXE 注入共用同一套校验与话术）。 */
@@ -3700,34 +3744,53 @@ async function compose() {
         const packCtx = aiSession.pack ? '当前已装配的 hotpack 1.0 清单：\n' + JSON.stringify(aiSession.pack) + '\n\n' : '';
         messages.push({ role: 'user', content: packCtx + '用户新指令：' + input + '\n（如需修改清单，输出完整新 JSON；否则正常对话回复）' });
       }
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 90000);
-      let res;
-      try {
-        res = await fetch(baseURL.replace(/\/+$/, '') + '/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-          body: JSON.stringify({
-            model,
-            messages,
-            temperature: 0.8, // 与桌面端统一：0.8 更自然
-            max_tokens: 2048,
-            stream: false
-          }),
-          signal: ctrl.signal
-        });
-      } finally {
-        clearTimeout(timer);
+      // 产物校验失败 → 带纠错反馈重试一次（与后端 aiChat 对齐；盲重发对结构违规命中
+      // 率低）。重试只改本次请求，不落会话历史。
+      const chatOnce = async (msgs) => {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 90000);
+        try {
+          const res = await fetch(baseURL.replace(/\/+$/, '') + '/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+            body: JSON.stringify({
+              model,
+              messages: msgs,
+              temperature: 0.8, // 与桌面端统一：0.8 更自然
+              max_tokens: 4096,
+              stream: false
+            }),
+            signal: ctrl.signal
+          });
+          if (!res.ok) {
+            const body = (await res.text()).slice(0, 300).split(apiKey).join('***');
+            throw new Error('AI 服务 HTTP ' + res.status + '：' + body);
+          }
+          const json = await res.json();
+          const content = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
+          if (typeof content !== 'string' || content.trim() === '') throw new Error('AI 响应缺少内容');
+          logLine(box, '  LLM 响应 ' + content.length + ' 字符（model=' + (json.model || model) + '）', 'ok');
+          return content;
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+      let retryMessages = messages;
+      for (let attempt = 0; ; attempt += 1) {
+        const content = await chatOnce(retryMessages);
+        const v = classifyAiRaw(content, isFirstTurn);
+        if (v.status !== 'invalid' || attempt >= 1) {
+          processAiRaw(content, persona, isFirstTurn, input);
+          break;
+        }
+        const why = v.manifest
+          ? '清单结构不符合 hotpack 1.0（plugins 1-5 个、插件 id/精确版本格式、id/name 去重、包版本 semver）'
+          : '未输出 JSON 对象';
+        logLine(box, '  产物未通过 hotpack 1.0 校验（' + why + '），带纠错反馈重试一次…', 'warn');
+        retryMessages = [...messages,
+          { role: 'assistant', content: Array.from(String(content)).slice(0, 500).join('') },
+          { role: 'user', content: '上一次输出未通过 hotpack 1.0 校验：' + why + '。请严格按结构规则重新输出，只输出修正后的 JSON，不要任何解释文字。' }];
       }
-      if (!res.ok) {
-        const body = (await res.text()).slice(0, 300).replace(apiKey, '***');
-        throw new Error('AI 服务 HTTP ' + res.status + '：' + body);
-      }
-      const json = await res.json();
-      const content = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
-      if (typeof content !== 'string' || content.trim() === '') throw new Error('AI 响应缺少内容');
-      logLine(box, '  LLM 响应 ' + content.length + ' 字符（model=' + (json.model || model) + '）', 'ok');
-      processAiRaw(content, persona, isFirstTurn, input);
     } catch (e) {
       logLine(box, '失败：' + String(e.message || e), 'err');
       failAssistTurn(aiErrorText(persona, String(e.message || e), true), persona);
@@ -3761,7 +3824,8 @@ async function compose() {
       const picked = rootPacks.length ? rootPacks : [CATALOG[0]];
       const bundles = [];
       picked.forEach((p) => p.bundles.forEach((b) => { if (!bundles.some((x) => x.name === b.name)) bundles.push(b); }));
-      state.aiCount += 1;
+      // 与装配规则一致：合并去重后最多 5 个插件（此前双场景命中可产 7 个非法清单）
+      if (bundles.length > 5) bundles.length = 5;
       const packId = 'pack.ai.' + Date.now().toString(36);
       const manifest = {
         packId,
@@ -3802,7 +3866,7 @@ async function compose() {
         version: '0.1.0',
         description: '',
         tags: manifest.tags,
-        plugins: bundles.map((b) => ({ id: b.role, name: b.name, version: b.version, source: { type: 'npm' }, config: {} }))
+        plugins: bundles.map((b) => ({ id: b.pid || b.role, name: b.name, version: b.version, source: { type: 'npm' }, config: {} }))
       };
       aiSession.pack = hp;
       aiResult = { name: manifest.name, tags: manifest.tags, manifest, readme };

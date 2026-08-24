@@ -1,6 +1,6 @@
 {
   "name": "dsh-hotplug-hub-monorepo",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "DSH-Hotplug-Hub 单仓：launcher / dsh-hotplug-hub / dsh-memory-hub / 共享内核 / vendor",
   "workspaces": [
