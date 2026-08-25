@@ -156,7 +156,9 @@ function migrateState(raw) {
  * @returns {{ok: boolean, error?: Error}}
  */
 function writeState(fsPort, stateFile, state) {
-  const { dirty: _dirty, ...persistable } = state;
+  // dirty（内存脏标）与 _corrupted（只读命令的降级标记）都是非持久化运行时注记——
+  // 后者若被未来某个降级写路径带上盘，会让后续所有 status 永久 stateOk:false。
+  const { dirty: _dirty, _corrupted: _corrupted, ...persistable } = state;
   const json = JSON.stringify(persistable, null, 2) + '\n';
   const r = writeFileAtomic(fsPort, stateFile, json, { errorCode: 'ERR_LOCK_ACQUIRE', mode: 0o600 });
   if (!r.ok) return r;

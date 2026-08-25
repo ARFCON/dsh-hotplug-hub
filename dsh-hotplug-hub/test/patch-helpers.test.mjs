@@ -36,13 +36,13 @@ function writeManifest(value) { writeFileSync(manifestFile(), JSON.stringify(val
 function readManifest() { return JSON.parse(readFileSync(manifestFile(), 'utf8')) }
 function readBundles() { return readManifest().dsh?.profile?.bundles ?? [] }
 
-/** github 源插件条目（store 目录 = <dshHome>/hotplug-store/<name>@<ref>）。 */
+/** github 源插件条目（store 目录 = <dshHome>/hotplug-store/<repo>#<name>@<ref>）。 */
 function githubEntry(name, ref = 'main') {
   return { id: name, name, source: { type: 'github', repo: `o/${name}`, ref } }
 }
 /** 在 store 目录落地 package.json（dshField 为 undefined 时不写 dsh 字段）。 */
 function writeStorePkg(name, dshField, ref = 'main') {
-  const dir = join(iso.dshHome, 'hotplug-store', `${name}@${ref}`)
+  const dir = join(iso.dshHome, 'hotplug-store', `o%2F${name}#${name}@${ref}`)
   mkdirSync(dir, { recursive: true })
   const pkg = { name, version: '1.0.0' }
   if (dshField !== undefined) pkg.dsh = { bundle: { patch: dshField } }

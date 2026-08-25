@@ -124,12 +124,19 @@ export function listPackIds() {
   }
 }
 
-/** packs/<id> 目录是否存在（removePack 的存在性判定——损坏包也允许删除恢复）。 */
+/** packs/<id> 目录是否存在（removePack 的存在性判定——损坏包也允许删除恢复）。
+ *  审计修复（Windows 大小写）：NTFS 大小写不敏感——loadPackManifest 经 FS 可命中
+ *  大小写变体（activate('PACK.X') 能读到 pack.x 的清单），此处若严格比对则 removePack
+ *  误报「未找到包」。Windows 下按小写比对（与 NTFS 语义一致），POSIX 保持精确。 */
 export function packDirExists(packId) {
   if (typeof packId !== 'string' || !PACK_ID_RE.test(packId)) return false
+  const want = process.platform === 'win32' ? packId.toLowerCase() : packId
   try {
     return readdirSync(packsDir(), { withFileTypes: true })
-      .some((entry) => entry.isDirectory() && entry.name === packId)
+      .some((entry) => {
+        if (!entry.isDirectory()) return false
+        return process.platform === 'win32' ? entry.name.toLowerCase() === want : entry.name === want
+      })
   } catch {
     return false
   }

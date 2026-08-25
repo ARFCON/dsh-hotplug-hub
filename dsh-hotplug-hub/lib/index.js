@@ -9,15 +9,15 @@
  *  - 无损替换：同一时刻只有一个激活包；切换包只替换 profile 的 patch 块 /
  *    bundles / link 依赖；全局记忆、会话与 hotplug-store 不动。
  *
- * Remote 服务 `dshHotplug`（11 个方法；新增方法必须同步三处：
+ * Remote 服务 `dshHotplug`（12 个方法；新增方法必须同步三处：
  * lib/gateway.js methods 列表、lib/typert.js、lib/client.js 的 REMOTE.descriptors）：
- *   status()              中枢状态（profile / 激活包 / 已导入包 / store）
+ *   status()              中枢状态（profile / 激活包 / 已导入包 / store / stateOk）
  *   importPack(text)      导入 hotpack JSON（字符串或对象），只落盘不挂载
  *   preview(packId)       预演激活计划：每个插件 reused / download / error
  *   activate(packId)      解析缺失插件并挂载（无损替换当前激活包）
  *   deactivate()          卸载当前激活包（保留 store 缓存）
  *   removePack(packId)    移除未激活的包记录
- *   check()               自检：Node/pnpm 版本、profile 状态、patch 状态、冲突矩阵
+ *   check()               自检：Node/pnpm 版本、stateOk、profile 清单、patch 三态、冲突矩阵
  *   marketList(params)    插件市场：GitHub 标签搜索（官方 API + 镜像站兜底），
  *                         只返回仓库列表元数据（快，不阻塞），详情由 marketDetail 逐条并发返回
  *   marketDetail(params)  单仓库详情：对比文件（package.json / hotpack / .dshpack / README）
@@ -25,6 +25,7 @@
  *   aiAssemble(params)    需求 → LLM → 权威校验的 hotpack 清单（key 仅内存/环境变量）
  *   aiChat(params)        人设化对话式装配：首轮组装，后续轮对话式增量修改/闲聊，
  *                         会话持久化（ai-sessions/，不含 key），产物返回 diff
+ *   aiTest(params)        AI 连接测试：provider/端点/模型/key 最小 ping（服务端视角）
  *
  * v5 重构（阶段 3，H-16）：1307 行单文件拆分为 lib/core/*（路径/状态/命令/
  * hotpack/解析/挂载/市场/对外实现）与 lib/gateway.js（网关），本文件仅为入口。

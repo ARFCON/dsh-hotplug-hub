@@ -45,8 +45,8 @@ describe('github/path cached 判定统一', () => {
   it('github：store 目录 package.json 内部包名不符 → status cached:false', async () => {
     await importPackSync(JSON.stringify(githubPack()))
     // 预置串包残留：store 目录有 package.json 但 name 不是 pkg-g
-    // （storeKeySegment 只编码 '/'；ref 'v1' 无 '/'，键为 pkg-g@v1）
-    const dir = join(iso.dshHome, 'hotplug-store', 'pkg-g@v1')
+    // （storeKeySegment 只编码 '/'；ref 'v1' 无 '/'，键为 o%2Fr#pkg-g@v1）
+    const dir = join(iso.dshHome, 'hotplug-store', 'o%2Fr#pkg-g@v1')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'other-pkg', version: '1.0.0' }))
     const s = statusSync()
@@ -56,7 +56,7 @@ describe('github/path cached 判定统一', () => {
 
   it('github：内部包名一致 → cached:true；且与 ensureGithub reused 判定一致', async () => {
     await importPackSync(JSON.stringify(githubPack()))
-    const dir = join(iso.dshHome, 'hotplug-store', 'pkg-g@v1')
+    const dir = join(iso.dshHome, 'hotplug-store', 'o%2Fr#pkg-g@v1')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'pkg-g', version: '1.0.0' }))
     const s = statusSync()
@@ -70,7 +70,7 @@ describe('github/path cached 判定统一', () => {
 
   it('github：串包残留 → preview action:download（不是 reused）', async () => {
     await importPackSync(JSON.stringify(githubPack()))
-    const dir = join(iso.dshHome, 'hotplug-store', 'pkg-g@v1')
+    const dir = join(iso.dshHome, 'hotplug-store', 'o%2Fr#pkg-g@v1')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'other-pkg', version: '1.0.0' }))
     const prev = await previewPack('pack.g')
@@ -117,8 +117,8 @@ describe('github/path cached 判定统一', () => {
       plugins: [{ id: 'main', name: 'pkg-g', source: { type: 'github', repo: 'o/r', ref: 'feature/x' }, config: {} }],
     }
     await importPackSync(JSON.stringify(pack))
-    // 落地键：storeKeySegment('pkg-g') + '@' + storeKeySegment('feature/x') = pkg-g@feature%2Fx
-    const dir = join(iso.dshHome, 'hotplug-store', 'pkg-g@feature%2Fx')
+    // 落地键：storeKeySegment('o/r')+'#'+storeKeySegment('pkg-g')+'@'+storeKeySegment('feature/x') = o%2Fr#pkg-g@feature%2Fx
+    const dir = join(iso.dshHome, 'hotplug-store', 'o%2Fr#pkg-g@feature%2Fx')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'pkg-g', version: '1.0.0' }))
     const s = statusSync()

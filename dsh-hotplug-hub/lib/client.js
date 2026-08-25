@@ -150,7 +150,10 @@ window.__ModuleLoader__.load({
 			checkConflicts: "冲突矩阵",
 			checkNoConflicts: "无冲突",
 			checkManifest: "Profile 清单",
+			checkState: "状态文件",
+			checkStateCorrupt: "state.json 损坏（变更操作已锁定，请检查/备份后删除该文件）",
 			checkPatch: "Patch 状态",
+			checkPatchUnknown: "未知（无法读取 patch 文件）",
 			checkNode: "Node.js",
 			checkPnpm: "pnpm",
 			checkMemory: "记忆中枢",
@@ -387,11 +390,17 @@ window.__ModuleLoader__.load({
 				});
 			};
 			const doCheck = async () => {
+				// 审计修复：自检也占用 busy——按钮虽以 busy 禁用，但 doCheck 自身不设防时
+				// 编程式调用/快速连点会并发多个 check RPC，结果互相覆盖。
+				if (busy) return;
+				setBusy(true);
 				try {
 					const result = unwrap(await api.check());
 					setCheckData(result);
 				} catch (error) {
 					say("error", String(error.message ?? error));
+				} finally {
+					setBusy(false);
 				}
 			};
 			const loadMarket = async (params) => {
@@ -984,10 +993,22 @@ window.__ModuleLoader__.load({
 							h("span", null, t("checkManifest")),
 							h("span", { className: "hp_val" }, checkData.manifestOk ? t("checkOk") : t("checkErr"))
 						),
+						// 审计修复：stateOk 行——state.json 损坏此前在自检页完全不可见（manifestOk
+						// 可能仍"正常"、patchOk 误归因），用户只有尝试变更被拒时才间接得知。
 						h("div", { className: "hp_check" },
-							h("span", { className: "hp_dot", "data-kind": checkData.patchOk ? "reused" : "error" }),
+							h("span", { className: "hp_dot", "data-kind": checkData.stateOk === false ? "error" : "reused" }),
+							h("span", null, t("checkState")),
+							h("span", { className: "hp_val" }, checkData.stateOk === false ? t("checkErr") : t("checkOk"))
+						),
+						checkData.stateOk === false ? h("p", { className: "hp_info", style: { margin: 0 } }, t("checkStateCorrupt")) : null,
+						h("div", { className: "hp_check" },
+							// 三态消费（审计修复）：true=正常 / false=块缺失 / null=未知（state 损坏
+							// 或 patch 文件不可读）——此前 null 与 false 一律渲染"异常"，把"未知"
+							// 误归因为 patch 故障。warn 用蓝点（hp_dot 的 download 形态，与 hp_log
+							// 的 warn 用色一致）；null 的解释文案见 checkPatchUnknown。
+							h("span", { className: "hp_dot", "data-kind": checkData.patchOk === false ? "error" : checkData.patchOk === null ? "download" : "reused" }),
 							h("span", null, t("checkPatch")),
-							h("span", { className: "hp_val" }, checkData.patchOk ? t("checkOk") : t("checkErr"))
+							h("span", { className: "hp_val", title: checkData.patchOk === null ? t("checkPatchUnknown") : undefined }, checkData.patchOk === false ? t("checkErr") : checkData.patchOk === null ? t("checkWarn") : t("checkOk"))
 						),
 						h("div", { className: "hp_check" },
 							h("span", { className: "hp_dot", "data-kind": "reused" }),
@@ -1015,13 +1036,20 @@ window.__ModuleLoader__.load({
 							h("span", { className: "hp_val" }, String(checkData.storeCount))
 						),
 						h("div", { className: "hp_check" },
-							h("span", { className: "hp_dot", "data-kind": checkData.conflicts.length ? "error" : "reused" }),
+							// 审计修复：激活包行的状态点不再复用 conflicts.length（两个未激活包
+							// 的冲突与此行无关，此前被误染红）；冲突状态由下方专属行承载。
+							h("span", { className: "hp_dot", "data-kind": "reused" }),
 							h("span", null, t("checkActivePack")),
 							h("span", { className: "hp_val" }, checkData.activePack ?? t("activeNone"))
+						),
+						h("div", { className: "hp_check" },
+							h("span", { className: "hp_dot", "data-kind": (checkData.conflicts || []).length ? "error" : "reused" }),
+							h("span", null, t("checkConflicts")),
+							h("span", { className: "hp_val" }, String((checkData.conflicts || []).length))
 						)
 					)
 				) : null,
-				checkData && checkData.conflicts.length > 0 ? h("div", { className: "hp_card" },
+				checkData && (checkData.conflicts || []).length > 0 ? h("div", { className: "hp_card" },
 					h("div", { className: "hp_heading" }, h("h3", null, t("checkConflicts"))),
 					h("div", { className: "hp_list" },
 						checkData.conflicts.map((conflict, index) =>

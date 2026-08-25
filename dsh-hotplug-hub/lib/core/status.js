@@ -1,9 +1,9 @@
 /**
  * lib/core/status.js — 对外方法实现：状态 / 导入 / 预演 / 自检（v5 阶段 3 自 index.js 拆出）
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { VERSION, homeDir, memoryDir, packsDir, patchPath, profileDir, profileName, storeRoot } from './paths.js'
+import { VERSION, homeDir, manifestPath, memoryDir, packsDir, patchPath, profileDir, profileName, storeRoot } from './paths.js'
 import { readJson, loadPackManifest, listPackIds, readState, writeJsonSafe } from './state.js'
 import { runCli } from './run-cli.js'
 import { parseHotpack } from './hotpack.js'
@@ -29,6 +29,9 @@ function lastActivationAt(state, id) {
  * FD-1 真实记忆中枢摘要：只认「目录内含 pack.json」的记忆包，条目数按
  * entries/*.md 实数（不展示假数据——此前渲染的是 hotplug-store 缓存目录名）。
  * 读失败一律降级为空摘要（记忆目录尚未初始化属正常态）。
+ * 审计修复（边缘加固）：pack.json 必须是「文件」（目录占位/命名冲突的伪包不计数）；
+ * 条目只数 .md「文件」（名为 *.md 的子目录不计数）；junction/symlink 记忆包目录
+ * 视为目录参与扫描（Windows junction 迁移场景不在 UI 上凭空消失）。
  */
 function memorySummarySync() {
   const dir = memoryDir()
@@ -37,12 +40,15 @@ function memorySummarySync() {
   let activeEntries = 0
   try {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
       const packDir = join(dir, entry.name)
-      if (!existsSync(join(packDir, 'pack.json'))) continue
+      let markerIsFile = false
+      try { markerIsFile = statSync(join(packDir, 'pack.json')).isFile() } catch { continue }
+      if (!markerIsFile) continue
       let entries = 0
       try {
-        entries = readdirSync(join(packDir, 'entries')).filter((f) => f.endsWith('.md')).length
+        entries = readdirSync(join(packDir, 'entries'), { withFileTypes: true })
+          .filter((f) => f.isFile() && f.name.endsWith('.md')).length
       } catch { /* 无 entries 目录按 0 条 */
       }
       packs.push({ id: entry.name, entries })
@@ -77,6 +83,9 @@ export function statusSync() {
           name: entry.name,
           version: entry.version ?? null,
           source: entry.source.type,
+          // 审计修复：github 源透出 repo——冲突指纹（checkAsync）按「仓库+落地路径」
+          // 判同，不同仓库的同名插件不再共享指纹（跨仓库冲突此前漏报）。
+          repo: entry.source.type === 'github' ? (entry.source.repo ?? null) : null,
           path: dir,
           // R3：三类源统一走 isEntryCached 单一真源（npm=版本+包名；path/github=
           // 落地 package.json 存在 + 内部包名一致），与 ensure* 的 reused 判定零漂移。
@@ -92,7 +101,19 @@ export function statusSync() {
       .map((entry) => entry.name)
       .sort()
   } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }
-  const patchText = existsSync(patchPath()) ? readFileSync(patchPath(), 'utf8') : ''
+  // 审计修复（唯一未设防的 IO）：patch 文件被目录占位/权限拒绝（EISDIR/EACCES/AV 锁）
+  // 时 readFileSync 会同步抛出，status 与 check 双双瘫——这是 statusSync 里唯一的裸读。
+  // 读不到时归入「未知」（activePatchOk=null），不误报块缺失（false）。
+  let patchText = ''
+  let patchReadable = true
+  if (existsSync(patchPath())) {
+    try { patchText = readFileSync(patchPath(), 'utf8') } catch { patchReadable = false }
+  }
+  const activePatchOk = state.corrupted === true
+    ? null
+    : (state.activePack
+      ? (patchReadable ? findPatchBlock(patchText, 'hotplug', state.activePack).found : null)
+      : true)
   return {
     version: VERSION,
     home: homeDir(),
@@ -104,7 +125,7 @@ export function statusSync() {
     activePack: state.activePack ?? null,
     // 审计修复：改用 shared findPatchBlock（识别 `#`/`##` 两种 marker 形态）——
     // 此前 includes('## hotplug:<id>') 对旧单 # marker 误报 activePatchOk=false。
-    activePatchOk: state.corrupted === true ? null : (state.activePack ? findPatchBlock(patchText, 'hotplug', state.activePack).found : true),
+    activePatchOk,
     packs,
     store: { dir: storeRoot(), entries: storeEntries },
     memoryDir: memoryDir(),
@@ -195,26 +216,32 @@ export async function previewPack(packId) {
   }
 }
 
-/** 插件「同实体」指纹：源类型 + 版本/落地路径（github 的 path=storeDir 已含 ref）。 */
+/** 插件「同实体」指纹：源类型 + 仓库 + 版本/落地路径（github 的 repo+path 已含 ref；
+ *  path=本地路径）。审计修复：github 指纹纳入 repo——不同仓库的同名插件即使落地路径
+ *  恰同（ref 相同）也非同一实体，必须报冲突（此前跨仓库串包静默漏报）。 */
 function pluginFingerprint(plugin) {
   if (plugin.source === 'npm') return `npm@${plugin.version ?? ''}`
-  if (plugin.source === 'github') return `github@${plugin.path ?? ''}`
+  if (plugin.source === 'github') return `github@${plugin.repo ?? ''}@${plugin.path ?? ''}`
   return `path@${plugin.path ?? ''}`
 }
 
-/** 从 github storeDir（`<name>@<ref>`）提取 ref（ref 字符集无 @，lastIndexOf 可靠）。 */
+/** 从 github storeDir（`<repo>#<name>@<ref>`）提取 ref（ref 字符集无 @，lastIndexOf 可靠）。 */
 function refOf(plugin) {
   const s = String(plugin.path ?? '')
   const i = s.lastIndexOf('@')
   return i >= 0 ? s.slice(i + 1) : '?'
 }
 
-/** 按差异类型生成冲突原因（版本 / 引用 / 路径 / 源类型），不再一律「版本冲突」。 */
+/** 按差异类型生成冲突原因（版本 / 仓库 / 引用 / 路径 / 源类型），不再一律「版本冲突」。
+ *  审计修复：github 同名插件先比仓库（repo 不同 ref 相同时不再误报「引用冲突 main vs main」）。 */
 function conflictReason(name, a, b) {
   if (a.source === 'npm' && b.source === 'npm') {
     return `${name} 版本冲突 ${a.version || '?'} vs ${b.version || '?'}`
   }
   if (a.source === 'github' && b.source === 'github') {
+    if ((a.repo ?? '') !== (b.repo ?? '')) {
+      return `${name} github 仓库冲突 ${a.repo || '?'} vs ${b.repo || '?'}`
+    }
     return `${name} github 引用冲突 ${refOf(a)} vs ${refOf(b)}`
   }
   if (a.source === 'path' && b.source === 'path') {
@@ -224,8 +251,10 @@ function conflictReason(name, a, b) {
 }
 
 export async function checkAsync() {
+  // 审计修复（单次快照）：checkAsync 此前在 statusSync 之外又 readState 一次，两次读
+  // 之间 activate 落盘会造成同一份自检输出自相矛盾（packs[].active 按旧态、activePack
+  // 按新态）。stateOk/activePack 一律取自同一次 statusSync 快照。
   const status = statusSync()
-  const state = readState()
   let pnpmVersion = null
   try {
     const result = await runCli('pnpm', ['--version'], 5000)
@@ -234,33 +263,45 @@ export async function checkAsync() {
   // 审计修复：冲突判定不再只比 version——github/path 源 version 恒为 null，同名不同
   // ref/路径的插件被漏报；npm vs 非 npm 同名又被误报为「版本冲突」。现按「源类型 + 版本 +
   // 落地路径」指纹判同：指纹不同（同名字符串）即冲突，reason 按差异类型区分。
-  const allPlugins = new Map()
+  // 审计修复（全比对）：此前只与「首个出现」的插件比对——A(v1)/B(v2)/C(v1) 场景下 C 与
+  // A 同指纹不报、与 B 实际互斥却显示干净（非传递漏报）。现对同名的全部已见指纹逐一比对，
+  // 每个「指纹互异对」都产出一条冲突（归属后到的包）。
+  const seenPlugins = new Map()
   const conflicts = []
   for (const pack of status.packs) {
     for (const plugin of pack.plugins) {
       const key = String(plugin.name).toLowerCase()
       const fingerprint = pluginFingerprint(plugin)
-      if (allPlugins.has(key)) {
-        const prev = allPlugins.get(key)
-        if (prev.fingerprint !== fingerprint) {
-          conflicts.push({ packId: pack.id, reason: conflictReason(plugin.name, prev, plugin), suggest: '停用其中一个包或统一版本/来源' })
+      if (seenPlugins.has(key)) {
+        for (const prev of seenPlugins.get(key)) {
+          if (prev.fingerprint !== fingerprint) {
+            conflicts.push({ packId: pack.id, reason: conflictReason(plugin.name, prev, plugin), suggest: '停用其中一个包或统一版本/来源' })
+          }
         }
-      } else {
-        allPlugins.set(key, { ...plugin, fingerprint })
       }
+      const seen = seenPlugins.get(key) ?? []
+      if (!seen.some((p) => p.fingerprint === fingerprint)) seen.push({ ...plugin, fingerprint })
+      seenPlugins.set(key, seen)
     }
   }
-  const manifest = readJson(join(profileDir(), 'package.json'))
-  const manifestOk = manifest !== null && typeof manifest === 'object'
+  // 审计修复：manifestOk 与 readState 同族的形状校验（排除数组）——合法 JSON 数组的
+  // package.json 此前被 typeof 'object' 放行，自检报「正常」而依赖全落空；路径统一走
+  // paths.manifestPath() 单一真源（与 patch.js 等消费方一致，不再裸拼）。
+  const manifest = readJson(manifestPath())
+  const manifestOk = manifest !== null && typeof manifest === 'object' && !Array.isArray(manifest)
   return {
     version: VERSION,
     nodeVersion: process.version,
     pnpmVersion,
     profile: { name: profileName(), dir: profileDir() },
+    // 审计修复：stateOk 透出（statusSync 已产出，同一快照）——state.json 损坏时自检
+    // 页此前显示「一切正常」，而 activate/deactivate/importPack 已在拒绝变更；
+    // 诊断信息必须出现在诊断面上。
+    stateOk: status.stateOk,
     manifestOk,
     patchOk: status.activePatchOk,
     conflicts,
-    activePack: state.activePack,
+    activePack: status.activePack,
     packCount: status.packs.length,
     storeCount: status.store.entries.length,
     memoryDir: memoryDir(),
