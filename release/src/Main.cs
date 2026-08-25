@@ -1317,7 +1317,7 @@ namespace DSHHotplugHub
                         else if (message == "autoInstallEnv")
                         {
                             await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在检查并修复 Node/pnpm/dsh 环境，可能需要几分钟…');");
-                            string envResult = await Task.Run(() => EnsureHarnessEnvironment());
+                            string envResult = await Task.Run(() => EnsureDshCliEnvironment());
                             await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(envResult) + ");");
                             ClearGitHubCache();
                             await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
@@ -1683,7 +1683,7 @@ namespace DSHHotplugHub
                 "for(var i=0;i<r.length;i++){" +
                 "if(r[i].name==='Node.js'){r[i].val=window.__nativeSelfCheck.node||'未检测到';r[i].text=window.__nativeSelfCheck.node?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.node?'ok':'err';}" +
                 "if(r[i].name==='pnpm'){r[i].val=window.__nativeSelfCheck.pnpm||'未检测到';r[i].text=window.__nativeSelfCheck.pnpm?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.pnpm?'ok':'err';}" +
-                "if(r[i].name==='DSH 版本'){var dv=window.__nativeSelfCheck.dshVersion||'';var dl=window.__nativeSelfCheck.dshLatest||'';r[i].val=dv||'未安装';if(dv){r[i].text='当前 v'+dv+(dl&&dl!==dv?' · 最新 v'+dl:'');r[i].status='ok';}else{r[i].text='未检测到 dsh CLI（可自动安装）';r[i].status='warn';}}" +
+                "if(r[i].name==='DSH 版本'){var dv=window.__nativeSelfCheck.dshVersion||'';var dl=window.__nativeSelfCheck.dshLatest||'';r[i].val=dv||'未安装';if(dv){r[i].text='当前 v'+dv+(dl&&nv(dl,dv)>0?' · 最新 v'+dl:'');r[i].status='ok';}else{r[i].text='未检测到 dsh CLI（可自动安装）';r[i].status='warn';}}" +
                 // 审计修复（假自检行）：'Profile 清单' 基础行此前恒显示演示值「desktop/完好」，
                 // 外壳真实探测（DetectProfiles）只追加为独立行——现直接回填该行，删除冗余 push。
                 "if(r[i].name==='Profile 清单'){var pf=window.__nativeSelfCheck.profiles;if(pf){r[i].val=pf;r[i].status='ok';r[i].text='已探测';}else{r[i].val='未探测到';r[i].status='warn';r[i].text='~/.dsh/profiles 无既有 profile';}}" +
@@ -2295,7 +2295,7 @@ namespace DSHHotplugHub
         {
             try
             {
-                string env = EnsureHarnessEnvironment();
+                string env = EnsureDshCliEnvironment();
                 return string.IsNullOrEmpty(env) ? "环境已就绪" : env;
             }
             catch (Exception ex)
@@ -3176,26 +3176,8 @@ namespace DSHHotplugHub
             }
         }
 
-        private static string EnsureHarnessEnvironment()
-        {
-            string step1 = null, step2 = null, step3 = null;
-            string node = RunCli(GetNodeExe(), "--version");
-            if (string.IsNullOrEmpty(node)) step1 = EnsureNodeEnvironment();
-            string pnpm = GetPnpmVersion();
-            if (string.IsNullOrEmpty(pnpm)) step2 = EnsurePnpmEnvironment();
-            // 绕开第三方桌面壳：直接检查/安装 dsh CLI（官方 DeepSeek Harness 核心）
-            string dsh = RunCli("cmd.exe", "/c dsh --version");
-            if (string.IsNullOrEmpty(dsh) || dsh.Contains("Microsoft") || dsh.Contains("Windows"))
-                step3 = EnsureDshCli();
-            List<string> steps = new List<string>();
-            if (step1 != null) steps.Add(step1);
-            if (step2 != null) steps.Add(step2);
-            if (step3 != null) steps.Add(step3);
-            if (steps.Count == 0) return "dsh 环境已就绪";
-            return string.Join("；", steps.ToArray());
-        }
-
-        // 一键安装 dsh CLI（检查 Node/pnpm/dsh，缺啥装啥），供「启动 DSH」和「一键修复」共用
+        // 一键安装 dsh CLI（检查 Node/pnpm/dsh，缺啥装啥），供「启动 DSH」和「一键修复」共用。
+        // 审计修复（去重）：与已删除的 EnsureHarnessEnvironment 逐字重复，收敛为单一真源。
         private static string EnsureDshCliEnvironment()
         {
             string step1 = null, step2 = null, step3 = null;

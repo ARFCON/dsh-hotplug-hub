@@ -26,7 +26,8 @@ namespace DSHHotplugHub
         public const int MAX_ID_LENGTH = 64;
 
         // CMD_SPECIAL_RE：可进入 shell 解释的元字符 + 控制字符（shared security/shell）
-        public const string CMD_SPECIAL_RE_SOURCE = "[\\u0000-\\u001f\\u007f&|;`$()<>\"'\\\\]";
+        // 含 C1 控制字符区（U+0080–U+009F，与 JS CONTROL_CHAR_RE/CMD_SPECIAL_RE 一致）
+        public const string CMD_SPECIAL_RE_SOURCE = "[\\u0000-\\u001f\\u007f\\u0080-\\u009f&|;`$()<>\"'\\\\]";
         private static readonly Regex CmdSpecialRe = new Regex(CMD_SPECIAL_RE_SOURCE);
 
         // 契约 marker 行：`# <owner>:<id>` 或 `## <owner>:<id>`（读兼容单 #）

@@ -148,7 +148,9 @@ describe('marketDetailAsync FIFO 400 上限（审计：现有测试只测 refres
     // 最新写入的 r0402 必然保留；最早的 r0000 应被淘汰
     expect(cache['o/r0402@main']).toBeTruthy()
     expect(cache['o/r0000@main']).toBeUndefined()
-  })
+    // 403 次顺序写满滚动缓存（每次整表读改写）在慢速 Windows CI 上会贴近/超过 30s
+    // 默认超时——单独放宽到 120s，避免环境噪声导致的假失败（本地实测 ~11s）。
+  }, 120000)
 })
 
 describe('marketListAsync 缓存 TTL 与 hasMore 契约', () => {

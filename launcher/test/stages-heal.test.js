@@ -94,16 +94,21 @@ describe('app/stages-heal.js stageHeal', () => {
     expect(state.heal.quarantined).toContain('pkg-a');
   });
 
-  it('有信号 + --yes + 无快照 → 动作失败 → phase=QUARANTINED + history（C7 失败持久化）', async () => {
+  it('有信号 + --yes + 无快照 → 跳过快照回滚仍禁用崩溃插件 → ok，phase=HEALING（H2 修复）', async () => {
     const core = healStageCore();
     const state = crashState(); // 无 rollback.snapshot
     const r = await stageHeal(core, state, { id: 'demo', yes: true });
-    expect(r.ok).toBe(false);
-    expect(r.code).toBe('ERR_HEAL_BUDGET');
-    expect(state.phase).toBe('QUARANTINED');
+    expect(r.ok).toBe(true);
+    expect(r.message).toContain('HEAL OK');
+    expect(state.phase).toBe('HEALING');
     expect(state.dirty).toBe(true);
     expect(state.heal.history.length).toBeGreaterThan(0);
-    expect(state.heal.history[0].verified).toBe(false);
+    expect(state.heal.history[0].verified).toBe(true);
+    // H2：无快照时 rollback-snapshot 记为跳过，disable-recent（实质修复）仍隔离崩溃插件
+    expect(state.heal.quarantined).toContain('pkg-a');
+    // 崩溃计数闭环：launch.lastExit 被重置为 null
+    expect(state.launch.lastExit).toBeNull();
+    expect(state.launch.retries).toBe(0);
   });
 
   it('preview（无 --yes）失败路径不持久化 QUARANTINED（C7 预览零副作用）', async () => {

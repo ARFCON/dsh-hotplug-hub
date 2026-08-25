@@ -13,6 +13,18 @@ const { makeError } = require('../contracts/errors');
  * @returns {Promise<{ok: boolean, error?: Error}>}
  */
 async function verifyAction(core, action, ctx) {
+  try {
+    // A2 修复：await 核心实现——REGISTRY_UNAVAILABLE 验证须 await 异步 registry 端口，
+    // 其 Promise 拒绝须被捕获归一为 {ok:false}，不得成为未处理拒绝穿透 runHeal。
+    return await verifyActionUnchecked(core, action, ctx);
+  } catch (e) {
+    // H6 修复：findHarness 等注入侧抛错统一归一为 {ok:false}，不裸抛穿透 runHeal。
+    return { ok: false, error: makeError('ERR_HEAL_BUDGET', `自愈验证异常：${e && e.message ? e.message : e}`) };
+  }
+}
+
+/** verifyAction 的核心实现（异常由 verifyAction 统一捕获归一为 {ok:false}）。 */
+async function verifyActionUnchecked(core, action, ctx) {
   switch (action.code) {
     case 'INSTALL_FAIL': {
       const { verifyInstall } = require('./install');
@@ -97,11 +109,17 @@ async function verifyAction(core, action, ctx) {
       return { ok: true };
     }
     case 'REGISTRY_UNAVAILABLE': {
-      // registry 探测：availableVersions 不抛异常即视为恢复
+      // registry 探测：availableVersions 不抛异常且返回 string[] 即视为恢复。
+      // A2 修复：await 异步 registry 端口并校验返回值类型（与 reprobe-registry 步骤、
+      // domain/resolve.js 的 Array.isArray 防御口径一致）——此前不 await，异步失败被
+      // 静默吞成 ok:true（假自愈）+ Promise 拒绝成为未处理拒绝。
       const reg = core.ports && core.ports.registry;
       if (reg && typeof reg.availableVersions === 'function') {
         try {
-          reg.availableVersions('__probe__');
+          const got = await reg.availableVersions('__probe__');
+          if (!Array.isArray(got)) {
+            return { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', 'registry 探测返回值非法（须为 string[]）') };
+          }
           return { ok: true };
         } catch (e) {
           return { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', `registry 仍不可用：${e.message}`) };
@@ -126,12 +144,24 @@ async function verifyAction(core, action, ctx) {
  * @returns {Promise<{ok: boolean, error?: Error}>}
  */
 async function rollbackAction(core, action, ctx) {
+  try {
+    return rollbackActionUnchecked(core, action, ctx);
+  } catch (e) {
+    return { ok: false, error: makeError('ERR_HEAL_ROLLBACK', `回滚异常：${e && e.message ? e.message : e}`) };
+  }
+}
+
+/** rollbackAction 的核心实现（异常由 rollbackAction 统一捕获归一为 {ok:false}）。 */
+function rollbackActionUnchecked(core, action, ctx) {
   // 参考实现：回滚统一走快照恢复（若有）。
-  // BUNDLE_MISCLASSIFY 的回滚是"恢复原 bundles 列表"（无快照语义），恒不做快照回滚；
-  // 按 action.code 判定（此前按 rollback 中文文案魔法字符串判定，文案一变即脱钩）。
-  if (action.code !== 'BUNDLE_MISCLASSIFY' && action.rollback && ctx.state && ctx.state.rollback && ctx.state.rollback.snapshot) {
+  // R4 修复：回滚判定按结构化 rollbackType（'snapshot'=快照回滚；'none'=无回滚），
+  // 不再用 rollback 描述文案当 truthy 门——此前只读探测动作（REGISTRY_UNAVAILABLE/
+  // HARNESS_FIX 的 rollback='无（只读探测）'）也会在快照存在时误触快照回滚，
+  // 把「探测失败」错误地变成「撤销上次启动」。
+  if (action.rollbackType === 'snapshot' && ctx.state && ctx.state.rollback && ctx.state.rollback.snapshot) {
     const { restoreSnapshot } = require('./snapshot');
-    const r = restoreSnapshot(core.ports.fs, ctx.state.rollback.snapshot, ctx.profile);
+    // B1 修复：回滚目标做根域 realpath 越界校验（ctx.profileRoot 由 buildHealContext 注入）
+    const r = restoreSnapshot(core.ports.fs, ctx.state.rollback.snapshot, ctx.profile, { root: ctx.profileRoot });
     if (!r.ok) return { ok: false, error: makeError('ERR_HEAL_ROLLBACK', `回滚失败：${r.error.message}`) };
   }
   return { ok: true };

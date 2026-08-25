@@ -116,8 +116,14 @@ function makeError(code, message, extra = {}) {
   err.code = code;
   err.exitCode = exitCodeForCode(code);
   // 剔除 extra 中的保留字段，防止覆盖契约退出码（C1 修复：code/message 也一并
-  // 剔除——此前 extra.code 可改写 err.code 使 exitCode 与最终 code 脱钩）
-  const { exitCode: _protectedExitCode, code: _protectedCode, message: _protectedMessage, ...rest } = extra || {};
+  // 剔除——此前 extra.code 可改写 err.code 使 exitCode 与最终 code 脱钩）。
+  // D2 修复：name/stack 同为 Error 身份字段，一并剔除——此前 extra.name 可改写
+  // err.name（Error 身份被替换）、extra.stack 可伪造调用栈，破坏 isDshError/日志
+  // 对真实错误的可观测性；cause 属合法透传字段，保留。
+  const {
+    exitCode: _protectedExitCode, code: _protectedCode, message: _protectedMessage,
+    name: _protectedName, stack: _protectedStack, ...rest
+  } = extra || {};
   Object.assign(err, rest);
   return err;
 }

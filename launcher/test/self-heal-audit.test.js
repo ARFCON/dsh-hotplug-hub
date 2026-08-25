@@ -127,7 +127,7 @@ describe('自愈审计 D：rollbackAction 判定键', () => {
     fs.writeFileSync(path.join(profile, 'a.txt'), 'orig');
     const snap = createSnapshot(fsPort, profile).snapshot;
     fs.writeFileSync(path.join(profile, 'a.txt'), 'MUT');
-    const r = await rollbackAction(makeCore(), { code: 'SOME_OTHER_ACTION', rollback: '恢复原 bundles 列表' }, { state: { rollback: { snapshot: snap } }, profile });
+    const r = await rollbackAction(makeCore(), { code: 'SOME_OTHER_ACTION', rollback: '恢复原 bundles 列表', rollbackType: 'snapshot' }, { state: { rollback: { snapshot: snap } }, profile });
     expect(r.ok).toBe(true);
     expect(fs.readFileSync(path.join(profile, 'a.txt'), 'utf8')).toBe('orig'); // 回滚确实发生
     fs.rmSync(profile, { recursive: true, force: true });
@@ -138,7 +138,7 @@ describe('自愈审计 E：verify 失败路径回滚失败终止', () => {
   it('verify 失败且回滚失败 → 立即 ERR_HEAL_BUDGET（history 仅 1 次，不静默重试）', async () => {
     const core = makeCore();
     const profile = tempDir('audit-e-');
-    const action = { code: 'CRASH_LOOP', steps: [], budget: 3, rollback: '恢复被禁用插件' };
+    const action = { code: 'CRASH_LOOP', steps: [], budget: 3, rollback: '恢复被禁用插件', rollbackType: 'snapshot' };
     // 回滚必失败：快照含 external 文件但 externalDir 缺失
     const snapshot = { dir: profile, createdAt: 'x', externalDir: null, files: [{ rel: 'x.bin', hash: 'x', external: true, type: 'file' }] };
     const ctx = { state: { launch: { lastExit: 5, retries: 1 }, rollback: { snapshot } }, profile, plugins: [] };
@@ -245,6 +245,8 @@ describe('自愈审计 G2：stageLaunch 持久化 spawnCode（HARNESS_FIX 端到
     expect(r.code).toBe('ERR_LAUNCH_SPAWN');
     expect(state.launch.spawnCode).toBe('ENOENT');
     expect(state.launch.lastExit).toBeNull();
+    // H3b 回归：失败 launch（spawn 失败）也锚定 lastStart，heal 才能分类本次崩溃 stderr
+    expect(state.launch.lastStart).not.toBeNull();
     fs.rmSync(sb, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
   });

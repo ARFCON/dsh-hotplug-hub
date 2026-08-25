@@ -12,8 +12,10 @@
 //   - assertShellSafeUrl：URL 类值（tarballUrl 等）——非空、无空白/控制字符、
 //     无 shell 元字符，且必须 http(s) 协议。
 
-// 可进入 shell 解释的元字符 + 控制字符（C# 侧等价实现见 release/src/PatchContract.cs）
-const CMD_SPECIAL_RE = /[\u0000-\u001f\u007f&|;`$()<>"'\\]/;
+// 可进入 shell 解释的元字符 + 控制字符（C# 侧等价实现见 release/src/PatchContract.cs）。
+// D1 修复：补 C1 控制字符区（U+0080–U+009F，如 NEL U+0085）——与 ids.js / path-safe.js
+// 的 CONTROL_CHAR_RE 单一真源口径一致；此前漏补 C1，assertShellSafeUrl 放行含 NEL 的 URL。
+const CMD_SPECIAL_RE = /[\u0000-\u001f\u007f\u0080-\u009f&|;`$()<>"'\\]/;
 
 const URL_RE = /^https?:\/\/[^\s]+$/;
 

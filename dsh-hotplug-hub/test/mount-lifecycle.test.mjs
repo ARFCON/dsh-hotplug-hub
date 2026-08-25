@@ -398,15 +398,17 @@ describe('A. mountPack / unmountPack npm 端到端（fake pnpm）', () => {
     expect(readManifest().dependencies).toEqual({})
   })
 
-  it('A15 pnpm remove 失败（fake exit 1）→ unmountPack 显式失败，patch 块已移除、依赖残留可见', async () => {
+  it('A15 pnpm remove 失败（fake exit 1）→ unmountPack 显式失败，块仍在（未到提交点）、依赖残留可见', async () => {
     installFakePnpm({ removeExit: 1 })
     const pack = npmPack('pack.rf', [['a', 'pkg-a', '1.2.3']])
     await mountPack(pack)
     const u = await unmountPack(pack, { installedNpm: ['pkg-a'] })
     expect(u.ok).toBe(false)
     expect(u.error).toContain('pnpm remove 失败')
-    // removePatchBlock 先于 pnpm remove 执行 → 块已移除；包与依赖因 remove 失败而保留
-    expect(patchText()).not.toContain('hotplug:pack.rf')
+    // 审计修复（切换原子性）：pnpm remove 先于 removePatchBlock（提交点）执行 → remove
+    // 失败时块仍在，包仍处「已挂载」的一致状态，杜绝「块已删而 state.activePack 仍指向
+    // 旧包」的鬼状态（activePatchOk=false）。依赖因 remove 失败而保留。
+    expect(patchText()).toContain('hotplug:pack.rf')
     expect(readManifest().dependencies['pkg-a']).toBe('1.2.3')
   })
 

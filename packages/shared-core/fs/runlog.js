@@ -182,7 +182,25 @@ function createRunLog(fsPort, logFile, opts = {}) {
       if (!check.ok) {
         return { ok: false, error: makeError('ERR_LOG_WRITE', `run.jsonl 行不符合 schema：${check.errors.join('；')}`) };
       }
-      fsPort.appendFileSync(logFile, JSON.stringify(line) + '\n', 'utf8');
+      // B3 修复：末行是完整 JSON 但缺末尾换行时（崩溃/外部写入的坏尾形态），追加前先补
+      // 换行——否则 appendFileSync 直接拼接成单行两个 JSON，list() 逐行 JSON.parse 失败
+      // 丢弃整行（新旧两条一起丢）。scanForLastValidLine 的 keepEnd=size+1 使 truncated
+      // 判假、坏尾修复不触发，故此处以「文件尾字节非 \n」兜底。
+      let linePrefix = '';
+      if (fsPort.existsSync(logFile)) {
+        const st = fsPort.statSync(logFile);
+        if (st.size > 0) {
+          const fd = fsPort.openSync(logFile, 'r');
+          try {
+            const tailByte = Buffer.alloc(1);
+            fsPort.readSync(fd, tailByte, 0, 1, st.size - 1);
+            if (tailByte[0] !== 0x0a) linePrefix = '\n';
+          } finally {
+            fsPort.closeSync(fd);
+          }
+        }
+      }
+      fsPort.appendFileSync(logFile, linePrefix + JSON.stringify(line) + '\n', 'utf8');
       return { ok: true, seq };
     } catch (e) {
       return { ok: false, error: makeError('ERR_LOG_WRITE', `日志写入失败 ${logFile}：${e.message}`) };

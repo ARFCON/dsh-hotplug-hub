@@ -14,12 +14,18 @@ async function stageHeal(core, state, args) {
   const runLog = core.infra.runlog.createRunLog(fsPort, runLogFileFor(core, id), { now: core.ports.now.now });
   // C3 修复（幻影自愈）：只分类最近一次启动（state.launch.lastStart）之后的日志行，
   // 陈旧故障行不再触发自愈动作（手册 P3 观察项落地）。
-  const since = state.launch && state.launch.lastStart ? Date.parse(state.launch.lastStart) : 0;
+  // H3 修复：lastStart 缺失/不可解析时不存在「最近一次启动之后」的窗口 → 不分类任何
+  // 日志行（只保留 classifyStateSignals 的权威 state.launch 信号，如 reassemble 后
+  // lastStart=null 的历史故障行不得重新触发）；无有效时间戳的行无法证明「在最近启动
+  // 之后」，同样 fail-closed 排除（此前 Number.isNaN(et) 恒通过 → 幻影自愈）。
+  const since = state.launch && state.launch.lastStart ? Date.parse(state.launch.lastStart) : NaN;
   const entries = runLog.list();
-  const recentEntries = (Number.isNaN(since) ? entries : entries.filter((e) => {
-    const et = e.t ? Date.parse(e.t) : NaN;
-    return Number.isNaN(et) || et >= since;
-  }));
+  const recentEntries = Number.isNaN(since)
+    ? []
+    : entries.filter((e) => {
+        const et = e.t ? Date.parse(e.t) : NaN;
+        return !Number.isNaN(et) && et >= since;
+      });
   const classifications = core.domain.classify.classifyEntries(recentEntries)
     // C3 修复（CRASH_LOOP 可达性）：合并状态驱动信号——进程退出码不进 run.jsonl，
     // 仅靠日志永远无法触发 CRASH_LOOP；state.launch 的退出信息现在被纳入分类。
@@ -73,6 +79,11 @@ function buildHealContext(core, state, id, profileDir) {
   const plugins = ((state.resolved && state.resolved.plugins) || []).filter((p) => !qset.has(p.name));
   return {
     state, profile: profileDir, plugins, pack: { id, plugins },
+    // B1 修复：heal 回滚（rollback-snapshot 步骤 / rollbackAction）复用此根做 realpath
+    // 越界校验，与 stageRollback/syncProfile 同一真源——防 profilesRoot/<id> 被预置
+    // junction/symlink 时回滚逃出根域。测试最小 core 可能无 config.roots，缺省 undefined
+    //（restoreSnapshot 无 root 时不触发越界校验，行为与修复前一致）。
+    profileRoot: core.config && core.config.roots ? core.config.roots.profilesRoot : undefined,
     quarantine: (targetName) => {
       const target = targetName || (plugins.length > 0 ? plugins[plugins.length - 1].name : null);
       if (!target) return { ok: false, error: makeError('ERR_HEAL_BUDGET', '无插件可隔离') };

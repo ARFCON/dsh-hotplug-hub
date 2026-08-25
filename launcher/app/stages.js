@@ -117,9 +117,12 @@ async function stageInstall(core, state, args) {
     // C1 修复：install 失败路径持久化 status='failed'（schema 枚举含 failed 但
     // 此前无代码写入；与 FIX-4 launch 失败持久化对齐）。
     // C6 修复：lastExit 存真实子进程退出码（childExitCode），与 launch 语义一致。
+    // 审计修复：无 childExitCode（spawn 失败/未启动）时记 null 而非回退 r.error.exitCode
+    // （ERR_* 契约退出码）——后者会把契约码 6 混入「子进程真实退出码」语义，与
+    // stageLaunch「无 childExitCode 记 null」口径一致。
     state.install = {
       status: 'failed',
-      lastExit: r.error.childExitCode !== undefined ? r.error.childExitCode : (r.error.exitCode || 1),
+      lastExit: r.error.childExitCode !== undefined ? r.error.childExitCode : null,
       nodeModules: false
     };
     state.dirty = true;
@@ -157,6 +160,13 @@ async function stageLaunch(core, state, args) {
   const snap = sync.result.snapshot;
   state.rollback = { ...(state.rollback || {}), snapshot: snap || null };
   state.dirty = true;
+
+  // H3b 修复：lastStart 记录「本次 launch 开始」——失败 launch（崩溃/spawn 失败）也须
+  // 锚定本次启动；否则下方 !launched.ok 分支不写 lastStart，heal 的 fail-closed 过滤
+  // （lastStart 缺失 → 不分类日志）会把本次崩溃写进 run.jsonl 的 stderr 一并排除，
+  // DoD-3「崩溃 → heal 闭环」退化为 exit=9 无信号。
+  const launchStartIso = core.ports.now.iso();
+  state.launch.lastStart = launchStartIso;
 
   // UTF-8 字节级拼接 + 按行 JSONL（M/N36）
   const decoders = {
@@ -218,7 +228,7 @@ async function stageLaunch(core, state, args) {
   }
   state.launch = {
     lastExit: launched.result.exitCode === undefined ? null : launched.result.exitCode,
-    lastStart: core.ports.now.iso(),
+    lastStart: launchStartIso, // H3b：保留 launch 开始时刻（成功也不重写为结束时刻）
     // C6 修复：成功启动即清零 retries——崩溃循环判定采用"连续失败"语义，
     // 否则任意历史失败累计到 3 次后一次成功也无法解除 CRASH_LOOP 触发。
     retries: 0,
@@ -242,7 +252,9 @@ async function stageRollback(core, state, args) {
     return errResult(makeError('ERR_HEAL_ROLLBACK', '无可用快照，无法回滚'));
   }
   const profileDir = path.join(core.config.roots.profilesRoot, id);
-  const r = core.infra.snapshot.restoreSnapshot(fsPort, snap, profileDir);
+  // B1 修复：回滚目标做根域 realpath 越界校验（与 syncProfile 的 assertWithinRealpath
+  // 口径一致）——防 profilesRoot/<id> 被预置为 junction/symlink 时回滚逃出根域删文件。
+  const r = core.infra.snapshot.restoreSnapshot(fsPort, snap, profileDir, { root: core.config.roots.profilesRoot });
   if (!r.ok) return errResult(r.error);
   state.phase = STATES.ROLLED_BACK;
   state.rollback.lastRollbackAt = core.ports.now.iso();

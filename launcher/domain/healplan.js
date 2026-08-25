@@ -21,6 +21,7 @@ const ACTIONS = {
     steps: [{ type: 'reclassify-bundles' }],
     verify: '重新解析 YAML 并校验 DSH 配置',
     rollback: '恢复原 bundles 列表',
+    rollbackType: 'snapshot',
     budget: 2
   },
   INSTALL_FAIL: {
@@ -31,6 +32,7 @@ const ACTIONS = {
     // R3 文本校准：实际回滚由 heal-verify 的 rollbackAction 统一执行（恢复 profile
     // 快照）；无 lockfile 快照机制，原描述与实现不符。
     rollback: '恢复 profile 快照（heal-verify 统一执行）',
+    rollbackType: 'snapshot',
     budget: DEFAULT_RETRY_BUDGET
   },
   GITHUB_ACQUIRE_FAIL: {
@@ -39,6 +41,7 @@ const ACTIONS = {
     steps: [{ type: 'mirror-retry', mirrors: GITHUB_MIRRORS }],
     verify: '目标目录存在且含 package.json',
     rollback: '清理半成品目录',
+    rollbackType: 'snapshot',
     budget: GITHUB_MIRRORS.length
   },
   LINK_FAIL: {
@@ -47,6 +50,7 @@ const ACTIONS = {
     steps: [{ type: 'rebuild-link' }],
     verify: 'link 目标存在',
     rollback: '移除坏链接',
+    rollbackType: 'snapshot',
     budget: 2
   },
   VERSION_CONFLICT: {
@@ -60,6 +64,7 @@ const ACTIONS = {
     // R3 文本校准：pin 结果写回 state.resolved（持久化于命令收尾），失败路径无
     // 单独的「原 pin 恢复」步骤；描述与实现不符已纠正。
     rollback: '失败即报错（不落盘坏 pin，原 resolved 保持）',
+    rollbackType: 'none',
     budget: 2
   },
   CRASH_LOOP: {
@@ -69,6 +74,7 @@ const ACTIONS = {
     // heal 不重启进程，故"存活时长"由下次 launch 验证；此处以"计数已重置"作为完成判据。
     verify: '最近退出码/计数已重置（回滚+禁用后 fresh start）',
     rollback: '恢复被禁用插件',
+    rollbackType: 'snapshot',
     budget: 2
   },
   UTF8_CORRUPTION: {
@@ -77,6 +83,7 @@ const ACTIONS = {
     steps: [{ type: 'regenerate-patch' }],
     verify: '重写后无 U+FFFD',
     rollback: '保留原文件备份',
+    rollbackType: 'snapshot',
     budget: 2
   },
   REGISTRY_UNAVAILABLE: {
@@ -88,6 +95,7 @@ const ACTIONS = {
     steps: [{ type: 'reprobe-registry' }],
     verify: 'registry 探测成功',
     rollback: '无（只读探测）',
+    rollbackType: 'none',
     budget: DEFAULT_RETRY_BUDGET
   },
   HARNESS_FIX: {
@@ -96,6 +104,7 @@ const ACTIONS = {
     steps: [{ type: 'reprobe-harness' }],
     verify: '重新探测到可信 harness',
     rollback: '无（只读探测）',
+    rollbackType: 'none',
     budget: 2
   }
 };
