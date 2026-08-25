@@ -33,13 +33,14 @@ function emptyState(id, overrides = {}) {
   };
 }
 
-function makeCore(home, overrides = {}) {
+function makeCore(home, opts = {}) {
   return createCore({
     baseDir: ROOT,
     home,
-    platform: 'win32',
+    // L3（PATH 扫描）传宿主平台（跨平台矩阵一致）；其余用例默认 win32 语义（纯 fs，平台无关）
+    platform: opts.platform || 'win32',
     env: isolatedEnv(home),
-    nowPort: overrides.nowPort,
+    nowPort: opts.nowPort,
     roots: {
       assemblyDir: path.join(home, 'assembly'),
       sandboxRoot: path.join(home, 'sandbox'),
@@ -179,13 +180,18 @@ describe('L2：stageStatus healthy 全因子判定（漏报根治）', () => {
 });
 
 describe('L3：harness 探测口径对齐（零子进程 PATH 扫描）', () => {
-  it('probe:false 下 PATH 上的 dsh.cmd 可被发现（不再误报未找到）', () => {
+  // core 的 platform 决定扫描的文件名集合（win32: dsh.cmd/dsh.exe；POSIX: dsh）——
+  // 用例以宿主平台构造 core 并取同名文件，跨平台矩阵（CI ubuntu/macos/windows）一致。
+  const makeCoreNative = (home) => makeCore(home, { platform: process.platform });
+
+  it('probe:false 下 PATH 上的 dsh 可被发现（不再误报未找到）', () => {
     const home = tempDir('sc-l3a-');
     const binDir = path.join(home, 'bin');
     fs.mkdirSync(binDir, { recursive: true });
     const fakeDsh = path.join(binDir, process.platform === 'win32' ? 'dsh.cmd' : 'dsh');
-    fs.writeFileSync(fakeDsh, '@echo off\r\n');
-    const core = makeCore(home);
+    fs.writeFileSync(fakeDsh, process.platform === 'win32' ? '@echo off\r\n' : '#!/bin/sh\n');
+    if (process.platform !== 'win32') fs.chmodSync(fakeDsh, 0o755); // POSIX 惯例（扫描本身只看存在+校验）
+    const core = makeCoreNative(home);
     core.config.env = { ...isolatedEnv(home), PATH: binDir };
     const { findHarness } = require('../infra/harness');
     const r = findHarness(core, { probe: false });
@@ -196,7 +202,7 @@ describe('L3：harness 探测口径对齐（零子进程 PATH 扫描）', () => 
 
   it('PATH 无 dsh 且候选缺失 → 仍如实未找到（回归锚点）', () => {
     const home = tempDir('sc-l3b-');
-    const core = makeCore(home);
+    const core = makeCoreNative(home);
     core.config.env = { ...isolatedEnv(home), PATH: path.join(home, 'empty') };
     const { findHarness } = require('../infra/harness');
     const r = findHarness(core, { probe: false });
@@ -211,7 +217,7 @@ describe('L3：harness 探测口径对齐（零子进程 PATH 扫描）', () => 
     fs.mkdirSync(binDir, { recursive: true });
     const fakeDsh = path.join(binDir, process.platform === 'win32' ? 'dsh.cmd' : 'dsh');
     fs.writeFileSync(fakeDsh, '');
-    const core = makeCore(home);
+    const core = makeCoreNative(home);
     core.config.env = { ...isolatedEnv(home), PATH: binDir };
     const { findHarness } = require('../infra/harness');
     const r = findHarness(core, { probe: false });
