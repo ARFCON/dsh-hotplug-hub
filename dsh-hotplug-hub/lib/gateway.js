@@ -112,7 +112,8 @@ class HotplugGateway extends TypertRemoteService {
       const loaded = loadPackManifest(packId)
       if (loaded.status === 'missing') return { ok: false, error: `未找到包：${packId}（先导入 hotpack）` }
       if (loaded.status === 'invalid') {
-        return { ok: false, error: `包 ${packId} 清单校验失败：${loaded.error}（请重新导入）` }
+        // 缺陷 A 修复：透传 loadPackManifest 的 CLI 域错误码（code），与 importPack/preview 口径一致。
+        return { ok: false, code: loaded.code, error: `包 ${packId} 清单校验失败：${loaded.error}（请重新导入）` }
       }
       const manifest = loaded.pack
       const corrupted = this.stateCorrupted()

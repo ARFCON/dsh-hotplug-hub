@@ -17,10 +17,12 @@ function errResult(error) {
     ok: false,
     code,
     message: error && error.message ? error.message : String(error),
-    data: null,
+    // D3 修复：失败路径同样可透出结构化诊断数据（如 stageCheck 的 stateDegraded）——
+    // 由 makeError extra 的 data 字段承载，与 okResult 的 data 口径一致（诊断信息统一走 data）。
+    data: error && error.data && typeof error.data === 'object' ? error.data : null,
     // 契约修复：exitCode 必须由 code 推导（无 code 兜底 ERR_ENV_UNSUPPORTED→12），
-    // 不得残留 error.exitCode||1 的脱钩值。
-    exitCode: error && Number.isInteger(error.exitCode) ? error.exitCode : exitCodeForCode(code)
+    // 不得信任外来 error.exitCode（code/exitCode 脱钩值会污染退出码契约——QA Bug #1 同源）。
+    exitCode: exitCodeForCode(code)
   };
 }
 

@@ -215,8 +215,9 @@ describe('infra/heal-verify.js rollbackAction', () => {
   it('无快照/无 rollback 标记跳过 → ok（不误伤）', async () => {
     const r = await rollbackAction(makeCore(), { code: 'X', rollback: null }, { state: {} });
     expect(r.ok).toBe(true);
-    // BUNDLE_MISCLASSIFY 恒跳过快照回滚（按 action.code 判定，非 rollback 文案魔法字符串）
-    const r2 = await rollbackAction(makeCore(), { code: 'BUNDLE_MISCLASSIFY', rollback: '恢复原 bundles 列表' }, { state: { rollback: { snapshot: { files: [] } } } });
+    // H4 修复：BUNDLE_MISCLASSIFY 不再特殊跳过——有快照时经快照回滚恢复原 bundles。
+    // 无 profile 的快照回滚会失败（restoreSnapshot 需要真实目录），此处仅断言不再静默 ok。
+    const r2 = await rollbackAction(makeCore(), { code: 'BUNDLE_MISCLASSIFY', rollback: '恢复原 bundles 列表', rollbackType: 'snapshot' }, { state: { rollback: { snapshot: { files: [] } } }, profile: tempDir('hv-bundle-rb-') });
     expect(r2.ok).toBe(true);
   });
   it('有快照 → restoreSnapshot 恢复内容（修改后被还原）', async () => {
@@ -229,7 +230,7 @@ describe('infra/heal-verify.js rollbackAction', () => {
     // 篡改 + 新增
     fs.writeFileSync(path.join(profile, 'a.txt'), 'MUTATED');
     fs.writeFileSync(path.join(profile, 'extra.txt'), 'new');
-    const r = await rollbackAction(makeCore(), { code: 'X', rollback: '恢复快照' }, { state: { rollback: { snapshot: snap.snapshot } }, profile });
+    const r = await rollbackAction(makeCore(), { code: 'X', rollback: '恢复快照', rollbackType: 'snapshot' }, { state: { rollback: { snapshot: snap.snapshot } }, profile });
     expect(r.ok).toBe(true);
     expect(fs.readFileSync(path.join(profile, 'a.txt'), 'utf8')).toBe('orig-a');
     expect(fs.readFileSync(path.join(profile, 'sub', 'b.txt'), 'utf8')).toBe('orig-b');
@@ -240,9 +241,20 @@ describe('infra/heal-verify.js rollbackAction', () => {
     // 快照含 external 文件但 externalDir 缺失 → 预验证失败
     const profile = tempDir('hv-rollback-fail-');
     const snapshot = { files: [{ rel: 'x.bin', hash: 'deadbeef', external: true, type: 'file' }], externalDir: null };
-    const r = await rollbackAction(makeCore(), { code: 'X', rollback: '恢复快照' }, { state: { rollback: { snapshot } }, profile });
+    const r = await rollbackAction(makeCore(), { code: 'X', rollback: '恢复快照', rollbackType: 'snapshot' }, { state: { rollback: { snapshot } }, profile });
     expect(r.ok).toBe(false);
     expect(r.error.code).toBe('ERR_HEAL_ROLLBACK');
+    fs.rmSync(profile, { recursive: true, force: true });
+  });
+  it('rollbackType 非 snapshot（只读探测动作）→ 有快照也不恢复（R4 修复：防只读探测误触快照回滚）', async () => {
+    const profile = tempDir('hv-rollback-none-');
+    fs.writeFileSync(path.join(profile, 'a.txt'), 'orig');
+    const snap = createSnapshot(fsPort, profile).snapshot;
+    fs.writeFileSync(path.join(profile, 'a.txt'), 'MUT');
+    // HARNESS_FIX 是只读探测（reprobe-harness），rollbackType='none'——快照存在也绝不恢复。
+    const r = await rollbackAction(makeCore(), { code: 'HARNESS_FIX', rollback: '无（只读探测）', rollbackType: 'none' }, { state: { rollback: { snapshot: snap } }, profile });
+    expect(r.ok).toBe(true);
+    expect(fs.readFileSync(path.join(profile, 'a.txt'), 'utf8')).toBe('MUT'); // 未回滚
     fs.rmSync(profile, { recursive: true, force: true });
   });
 });

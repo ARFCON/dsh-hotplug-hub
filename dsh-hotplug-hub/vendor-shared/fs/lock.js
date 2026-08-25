@@ -351,23 +351,36 @@ function acquireLock(fsPort, lockPath, opts = {}) {
       const again = readToken(fsPort, lockPath);
       // 审查修复（防忙转）：重判 continue 前睡一个 poll 周期——持续 token 抖动
       //（对抗性/极端竞态）时不得以全速 open+read 自旋占满 CPU。
-      if (token && !again) {
+      // D3 修复：这些「接管前重读」抖动 continue 分支此前不查 deadline，陈旧 token
+      // 持续抖动时无限自旋、waitMs 超时契约失效（子进程实证：永不返回）。现每个分支
+      // 在重试前先查 deadline，与上方「等待」分支的语义一致。
+      const backoff = () => {
+        if (now() >= deadline) {
+          return makeError('ERR_LOCK_ACQUIRE', `等待锁超时（${waitMs}ms）：${lockPath}`);
+        }
         sleepSync(pollMs);
+        return null;
+      };
+      if (token && !again) {
+        const to = backoff(); if (to) return { ok: false, error: to };
         continue; // token 瞬时不可解析（并发重写窗口）：重新判定，不盲目接管
       }
       if (token && again && (again.pid !== token.pid || again.at !== token.at)) {
-        sleepSync(pollMs);
+        const to = backoff(); if (to) return { ok: false, error: to };
         continue; // token 已变：按新持有者重新走等待/接管判定
       }
       if (!token && again) {
-        sleepSync(pollMs);
+        const to = backoff(); if (to) return { ok: false, error: to };
         continue; // mtime 回退路径上出现可解析 token：同上，重新判定
       }
       if (!token) {
         // mtime 回退路径：mtime 已被刷新（新持有者 touch）则不接管
         try {
           const st2 = fsPort.statSync(lockPath);
-          if (now() - st2.mtimeMs <= staleMs) { sleepSync(pollMs); continue; }
+          if (now() - st2.mtimeMs <= staleMs) {
+            const to = backoff(); if (to) return { ok: false, error: to };
+            continue;
+          }
         } catch (_) {
           if (now() >= deadline) {
             return { ok: false, error: makeError('ERR_LOCK_ACQUIRE', `等待锁超时（${waitMs}ms）：${lockPath}`) };

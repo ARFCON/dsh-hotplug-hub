@@ -80,7 +80,12 @@ function classifySignal(signal) {
     case 'exit': {
       // 审计修复：exitCode 为 null/undefined 时应视为"无信号"（与 classifyStateSignals
       // 将 lastExit===null 视为无信号一致），而非 `null !== 0` 被误判为非零退出。
-      if (signal.exitCode != null && signal.exitCode !== 0) {
+      // H5 修复：仅「类型为 number 且有限非零」才触发崩溃循环——字符串 '0'/'1'/''、
+      // 布尔 true、数组 [1]、NaN 等一切非规范形态一律视为无信号。此前用 Number() 强转，
+      // Number(true)===1 / Number('1')===1 / Number([1])===1 都是有限非零，把「可强转为
+      // 非零的非数字」误判为崩溃（严格不等 '0'!==0 只修了强转为 0 的形态）。
+      const code = signal.exitCode;
+      if (typeof code === 'number' && Number.isFinite(code) && code !== 0) {
         return { code: 'ERR_LAUNCH_EXIT', action: 'CRASH_LOOP', suggest: '启动后非零退出，检查 run.jsonl 日志' };
       }
       return null;
@@ -138,6 +143,28 @@ function classifyEntries(entries) {
 }
 
 /**
+ * 崩溃循环单一真源谓词（D2 修复）：stageStatus 与 classifyStateSignals 共用同一
+ * 判定，杜绝两处独立复制导致的漏判/误判漂移。
+ *
+ * 语义（与 healplan.CRASH_LOOP 触发文案一致）：连续 CRASH_LOOP_THRESHOLD 次非零
+ * 退出（retries 计数，成功即清零）即判定崩溃循环；不依赖时间窗口、不依赖 phase。
+ * 与 spawn 失败（spawnCode 存在）互斥——子进程从未启动属 HARNESS_FIX/INSTALL_FAIL。
+ *
+ * @param {object} state 当前 state（含 launch.lastExit/retries/spawnCode）
+ * @returns {boolean}
+ */
+function isCrashLooping(state) {
+  const launch = state && state.launch;
+  if (!launch) return false;
+  if (launch.spawnCode) return false; // spawn 失败与崩溃循环互斥（无退出码）
+  const lastExit = launch.lastExit;
+  // 与 classifySignal('exit') 同一判定：仅「类型为 number 且有限非零」才算崩溃——
+  // Number() 强转会把 true/'1'/[1] 等非规范形态强转为非零误判（H5 同源缺陷）。
+  if (typeof lastExit !== 'number' || !Number.isFinite(lastExit) || lastExit === 0) return false; // detach 存活/成功退出/非数字均非崩溃
+  return (launch.retries || 0) >= CRASH_LOOP_THRESHOLD;
+}
+
+/**
  * 基于 state.launch 的状态驱动分类（C3 修复：CRASH_LOOP 真实可达）。
  *
  * 背景：classifyEntries 只能从行式日志产生 stderr/log 信号，进程退出码从不写入
@@ -166,16 +193,14 @@ function classifyStateSignals(state) {
     if (cls) out.push(cls);
     return out; // spawn 失败与崩溃循环互斥：无退出码，不应叠加 CRASH_LOOP
   }
-  const lastExit = launch.lastExit;
-  if (lastExit === null || lastExit === undefined) return out; // detach 存活中，无信号
-  if (lastExit !== 0 && (launch.retries || 0) >= CRASH_LOOP_THRESHOLD) {
+  if (isCrashLooping(state)) {
     out.push({
       code: 'ERR_LAUNCH_EXIT',
       action: 'CRASH_LOOP',
-      suggest: `启动后 ${launch.retries} 次非零退出（最近 ${lastExit}），疑似崩溃循环，建议回滚快照或禁用最近插件`
+      suggest: `启动后 ${launch.retries} 次非零退出（最近 ${launch.lastExit}），疑似崩溃循环，建议回滚快照或禁用最近插件`
     });
   }
   return out;
 }
 
-module.exports = { classifySignal, classifyEntries, classifyStateSignals, STREAM_RULES, UTF8_CORRUPTION_MARKER };
+module.exports = { classifySignal, classifyEntries, classifyStateSignals, isCrashLooping, STREAM_RULES, UTF8_CORRUPTION_MARKER };

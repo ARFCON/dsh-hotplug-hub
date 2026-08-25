@@ -11,6 +11,21 @@ const { makeError } = require('../contracts/errors');
  * @returns {Promise<{ok: boolean, result?: object, error?: Error}>}
  */
 async function executeAction(core, action, ctx) {
+  // H6 修复：null ctx 是调用方错误，显式报错而非裸抛（步骤内访问 ctx.plugins 会 TypeError）。
+  if (!ctx || typeof ctx !== 'object') {
+    return { ok: false, error: makeError('ERR_HEAL_BUDGET', '自愈上下文缺失（ctx 为空）') };
+  }
+  try {
+    return await executeActionSteps(core, action, ctx);
+  } catch (e) {
+    // H6 修复：注入侧抛错（onMirror/findHarness 等）统一归一为 {ok:false}，绝不裸抛穿透
+    // runHeal/stageHeal——裸抛会使 stageHeal 的失败持久化分支不执行（history/QUARANTINED 丢失）。
+    return { ok: false, error: makeError('ERR_HEAL_BUDGET', `自愈步骤执行异常：${e && e.message ? e.message : e}`) };
+  }
+}
+
+/** executeAction 的核心实现（异常由 executeAction 统一捕获归一为 {ok:false}）。 */
+async function executeActionSteps(core, action, ctx) {
   const steps = action.steps || [];
   for (const step of steps) {
     let r = { ok: true };
@@ -23,8 +38,12 @@ async function executeAction(core, action, ctx) {
       case 'rollback-snapshot': {
         const { restoreSnapshot } = require('./snapshot');
         const snap = ctx.state && ctx.state.rollback && ctx.state.rollback.snapshot;
-        if (!snap) r = { ok: false, error: makeError('ERR_HEAL_ROLLBACK', '无可用快照可回滚') };
-        else r = restoreSnapshot(core.ports.fs, snap, ctx.profile);
+        // H2 修复：无快照时回滚不可行，但不应阻断后续实质修复步骤（如 CRASH_LOOP 的
+        // disable-recent 隔离崩溃插件）——记为跳过（skip）而非 fatal；快照存在时的
+        // 回滚失败仍由 restoreSnapshot 返回 {ok:false} 正常上报。
+        if (!snap) r = { ok: true, result: { skipped: true, reason: 'no-snapshot' } };
+        // B1 修复：回滚目标做根域 realpath 越界校验（ctx.profileRoot 由 buildHealContext 注入）
+        else r = restoreSnapshot(core.ports.fs, snap, ctx.profile, { root: ctx.profileRoot });
         break;
       }
       case 'disable-recent': {
@@ -192,8 +211,16 @@ async function executeAction(core, action, ctx) {
         const reg = core.ports && core.ports.registry;
         if (reg && typeof reg.availableVersions === 'function') {
           try {
-            reg.availableVersions('__probe__');
-            r = { ok: true };
+            // A2 修复：await 异步 registry 端口并校验返回值类型——此前不 await，异步
+            // 端口（availableVersions 返回 Promise）的失败不被 try/catch 捕获，被静默
+            // 吞成 ok:true（假自愈）且 Promise 拒绝成为未处理拒绝。与 onMirror（已
+            // await）及 domain/resolve.js（Array.isArray 防御 Promise 返回值）口径统一。
+            const got = await reg.availableVersions('__probe__');
+            if (!Array.isArray(got)) {
+              r = { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', 'registry 探测返回值非法（须为 string[]）') };
+            } else {
+              r = { ok: true };
+            }
           } catch (e) {
             r = { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', `registry 探测失败：${e.message}`) };
           }

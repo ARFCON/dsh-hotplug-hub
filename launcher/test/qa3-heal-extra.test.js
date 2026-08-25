@@ -52,7 +52,8 @@ describe('QA3 heal 四段闭环强化（审计 C/N33/X2 强化）', () => {
       code: 'INSTALL_FAIL',
       steps: [{ type: 'reinstall' }], // installPlugins 走假 proc status=1 → 失败
       budget: 0,
-      rollback: '恢复 lockfile 快照'
+      rollback: '恢复 lockfile 快照',
+      rollbackType: 'snapshot'
     };
     const ctx = {
       state: { rollback: { snapshot: { dir: profile, createdAt: 'x', files: [] } } },
@@ -68,7 +69,7 @@ describe('QA3 heal 四段闭环强化（审计 C/N33/X2 强化）', () => {
     core.infra.snapshot.restoreSnapshot = origRestore;
   });
 
-  it('预算耗尽 → ERR_HEAL_BUDGET 且 history 记录每次尝试（C3 修复：总尝试=budget）', async () => {
+  it('预算耗尽 → ERR_HEAL_BUDGET 且 history 记录每次尝试（H1 修复：budget=重试次数上限，总尝试=budget+1）', async () => {
     const core = healCore();
     const profile = tempDir();
     const action = { code: 'INSTALL_FAIL', steps: [{ type: 'reinstall' }], budget: 1, rollback: '恢复 lockfile 快照' };
@@ -76,9 +77,9 @@ describe('QA3 heal 四段闭环强化（审计 C/N33/X2 强化）', () => {
     const r = await runHeal(core, [action], ctx, { dryRun: false });
     expect(r.ok).toBe(false);
     expect(r.error.code).toBe('ERR_HEAL_BUDGET');
-    // C3 修复：预算语义收紧为 retries >= budget——budget=1 → 首次失败后 retries=1 ≥ 1
-    // → 立即超预算，总尝试次数 = budget（此前 retries > budget 允许 budget+1 次尝试）
-    expect(r.result.history.length).toBe(1);
+    // H1 修复：budget=允许的重试次数上限（retries > budget 才超限）——
+    // budget=1 → 首次失败后 retries=1（未超限）→ 重试一次 → retries=2（超限），总尝试=2。
+    expect(r.result.history.length).toBe(2);
   });
 
   it('无信号 → planActions 产生空 actions；stageHeal 抛 ERR_HEAL_NO_ACTION（FIX-7 已接线）', () => {

@@ -41,12 +41,13 @@ describe('HotplugGateway 实例', () => {
     expect(s.packs).toEqual([])
   })
 
-  it('importPack()：非法 → 归一化失败 {code,message,exitCode}', async () => {
+  it('importPack()：非法 → 归一化失败 {code,message,exitCode}（缺陷 A 修复：透传 CLI 域错误码）', async () => {
     const r = await gateway.importPack('{bad')
     expect(r.ok).toBe(false)
-    expect(r.code).toBe('ERR_HOTPLUG_FAILED')
+    // 缺陷 A：parseHotpack 产出的 CLI 域错误码不再被丢弃 → ERR_ASSEMBLY_INVALID_JSON（exit 3）
+    expect(r.code).toBe('ERR_ASSEMBLY_INVALID_JSON')
     expect(typeof r.message).toBe('string')
-    expect(r.exitCode).toBe(1)
+    expect(r.exitCode).toBe(3)
   })
 
   it('importPack() → preview() → activate() → deactivate() 全链路（path 源，零 spawn）', async () => {

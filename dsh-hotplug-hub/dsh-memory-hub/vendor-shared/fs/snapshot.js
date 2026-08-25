@@ -81,6 +81,16 @@ function createSnapshot(fsPort, dir, opts = {}) {
  * @returns {{ok: boolean, backupDir?: string, removed?: Array<string>, error?: Error}}
  */
 function restoreSnapshot(fsPort, snapshot, dir, opts = {}) {
+  // B1 修复（根域越界防护）：opts.root 注入时先对 dir 自身做 realpath 越界校验
+  // （与 cleanupResidue 的 opts.root、syncProfile 的 assertWithinRealpath 同一真源）。
+  // 此前只对每个快照文件做「以 dir 为根」的校验——dir 本身是 junction/symlink 时，
+  // root(=dir) 与 target 同侧解析到根域外，越界判定被架空，「回滚删除新增」会在根域
+  // 外删文件。root 解析后可处理 dir 尚不存在（首次回滚）的形态。
+  if (opts.root) {
+    const within = assertWithinRealpath(fsPort, opts.root, dir, '回滚目标');
+    if (!within.ok) return { ok: false, error: within.error };
+    dir = within.resolvedPath;
+  }
   const stamp = opts.stamp || String(Date.now());
   const backupDir = `${dir}.rollback-${stamp}`;
   const snapshotRels = new Set((snapshot.files || []).filter((f) => f.type !== 'link').map((f) => f.rel));
@@ -96,12 +106,21 @@ function restoreSnapshot(fsPort, snapshot, dir, opts = {}) {
         fsPort.copyFileSync(f.abs, dest);
       }
     }
-    // 2) 覆盖前预验证：external 源存在性（C5 修复：先验后写，失败不产生半回滚）
+    // 2) 覆盖前预验证：external 源存在性（C5 修复：先验后写，失败不产生半回滚）。
+    // B2 修复（幂等回滚）：首次回滚成功后 externalDir 已清理，同一快照二次回滚时
+    // external 源缺失——若目标已还原（哈希一致）则视为「已恢复」跳过，而非报
+    // "external 备份缺失"（与状态机 ROLLED_BACK 幂等重入语义对齐）。
+    const alreadyRestored = new Set();
     for (const f of snapshot.files || []) {
       if (f.external) {
         const extSrc = snapshot.externalDir && path.join(snapshot.externalDir, f.rel);
         if (!extSrc || !fsPort.existsSync(extSrc)) {
-          return { ok: false, error: makeError('ERR_HEAL_ROLLBACK', `回滚失败：${f.rel} 的 external 备份缺失`) };
+          const dest = path.join(dir, f.rel);
+          const ok = fsPort.existsSync(dest) && hashBuffer(fsPort.readFileSync(dest)) === f.hash;
+          if (!ok) {
+            return { ok: false, error: makeError('ERR_HEAL_ROLLBACK', `回滚失败：${f.rel} 的 external 备份缺失`) };
+          }
+          alreadyRestored.add(f.rel);
         }
       }
     }
@@ -122,6 +141,7 @@ function restoreSnapshot(fsPort, snapshot, dir, opts = {}) {
         if (lst.isSymbolicLink()) fsPort.unlinkSync(dest);
       } catch (_) { /* 目标不存在则正常写入 */ }
       if (f.external) {
+        if (alreadyRestored.has(f.rel)) continue; // B2 幂等：目标已还原（external 源已清理），跳过复制
         const extSrc = path.join(snapshot.externalDir, f.rel);
         fsPort.copyFileSync(extSrc, dest);
       } else {

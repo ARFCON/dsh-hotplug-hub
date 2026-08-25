@@ -180,7 +180,7 @@ describe('QA4 heal-steps / heal-verify（分支补测）', () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
-  it('rollbackAction：特判"恢复原 bundles 列表"文案时不恢复快照', async () => {
+  it('rollbackAction：BUNDLE_MISCLASSIFY 经快照回滚恢复原 bundles（H4 修复，不再特判跳过）', async () => {
     const core = createCore({ baseDir: ROOT, home: os.tmpdir(), platform: 'win32', env: isolatedEnv(os.tmpdir()) });
     let restored = false;
     const ctx = {
@@ -190,9 +190,9 @@ describe('QA4 heal-steps / heal-verify（分支补测）', () => {
     // 注入 restoreSnapshot 跟踪（经 core.infra.snapshot 替换）
     const orig = core.infra.snapshot.restoreSnapshot;
     core.infra.snapshot.restoreSnapshot = (...a) => { restored = true; return orig(...a); };
-    const r = await rollbackAction(core, { code: 'BUNDLE_MISCLASSIFY', rollback: '恢复原 bundles 列表' }, ctx);
+    const r = await rollbackAction(core, { code: 'BUNDLE_MISCLASSIFY', rollback: '恢复原 bundles 列表', rollbackType: 'snapshot' }, ctx);
     expect(r.ok).toBe(true);
-    expect(restored).toBe(false); // 特判：不恢复
+    expect(restored).toBe(true); // H4：确实执行快照回滚（恢复 package.json/bundles）
     fs.rmSync(ctx.profile, { recursive: true, force: true });
   });
 });

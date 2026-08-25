@@ -247,8 +247,24 @@ export function removeBundles(names) {
  * @param {string[]} [opts.installedNpm] 本次挂载实际安装/替换的 npm 包名
  */
 export async function unmountPack(pack, opts = {}) {
-  const removed = removePatchBlock(pack.id)
-  if (!removed.ok) return { ok: false, error: removed.error }
+  // 审计修复（切换原子性）：以「删除 hotplug 块」为提交点、移到最后。此前先删块再跑
+  // pnpm remove——remove 失败时块已消失但 state.activePack 仍指向旧包，形成「激活中但
+  // 块已删」的鬼状态（statusSync activePatchOk=false，正是契约要杜绝的「状态说激活、
+  // 磁盘已卸载」）。现先撤最易失败的 npm 包，任一前置步骤失败都不触碰块，失败返回时
+  // 仍处于「已挂载」的一致状态；块删除是最后一步（提交点）。
+  const installedNpm = new Set(Array.isArray(opts.installedNpm) ? opts.installedNpm : [])
+  const manifestBefore = readJson(manifestPath())
+  const npmNames = pack.plugins
+    .filter((entry) => entry.source.type === 'npm')
+    .map((entry) => entry.name)
+    .filter((name) => manifestBefore?.dependencies?.[name] !== undefined)
+    .filter((name) => installedNpm.has(name))
+  if (npmNames.length > 0) {
+    const result = await runCli('pnpm', ['remove', ...npmNames], ENSURE_TIMEOUT_MS)
+    if (result.code !== 0) {
+      return { ok: false, error: `pnpm remove 失败（profile 可能残留依赖，可手动处理）：${tail(result.stderr || result.stdout)}` }
+    }
+  }
   // 移除集 ⊇ 登记集（bundleRemovalNames）：含旧语义登记的残留，迁移自愈
   removeBundles(bundleRemovalNames(pack))
   const manifest = readJson(manifestPath())
@@ -258,18 +274,8 @@ export async function unmountPack(pack, opts = {}) {
     for (const entry of linkEntries) changed = unlinkEntryFromProfile(entry, manifest) || changed
     if (changed) writeJsonSafe(manifestPath(), manifest)
   }
-  const installedNpm = new Set(Array.isArray(opts.installedNpm) ? opts.installedNpm : [])
-  const npmNames = pack.plugins
-    .filter((entry) => entry.source.type === 'npm')
-    .map((entry) => entry.name)
-    .filter((name) => manifest?.dependencies?.[name] !== undefined)
-    .filter((name) => installedNpm.has(name))
-  if (npmNames.length > 0) {
-    const result = await runCli('pnpm', ['remove', ...npmNames], ENSURE_TIMEOUT_MS)
-    if (result.code !== 0) {
-      return { ok: false, error: `pnpm remove 失败（profile 可能残留依赖，可手动处理）：${tail(result.stderr || result.stdout)}` }
-    }
-  }
+  const removed = removePatchBlock(pack.id)
+  if (!removed.ok) return { ok: false, error: removed.error }
   return { ok: true }
 }
 

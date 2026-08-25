@@ -4,7 +4,8 @@
 const path = require('path');
 const { STATES } = require('../contracts/state-machine');
 const { makeError } = require('../contracts/errors');
-const { PATCH_FILE, PROFILE_MANIFEST, CRASH_LOOP_THRESHOLD } = require('../contracts/constants');
+const { PATCH_FILE, PROFILE_MANIFEST } = require('../contracts/constants');
+const { isCrashLooping } = require('../domain/classify');
 const { okResult, errResult, runLogFileFor, quarantinedNames } = require('./stages-util');
 
 // --- check：只读冲突预检（F 修复：零副作用）---
@@ -37,7 +38,11 @@ async function stageCheck(core, state, args) {
   const conflictCheck = core.domain.conflicts.checkConflicts(resolved.resolved.plugins);
   const blocking = conflictCheck.conflicts.filter((c) => c.severity === 'error');
   if (blocking.length > 0) {
-    return errResult(makeError(blocking[0].code, `${blocking.length} 个冲突：${blocking.map((c) => c.reason).join('；')}`));
+    // D3 修复：state 损坏（隔离名单不可读）时过滤退化为全量，本冲突可能是偏严误报——
+    // stateDegraded 须在失败路径同样透出（走 data），消费方据此区分真实冲突与假冲突。
+    return errResult(makeError(blocking[0].code, `${blocking.length} 个冲突：${blocking.map((c) => c.reason).join('；')}`, {
+      data: state._corrupted === true ? { stateDegraded: true } : null
+    }));
   }
   // stateDegraded：state.json 损坏降级时隔离名单不可读——heal 隔离过的插件可能重新被
   // 点名（复检闸门在「heal 后 + state 损坏」场景会偏严），显式提示消费方而非静默。
@@ -63,10 +68,10 @@ async function stageStatus(core, state, args) {
   // 磁盘三件套完好不等于健康。
   const installFailed = !!(state.install && state.install.status === 'failed');
   const quarantinedCount = quarantinedNames(state).length;
-  // 崩溃循环：监控期（MONITORING）连续失败计数达到阈值（成功即清零，见 classify）
-  const crashLooping = typeof (state.launch && state.launch.retries) === 'number'
-    && state.launch.retries >= CRASH_LOOP_THRESHOLD
-    && state.phase === STATES.MONITORING;
+  // 崩溃循环：单一真源谓词（与 classifyStateSignals 同源，D2 修复）——不再额外
+  // 要求 phase===MONITORING（INSTALLED 阶段连续崩溃也被判定），也不再漏掉
+  // spawnCode/lastExit 互斥（spawn 失败归 HARNESS_FIX，不误报崩溃循环）。
+  const crashLooping = isCrashLooping(state);
   const phaseQuarantined = state.phase === STATES.QUARANTINED;
   const stateOk = state._corrupted !== true;
   const healthy = assemblyExists && sandboxExists && profileOk

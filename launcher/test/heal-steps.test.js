@@ -46,10 +46,9 @@ describe('infra/heal-steps.js executeAction 全步骤（FIX-16：不静默 ok）
   });
 
   describe('rollback-snapshot', () => {
-    it('无快照 → ERR_HEAL_ROLLBACK', async () => {
+    it('无快照 → 跳过（H2 修复：不阻断后续实质修复步骤，非 fatal）', async () => {
       const r = await executeAction(makeCore(), { code: 'X', steps: [{ type: 'rollback-snapshot' }] }, { state: {}, profile: tempDir('hs-rs-none-') });
-      expect(r.ok).toBe(false);
-      expect(r.error.code).toBe('ERR_HEAL_ROLLBACK');
+      expect(r.ok).toBe(true);
     });
     it('有快照 → 恢复', async () => {
       const profile = tempDir('hs-rs-');
@@ -284,8 +283,9 @@ describe('infra/heal-steps.js executeAction 全步骤（FIX-16：不静默 ok）
 
   it('步骤失败即中断（后续步骤不执行）', async () => {
     let executed = false;
-    const r = await executeAction(makeCore(), { code: 'X', steps: [{ type: 'rollback-snapshot' }, { type: 'quarantine' }] }, { state: {}, quarantine: () => { executed = true; return { ok: true }; } });
+    const r = await executeAction(makeCore(), { code: 'X', steps: [{ type: 'no-such-step' }, { type: 'quarantine' }] }, { state: {}, quarantine: () => { executed = true; return { ok: true }; } });
     expect(r.ok).toBe(false);
+    expect(r.error.code).toBe('ERR_HEAL_BUDGET');
     expect(executed).toBe(false);
   });
 

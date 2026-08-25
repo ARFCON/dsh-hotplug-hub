@@ -136,7 +136,9 @@ export function statusSync() {
 
 export function importPackSync(input) {
   const parsed = parseHotpack(input)
-  if (!parsed.ok) return { ok: false, error: parsed.error }
+  // 缺陷 A 修复：透传 parseHotpack 产出的 CLI 域错误码（code）——此前只透传 error 文本，
+  // 网关 normalizeRpc 兜底 ERR_HOTPLUG_FAILED/exit 1，32 码契约从不透传（ERR_ASSEMBLY_* 应 exit 3）。
+  if (!parsed.ok) return { ok: false, code: parsed.code, error: parsed.error }
   const pack = parsed.pack
   const state = readState()
   // R3：state.json 损坏时拒绝导入——activePack 不可信，覆盖「可能激活中」的包
@@ -144,7 +146,13 @@ export function importPackSync(input) {
   if (state.corrupted === true) {
     return { ok: false, error: 'state.json 损坏（无法判断激活状态），请先检查/备份后删除该文件再导入' }
   }
-  if (state.activePack === pack.id) {
+  // 审计修复（win32 大小写）：NTFS 大小写不敏感，`import('PACK.A')` 与已激活 `pack.a`
+  // 同目录；严格 === 会放行并静默覆盖激活中清单。与 activate/removePack/packDirExists
+  // 已统一的 win32 语义一致，改为大小写归一比对。
+  const alreadyActive = process.platform === 'win32'
+    ? String(state.activePack ?? '').toLowerCase() === String(pack.id).toLowerCase()
+    : state.activePack === pack.id
+  if (alreadyActive) {
     return { ok: false, error: `包 ${pack.id} 正在激活中，先 deactivate 再覆盖导入` }
   }
   writeJsonSafe(join(packsDir(), pack.id, 'hotpack.json'), pack)
@@ -156,7 +164,8 @@ export async function previewPack(packId) {
   const loaded = loadPackManifest(packId)
   if (loaded.status === 'missing') return { ok: false, error: `未找到包：${packId}` }
   if (loaded.status === 'invalid') {
-    return { ok: false, error: `包 ${packId} 清单校验失败：${loaded.error}（请重新导入）` }
+    // 缺陷 A 修复：透传 loadPackManifest 的 CLI 域错误码（code），与 importPackSync 口径一致。
+    return { ok: false, code: loaded.code, error: `包 ${packId} 清单校验失败：${loaded.error}（请重新导入）` }
   }
   const manifest = loaded.pack
   const state = readState()

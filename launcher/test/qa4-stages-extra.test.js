@@ -191,7 +191,7 @@ describe('QA4 stageHeal（C3 陈旧日志过滤）', () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
-  it('lastStart 非法（NaN）→ 不按时间过滤（回退全部日志）', async () => {
+  it('lastStart 非法（NaN）→ 无「最近启动」窗口 → 不分类日志行（H3 修复：fail-closed）', async () => {
     const home = tempDir('qa4h3-');
     const core = makeCore(home, { nowPort: { iso: () => '2026-08-21T09:00:00.000Z', now: () => Date.now() } });
     const sb = path.join(core.config.roots.sandboxRoot, 'demo');
@@ -202,8 +202,10 @@ describe('QA4 stageHeal（C3 陈旧日志过滤）', () => {
     state.phase = 'LAUNCHED';
     state.launch.lastStart = 'not-a-date'; // 非法时间
     const r = await STAGES.heal(core, state, { id: 'demo', yes: false });
-    expect(r.ok).toBe(true);
-    expect(r.data.actions).toContain('INSTALL_FAIL');
+    // H3 修复：lastStart 不可解析 → 不存在「最近一次启动之后」窗口 → 不分类日志行；
+    // state.launch 亦无退出信号 → 无自愈信号（fail-closed，杜绝幻影自愈）。
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('ERR_HEAL_NO_ACTION');
     fs.rmSync(home, { recursive: true, force: true });
   });
 });
