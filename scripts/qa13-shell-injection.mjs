@@ -204,7 +204,7 @@ console.log('== B. BuildNativeSelfCheckScript（自检注入守卫回归） ==')
 
 // B2 getChecks 存在：猴补丁回填真实探测
 {
-  const selfCheckJs = fillSelfCheck({ node: '20.11.1', pnpm: '9.1.0', webview2: '131.0.2903.86', appVersion: '1.0.2' })
+  const selfCheckJs = fillSelfCheck({ node: '20.11.1', pnpm: '9.1.0', webview2: '131.0.2903.86', appVersion: '1.0.3' })
   const sandbox = {
     document: { readyState: 'complete', getElementById: () => null },
     window: {},
@@ -222,7 +222,7 @@ console.log('== B. BuildNativeSelfCheckScript（自检注入守卫回归） ==')
   check(node && node.val === '20.11.1', 'B2 Node.js 行回填真实探测（mock 被覆盖）')
   check(pnpm && pnpm.val === '9.1.0', 'B2 pnpm 行回填真实探测')
   check(rows.some((r) => r.name === 'WebView2' && r.val === '131.0.2903.86'), 'B2 追加 WebView2 探测行')
-  check(rows.some((r) => r.name === '本程序版本' && r.val === '1.0.2'), 'B2 追加本程序版本行')
+  check(rows.some((r) => r.name === '本程序版本' && r.val === '1.0.3'), 'B2 追加本程序版本行')
 }
 
 console.log('== qa13 结果：PASS=' + passes + ' FAIL=' + failures + ' ==')

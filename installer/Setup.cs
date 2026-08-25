@@ -365,7 +365,7 @@ namespace DSHHotplugHubInstaller
                 using (RegistryKey k = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\DSH-Hotplug-Hub"))
                 {
                     k.SetValue("DisplayName", "Dseam世界 DSH-Hotplug-Hub", RegistryValueKind.String);
-                    k.SetValue("DisplayVersion", "1.0.2", RegistryValueKind.String);
+                    k.SetValue("DisplayVersion", "1.0.3", RegistryValueKind.String);
                     k.SetValue("DisplayIcon", Path.Combine(target, "DSH-Hotplug-Hub.exe") + ",0", RegistryValueKind.String);
                     k.SetValue("InstallLocation", target, RegistryValueKind.String);
                     k.SetValue("Publisher", "ARFCON", RegistryValueKind.String);
