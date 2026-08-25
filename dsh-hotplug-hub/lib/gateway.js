@@ -118,7 +118,23 @@ class HotplugGateway extends TypertRemoteService {
       const corrupted = this.stateCorrupted()
       if (corrupted) return corrupted
       const state = readState()
-      if (state.activePack === packId) return { ok: true, already: true, restartNeeded: false }
+      // 大小写归一（win32 与 NTFS 语义一致）：重复激活同包（RPC 传大小写变体）判
+      // already 而非无谓的卸载重挂——state 恒存权威 manifest.id，正常路径精确命中。
+      const alreadyActive = process.platform === 'win32'
+        ? String(state.activePack ?? '').toLowerCase() === String(packId).toLowerCase()
+        : state.activePack === packId
+      if (alreadyActive) {
+        // 自愈（审计修复）：历史脏 state 里可能存着大小写变体（修复前 activate 落盘的
+        // 原样 packId）——already 短路会把它永久留住（statusSync 严格比对持续失配且
+        // 无法经再次 activate 纠正）。顺手回写权威 id，一次即愈。
+        if (state.activePack !== manifest.id) {
+          const healed = readState()
+          healed.activePack = manifest.id
+          if (healed.activeInstall && healed.activeInstall.packId === state.activePack) healed.activeInstall.packId = manifest.id
+          writeState(healed)
+        }
+        return { ok: true, already: true, restartNeeded: false }
+      }
       const events = []
       // R3（切换原子性）：记录「卸载了什么」，挂载失败时恢复上一包（或清空状态），
       // 保证任何返回路径上 state.activePack 与磁盘 hotplug 块一致。
@@ -170,12 +186,16 @@ class HotplugGateway extends TypertRemoteService {
         return { ok: false, error: mounted.error, steps: mounted.steps, events }
       }
       const next = readState()
-      next.activePack = packId
+      // 审计修复（权威 id）：activePack 落盘用 manifest 的权威 id，而非 RPC 传入的
+      // 原样 packId——Windows 大小写变体（activate('PACK.X') 经 NTFS 能命中 pack.x 的
+      // 清单）此前把 'PACK.X' 写进 state，statusSync 的严格比对随即失配（激活中的包
+      // 在 UI 不标 active、deactivate 按钮消失）。
+      next.activePack = manifest.id
       // 持久化本次挂载实际安装的 npm 包名（卸载时只撤这些，reused 的预存依赖保留）
-      next.activeInstall = { packId, installedNpm: Array.isArray(mounted.installedNpm) ? mounted.installedNpm : [] }
-      next.history = [...(next.history ?? []), { event: 'activate', packId, at: new Date().toISOString() }].slice(-64)
+      next.activeInstall = { packId: manifest.id, installedNpm: Array.isArray(mounted.installedNpm) ? mounted.installedNpm : [] }
+      next.history = [...(next.history ?? []), { event: 'activate', packId: manifest.id, at: new Date().toISOString() }].slice(-64)
       writeState(next)
-      return { ok: true, packId, steps: mounted.steps, events, restartNeeded: true }
+      return { ok: true, packId: manifest.id, steps: mounted.steps, events, restartNeeded: true }
     }).then(normalizeRpc)
   }
 
@@ -210,7 +230,12 @@ class HotplugGateway extends TypertRemoteService {
       const corrupted = this.stateCorrupted()
       if (corrupted) return corrupted
       const state = readState()
-      if (state.activePack === packId) return { ok: false, error: '不能移除激活中的包，先 deactivate' }
+      // 审计修复（大小写加固补齐）：与 packDirExists 的 win32 语义同步——精确比较时
+      // removePack('PACK.X') 可越过守卫删掉激活中的 pack.x（state/patch 块仍指向它）。
+      const sameId = process.platform === 'win32'
+        ? String(state.activePack ?? '').toLowerCase() === String(packId).toLowerCase()
+        : state.activePack === packId
+      if (sameId) return { ok: false, error: '不能移除激活中的包，先 deactivate' }
       // R3：存在性按 packs/<id> 目录判定（而非 manifest 可解析）——损坏包（清单校验
       // 失败）也允许删除，这是用户清除坏包的恢复路径。
       if (!packDirExists(packId)) return { ok: false, error: `未找到包：${packId}` }

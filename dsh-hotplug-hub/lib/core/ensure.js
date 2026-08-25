@@ -32,9 +32,22 @@ export function storeKeySegment(token) {
 }
 
 export function storeDirOf(entry) {
-  if (entry.source.type === 'github') return join(storeRoot(), `${storeKeySegment(entry.name)}@${storeKeySegment(entry.source.ref)}`)
+  // 审计修复（跨仓库串包）：github 缓存键纳入 repo（repo#name@ref）。此前键只有
+  // name@ref——两个不同仓库的同名插件（ref 恰同，如都缺省 main）共享同一缓存目录：
+  // 后者复用前者的产物（ensureGithub 只验内部包名），自检指纹也完全相同（冲突漏报）。
+  // repo 经 storeKeySegment 编码（owner/name 的 '/' → %2F），'#' 不在合法 repo 字符集
+  // 内，分隔无歧义；legacyStoreDirOf 提供旧键仅用于迁移清理。
+  if (entry.source.type === 'github') {
+    return join(storeRoot(), `${storeKeySegment(entry.source.repo)}#${storeKeySegment(entry.name)}@${storeKeySegment(entry.source.ref)}`)
+  }
   if (entry.source.type === 'path') return entry.source.path
   return npmModuleDir(entry.name)
+}
+
+/** 旧版 github store 键（name@ref，无 repo）。仅 ensureGithub 下载成功后清理迁移用，
+ *  不得再作为缓存目标（无法证明旧目录内容来自哪个仓库——provenance 不可考）。 */
+export function legacyStoreDirOf(entry) {
+  return join(storeRoot(), `${storeKeySegment(entry.name)}@${storeKeySegment(entry.source.ref)}`)
 }
 export function installedVersion(pkgName) {
   const meta = readJson(join(npmModuleDir(pkgName), 'package.json'))
@@ -209,6 +222,9 @@ export async function ensureGithub(entry) {
     rmSync(dest, { recursive: true, force: true })
     mkdirSync(dirname(dest), { recursive: true })
     cpSync(root, dest, { recursive: true })
+    // 审计修复（跨仓库串包迁移）：新键落地后清理旧版无 provenance 的 name@ref 目录，
+    // 防其永久滞留 store 列表成为幽灵条目（旧目录内容无法证明来源，不再被任何路径读取）。
+    try { rmSync(legacyStoreDirOf(entry), { recursive: true, force: true }) } catch { /* 有意吞掉：尽力而为的清理，失败不影响主流程 */ }
     return { ok: true, status: 'downloaded', path: dest, detail: `已下载 ${entry.source.repo}@${entry.source.ref} 到 hotplug-store` }
   } finally {
     try { rmSync(zipPath, { force: true }) } catch { /* 有意吞掉：尽力而为的清理/读取，失败不影响主流程 */ }

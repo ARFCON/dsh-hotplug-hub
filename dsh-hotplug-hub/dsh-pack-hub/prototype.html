@@ -842,6 +842,10 @@ select.ai-ctl { cursor: pointer; padding-right: 8px; }
 .hc-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
 .hc-dot.ok { background: var(--green); }
 .hc-dot.err { background: var(--red); }
+/* 中性「检测中」态：WebView 生产端外壳探测落地前（__nativeSelfCheck 未注入）——
+   不显示误导性的绿（演示值）或红（缺失），诚实的中性灰 + 呼吸动画 */
+.hc-dot.pending { background: var(--muted, #8a8f98); animation: hcPulse 1.2s ease-in-out infinite; }
+@keyframes hcPulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 
 /* ===== v3 顶部横排主导航（PCL 启动器风）：标题栏下方一排横向菜单项，当前项底部指示条高亮 ===== */
 .topnav-spacer { flex: 1 1 auto; }
@@ -2055,15 +2059,18 @@ function renderShell() {
   document.body.classList.toggle('on-home', currentView === 'home');
   renderMainNav();
   const restartable = state.pendingRestart > 0;
+  // 审计修复（mock 泄漏）：dsh 未安装时 state.dshVersion 保持演示默认值（'0.1.0-rc.7'），
+  // 侧栏/顶栏此前照常渲染假版本号——与主页「dsh 未安装」同屏矛盾。统一回退「未安装」。
+  const dshVerLabel = state.dshVersion || '未安装';
   $('sideFoot').innerHTML = `
-    <div class="side-row"><span>dsh</span><span class="v">${esc(state.dshVersion)}</span></div>
+    <div class="side-row"><span>dsh</span><span class="v">${esc(dshVerLabel)}</span></div>
     ${restartable ? '<div class="side-row"><span>待生效</span><span class="v" id="pendingText">' + state.pendingRestart + ' 项</span></div>' : ''}`;
   const top = document.querySelector('.topbar');
   const n = NAV.find((x) => x.id === currentView);
   top.innerHTML = `
     <div>
       <h1>${n.label}</h1>
-      <div class="ctx">Dseam世界 · profile desktop · dsh ${esc(state.dshVersion)}</div>
+      <div class="ctx">Dseam世界 · profile desktop · dsh ${esc(dshVerLabel)}</div>
     </div>
     <div class="spacer"></div>
     ${state.pendingRestart ? `<span class="pill warn">${ICONS.restart} 重启后生效 ${state.pendingRestart} 项</span>` : '<span class="pill good">已是最新会话</span>'}
@@ -2093,7 +2100,13 @@ function renderCurrent() {
   if (currentView === 'hub') renderHub();
   if (currentView === 'market') {
     renderMarket();
-    if (!marketData.length && !marketLoading && !marketError) doMarketSearch(); // 首次进入自动抓取
+    // 自动搜索每会话只发一次（审计修复）：DOMContentLoaded 的 renderAll 与外壳注入的
+    // renderCurrent 都可能到达这里——此前「首次搜索成功但 0 结果」时注入触发的重渲会
+    // 再次发起真实网络请求（空结果不命中缓存）。
+    if (!window.__marketSearchedOnce && !marketData.length && !marketLoading && !marketError) {
+      window.__marketSearchedOnce = true;
+      doMarketSearch();
+    }
   }
   if (currentView === 'memory') renderMemory();
   if (currentView === 'check') renderCheck();
@@ -2373,17 +2386,26 @@ function renderTheme() {
 /* ===== 主页（v4 · 一体化总控台大面板）：左栏女仆 AI 装配间常驻舱 + 右栏启动/状态/入口 ===== */
 function renderHome() {
   const installed = state.installed.length + state.imported.length;
-  const harnessOk = !!(window.__nativeSelfCheck && window.__nativeSelfCheck.dshVersion);
-  const dshVer = harnessOk ? (window.__nativeSelfCheck && window.__nativeSelfCheck.dshVersion || state.dshVersion) : null;
-  const nodeOk = !!(window.__nativeSelfCheck && window.__nativeSelfCheck.node);
-  const pnpmOk = !!(window.__nativeSelfCheck && window.__nativeSelfCheck.pnpm);
-  const appVer = (window.__nativeSelfCheck && window.__nativeSelfCheck.appVersion) || '';
-  const latest = (window.__nativeSelfCheck && window.__nativeSelfCheck.latestVersion) || state.latestVersion;
+  // 审计修复（浏览器演示态 + 生产检测中态）：
+  //  - 无 __nativeSelfCheck 且无 WebView 通道（浏览器直接打开原型）→ 回退读 state
+  //    演示值（浏览器即演示态；此前恒三项全红「缺失」与自检页演示值自相矛盾）；
+  //  - 无 __nativeSelfCheck 但在 WebView（生产端外壳探测落地前的窗口期）→ 三点显示
+  //    中性「检测中」（此前显示演示绿——离线机器上该窗口可达数十秒，演示值当真实
+  //    结果展示是误导；探测注入后由 renderCurrent 刷新为真实红绿）。
+  const native = window.__nativeSelfCheck || null;
+  const inWebView = !!(window.chrome && window.chrome.webview);
+  const pendingProbe = !native && inWebView;
+  const harnessOk = native ? !!native.dshVersion : (inWebView ? null : !!state.dshVersion);
+  const dshVer = pendingProbe ? null : (harnessOk ? ((native && native.dshVersion) || state.dshVersion) : null);
+  const nodeOk = native ? !!native.node : (inWebView ? null : !!state.nodeVersion);
+  const pnpmOk = native ? !!native.pnpm : (inWebView ? null : !!state.pnpmVersion);
+  const appVer = (native && native.appVersion) || '';
+  const latest = (native && native.latestVersion) || state.latestVersion;
   const appUpdate = latest && appVer && (function (a, b) { var A = String(a).replace(/^v/i, '').split('-')[0].split('.'), B = String(b).replace(/^v/i, '').split('-')[0].split('.'); for (var i = 0; i < Math.max(A.length, B.length); i++) { var x = parseInt(A[i] || '0', 10), y = parseInt(B[i] || '0', 10); if (x !== y) return x - y; } return 0; })(latest, appVer) > 0;
   const plugins = pluginRows();
   const updPlugins = plugins.filter((r) => r.hasUpdate);
   const updCount = updPlugins.length;
-  const env = (ok, name, onTxt, offTxt) => `<span class="env"><span class="hc-dot ${ok ? 'ok' : 'err'}"></span>${name} ${ok ? onTxt : offTxt}</span>`;
+  const env = (ok, name, onTxt, offTxt) => `<span class="env"><span class="hc-dot ${ok === null ? 'pending' : ok ? 'ok' : 'err'}"></span>${name} ${ok === null ? '检测中' : (ok ? onTxt : offTxt)}</span>`;
   // v4 根治：renderHome 整体重建 view-home 会先销毁旧 #reqInput（用户输入草稿随之蒸发），
   // renderAi 末尾再捕获已无处可读——把 AI 舱现场快照提前到销毁前（v1.2 女仆坞 DOM 静态无此问题）
   aiLiveSnapshot = aiCaptureLive();
@@ -2404,7 +2426,7 @@ function renderHome() {
           <div class="hm-launch">
             <div class="launch-brand"><span class="brand-mark" aria-hidden="true">⚡</span>DSH 插座中枢</div>
             <button class="launch-btn" id="homeLaunchBtn" title="启动 DSH"><span class="fl-play">▶</span>启动 DSH</button>
-            <div class="launch-ver">dsh ${dshVer ? esc(dshVer) : '未安装'} · 程序 ${appVer ? 'v' + esc(appVer) : '—'}</div>
+            <div class="launch-ver">dsh ${pendingProbe ? '检测中…' : (dshVer ? esc(dshVer) : '未安装')} · 程序 ${appVer ? 'v' + esc(appVer) : '—'}</div>
             <div class="launch-state">
               <div class="ls-label">环境自检</div>
               <div class="launch-env">
@@ -3900,16 +3922,29 @@ function renderMemory() {
 
 function getChecks() {
   const conflicts = getConflicts();
+  // 审计修复（插件健康接真数据）：行数据从 pluginRows() 统一入口取——WebView 生产端读
+  // 外壳回推的 __pluginsData（真实 profile 依赖），浏览器原型读 state.plugins（演示）。
+  // 此前恒读 state.installed（生产端永不同步）→ 桌面端无论真实插件状态恒显示「0 冲突/健康」。
+  const plugins = pluginRows();
+  const broken = plugins.filter((r) => !r.version).length;
+  const updates = plugins.filter((r) => r.hasUpdate).length;
+  const pluginStatus = broken ? 'err' : (updates ? 'warn' : 'ok');
+  const pluginText = broken
+    ? broken + ' 个插件安装异常（版本不可读）'
+    : (updates ? updates + ' 个插件有可用更新' : (plugins.length ? '全部健康' : '暂无已装插件'));
   return [
     { name: 'DSH 版本', desc: '当前版与最新版', val: state.dshVersion || '未安装', status: 'ok', text: state.dshVersion ? ('当前 v' + state.dshVersion) : '未检测到 dsh CLI' },
     { name: 'Node.js', desc: '内置运行时', val: state.nodeVersion, status: 'ok', text: '兼容' },
     { name: 'pnpm', desc: '包管理器', val: state.pnpmVersion, status: 'ok', text: '就绪' },
-    { name: 'Profile 清单', desc: 'dsh.profile.bundles 可解析', val: 'desktop', status: 'ok', text: StateOk() ? '完好' : '需检查' },
-    { name: '插件健康', desc: '已装包自检', val: conflicts.length + ' 冲突', status: conflicts.length ? 'warn' : 'ok', text: conflicts.length ? '见冲突矩阵' : '健康' },
-    { name: '记忆中枢', desc: '全局记忆包状态', val: (window.__memoryData || state.memories || []).length + ' 条', status: 'ok', text: (window.__memoryData || state.memories || []).length ? '在线' : '暂无真实记忆' }
+    // 浏览器原型为演示值；WebView 生产端由外壳注入按行名回填真实探测（profiles / patch 可解析性）
+    { name: 'Profile 清单', desc: 'dsh.profile.bundles 可解析', val: 'desktop', status: 'ok', text: '演示数据' },
+    { name: '插件健康', desc: '已装包自检', val: plugins.length + ' 个插件' + (conflicts.length ? ' · ' + conflicts.length + ' 冲突' : ''), status: plugins.length === 0 && conflicts.length === 0 ? 'ok' : (conflicts.length ? 'warn' : pluginStatus), text: conflicts.length ? '见冲突矩阵' : pluginText },
+    { name: '记忆中枢', desc: '全局记忆包状态', val: (window.__memoryData || state.memories || []).length + ' 条', status: 'ok', text: (window.__memoryData || state.memories || []).length ? '在线' : '暂无真实记忆' },
+    // 审计修复（面板自检行）：外壳注入的 getChecks 补丁按行名匹配此行——此前基础行缺失，
+    // 补丁分支永不命中，「官方 Skill/MCP 面板」的安装/更新状态（C# 端已实现）整条链路不可达。
+    { name: '官方 Skill/MCP 面板', desc: 'dsh-skill-mcp 面板组件', val: state.panelInstalled || '未安装', status: 'ok', text: state.panelInstalled ? ('v' + state.panelInstalled) : '可安装 v' + (state.panelLatest || '?') }
   ];
 }
-function StateOk() { return true; }
 
 function removeSkill(id) {
   if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('deleteSkill:' + id); return; }
@@ -4266,8 +4301,8 @@ function renderCheck() {
     <div class="check-list">
       ${checks.map((c) => `
         <div class="check-row">
-          <span class="badge ${c.status === 'ok' ? 'ok' : c.status === 'update' ? 'warn' : 'err'}">${c.status === 'ok' ? ICONS.check : ICONS.warn}</span>
-          <div><div class="name">${c.name}</div><div class="desc">${c.desc}</div></div>
+          <span class="badge ${c.status === 'ok' ? 'ok' : (c.status === 'update' || c.status === 'warn') ? 'warn' : 'err'}">${c.status === 'ok' ? ICONS.check : ICONS.warn}</span>
+          <div><div class="name">${esc(c.name)}</div><div class="desc">${esc(c.desc)}</div></div>
           <div class="val">${esc(c.val)}</div>
           <div style="font-size:12px;color:var(--muted);min-width:110px;text-align:right">${esc(c.text)}</div>
         </div>`).join('')}
@@ -4290,7 +4325,15 @@ function renderCheck() {
         <button class="btn primary" id="importBtn3" style="margin-left:auto">${ICONS.upload} 选择文件</button>
       </div>
     </div>`;
-  $('recheck').addEventListener('click', () => { if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage('recheck'); return; } toast('自检完成，状态已更新'); renderCheck(); });
+  $('recheck').addEventListener('click', () => {
+    if (window.chrome && window.chrome.webview) {
+      // 审计修复：外壳探测（多进程 + GitHub）耗时可观数秒——先给即时反馈，不再"无响应"空等
+      toast('正在重新检测环境…');
+      window.chrome.webview.postMessage('recheck');
+      return;
+    }
+    toast('自检完成，状态已更新'); renderCheck();
+  });
   const ih = $('installHarness');
   if (ih) ih.addEventListener('click', () => {
     if (window.chrome && window.chrome.webview) { toast('正在安装官方 dsh CLI（@deepseek-ai/dsh），请稍候…'); window.chrome.webview.postMessage('installHarness'); return; }
@@ -4319,9 +4362,15 @@ function renderCheck() {
     };
     if (name === 'DSH 版本') mk('⬇ 自动安装/更新', 'primary', 'installHarness');
     if (name === '本程序版本') { mk('检查更新', 'primary', 'checkUpdate'); mk('下载新版本', '', 'downloadProject'); }
+    // 审计修复（面板安装入口）：行由 getChecks 基础行提供（外壳注入按行名回填真实状态），
+    // 此前 C# 端 installPanel/updatePanel 处理器存在但页面无任何发送方——功能不可达。
+    if (name === '官方 Skill/MCP 面板') mk('⬇ 安装/更新面板', 'primary', 'installPanel');
   });
 }
 
+/** 角色碰撞按「包属主」记——同一包内两个 bundle 撞角色不报（那是包自身设计，不是包间冲突）。
+ *  审计修复：此前用全局 Set，包内重复角色也误报「重复角色」并把冲突记到该包自己头上
+ *  （importPacks 缺 role 的 bundle 统一回退 '工具' → 单包自冲突误报）。 */
 function simulateConflicts(rows) {
   const out = [];
   const activeBundles = new Map();
@@ -4337,18 +4386,28 @@ function simulateConflicts(rows) {
       }
     });
   });
-  const contentCollision = new Set();
+  const roleOwner = new Map();
   rows.filter((i) => i.active).forEach((row) => {
     const p = packOf(row.packId);
     if (!p) return;
     p.bundles.forEach((b) => {
-      if (!contentCollision.has(b.role)) contentCollision.add(b.role);
-      else if (!out.some((c) => c.packId === p.id && c.reason.includes('重复角色'))) out.push({ packId: p.id, reason: `重复角色：${b.role}`, suggest: '保留角色更完整的包' });
+      const role = b.role || '工具';
+      if (!roleOwner.has(role)) { roleOwner.set(role, p.id); return; }
+      if (roleOwner.get(role) === p.id) return; // 同包重复角色：非包间冲突，不报
+      if (!out.some((c) => c.packId === p.id && c.reason.includes('重复角色：' + role))) {
+        out.push({ packId: p.id, reason: `重复角色：${role}`, suggest: '保留角色更完整的包' });
+      }
     });
   });
   return [...new Map(out.map((o) => [o.packId + o.reason, o])).values()];
 }
+/** 审计修复（数据源断裂）：生产端（WebView）真实插件模型是 profile 依赖扁平表
+ *  （__pluginsData：{id,spec,version,enabled,latest,hasUpdate}），不存在「多包同时激活」
+ *  的包间冲突面——健康信号由「插件健康」行直接消费 pluginRows()（异常/可更新）。
+ *  此前恒用 state.installed（localStorage 演示数据，生产端永不同步）模拟冲突，
+ *  桌面端自检页的冲突矩阵永不出现、插件健康恒「0 冲突/健康」假绿。浏览器原型保留演示模拟。 */
 function getConflicts() {
+  if (window.chrome && window.chrome.webview) return [];
   return simulateConflicts(state.installed);
 }
 

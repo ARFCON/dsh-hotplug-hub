@@ -154,19 +154,25 @@ async function executeAction(core, action, ctx) {
         // 重新生成 cordis.patch.yml（UTF-8 损坏修复）
         const { serializePatch } = require('../domain/patch');
         const { writeFileAtomic } = require('./atomic');
+        const { withPatchLock } = require('./patch-lock');
         const path = require('path');
         const patchFile = path.join(ctx.profile, 'cordis.patch.yml');
         const pack = ctx.pack || { id: ctx.state && ctx.state.id, plugins: ctx.plugins || [] };
         const sp = serializePatch(pack);
         if (!sp.ok) r = { ok: false, error: sp.error };
         else {
-          // R3：原子写（writeFileAtomic tmp+rename）——此前 writeFileSync 裸写
-          // cordis.patch.yml，崩溃时留下半截 patch 文件。
-          const w = writeFileAtomic(core.ports.fs, patchFile, sp.yamlText);
-          if (!w.ok) {
-            // C1 修复：写路径不裸抛
-            r = { ok: false, error: makeError('ERR_YAML_SERIALIZE', `重写 cordis.patch.yml 失败：${w.error.message}`) };
-          }
+          // 审计修复（四写者锁）：regenerate-patch 整文件重写与 hub 的分节保留合并互斥
+          // （<profile>/.dsh-patch.lock，CONTRACT.md §5——此前 launcher 此写点不取锁）。
+          r = withPatchLock(core.ports.fs, ctx.profile, () => {
+            // R3：原子写（writeFileAtomic tmp+rename）——此前 writeFileSync 裸写
+            // cordis.patch.yml，崩溃时留下半截 patch 文件。
+            const w = writeFileAtomic(core.ports.fs, patchFile, sp.yamlText);
+            if (!w.ok) {
+              // C1 修复：写路径不裸抛
+              return { ok: false, error: makeError('ERR_YAML_SERIALIZE', `重写 cordis.patch.yml 失败：${w.error.message}`) };
+            }
+            return { ok: true };
+          });
         }
         break;
       }

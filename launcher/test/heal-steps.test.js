@@ -244,9 +244,11 @@ describe('infra/heal-steps.js executeAction 全步骤（FIX-16：不静默 ok）
     });
     it('写失败 → ERR_YAML_SERIALIZE（C1：写路径不裸抛）', async () => {
       const profile = tempDir('hs-rp-writefail-');
+      // 审计修复后写路径先取四写者补丁锁（fs/lock 用 openSync/writeFileSync 写 token），
+      // 桩改为破坏 renameSync（writeFileAtomic 的落地步）——精确命中 patch 写入本身。
       const badFs = createFsPort({
         ...fs,
-        writeFileSync: () => { throw new Error('EACCES'); }
+        renameSync: () => { throw new Error('EPERM'); }
       });
       const plugins = [npmPlugin('a', '1.0.0', { resolvedVersion: '1.0.0' })];
       const r = await executeAction(makeCore({ ports: { fs: badFs } }), { code: 'UTF8_CORRUPTION', steps: [{ type: 'regenerate-patch' }] }, { plugins, profile, state: { id: 'x' } });

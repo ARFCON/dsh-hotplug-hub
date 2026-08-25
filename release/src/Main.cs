@@ -725,6 +725,8 @@ namespace DSHHotplugHub
             return null;
         }
         private static bool _updateNotified = false;
+        // NavigationCompleted 失败重试计数（防无限重试：只补一次导航）
+        private static int _navRetryCount = 0;
         private NotifyIcon _trayIcon = null;
         private bool _allowExit = false;
         private bool _trayReady = false; // 托盘图标创建成功才为 true（失败时关闭应退出，而非藏入不可恢复的托盘）
@@ -1530,17 +1532,25 @@ namespace DSHHotplugHub
                     }
                 };
 
+                // temp 页先落盘并声明路径（NavigationCompleted 的失败重试分支需要引用 file；
+                // C# 匿名方法捕获要求变量在词法上先声明——CS0841）
+                string dir = Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-webview2");
+                Directory.CreateDirectory(dir);
+                string file = Path.Combine(dir, "index.html");
+                File.WriteAllText(file, html, new UTF8Encoding(true));
+
                 webView.CoreWebView2.NavigationCompleted += async delegate (object sender, CoreWebView2NavigationCompletedEventArgs e)
                 {
                     try
                     {
                         if (e.IsSuccess)
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
+                            // 审计修复（注入顺序）：先落便宜的数据通道（全局函数定义 + list* 拉取，
+                            // 毫秒级）再做昂贵自检探测（可 spawn 多进程 + 访问 GitHub，离线数十秒）。
+                            // 此前顺序相反——页面停在演示 mock 数据上数十秒，用户把假数据当真实自检结果。
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory=function(d){window.__memoryData=d||[];if(typeof renderMemory==='function')renderMemory();if(typeof renderShell==='function')renderShell();};window.__setMemoryFull=function(d){window.__memoryFullData=d||null;if(typeof window.__onMemoryFull==='function')window.__onMemoryFull(window.__memoryFullData);};window.__memNotify=function(d){if(typeof window.__onMemNotify==='function')window.__onMemNotify(d||{ok:true,message:''});};window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setSkillSource=function(d){window.__skillSourceData=d||null;if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.__setPlugins=function(d){window.__pluginsData=d||[];if(typeof renderPlugins==='function')renderPlugins();if(typeof renderMarket==='function')renderMarket();if(typeof window.__onPluginsData==='function')window.__onPluginsData(window.__pluginsData);};window.chrome.webview.postMessage('listMemory');window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listSkillSource');window.chrome.webview.postMessage('listMcp');window.chrome.webview.postMessage('listPlugins');");
                             await webView.CoreWebView2.ExecuteScriptAsync(BuildApiIntegrationScript());
-                            // v1.1 契约：__setPlugins 回推数据后调用页面钩子 __onPluginsData（刷新主页更新面板/
-                        // 菜单角标，并在插件变更流程 pending 时触发「重启 DSH」二次确认提示）
-                        await webView.CoreWebView2.ExecuteScriptAsync("window.__setMemory=function(d){window.__memoryData=d||[];if(typeof renderMemory==='function')renderMemory();if(typeof renderShell==='function')renderShell();};window.__setMemoryFull=function(d){window.__memoryFullData=d||null;if(typeof window.__onMemoryFull==='function')window.__onMemoryFull(window.__memoryFullData);};window.__memNotify=function(d){if(typeof window.__onMemNotify==='function')window.__onMemNotify(d||{ok:true,message:''});};window.__setSkills=function(d){window.__skillsData=d||[];if(typeof renderSkills==='function')renderSkills();};window.__setSkillSource=function(d){window.__skillSourceData=d||null;if(typeof renderSkills==='function')renderSkills();};window.__setMcps=function(d){window.__mcpsData=d||[];if(typeof renderMcp==='function')renderMcp();};window.__setPlugins=function(d){window.__pluginsData=d||[];if(typeof renderPlugins==='function')renderPlugins();if(typeof renderMarket==='function')renderMarket();if(typeof window.__onPluginsData==='function')window.__onPluginsData(window.__pluginsData);};window.chrome.webview.postMessage('listMemory');window.chrome.webview.postMessage('listSkills');window.chrome.webview.postMessage('listSkillSource');window.chrome.webview.postMessage('listMcp');window.chrome.webview.postMessage('listPlugins');");
+                            await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                             // 同步窗体背景到页面主题色（消除四周 6px 空隙的白边框）
                             await webView.CoreWebView2.ExecuteScriptAsync("window.chrome.webview.postMessage('themeBg:'+getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());");
                             string latestCheck = null;
@@ -1554,16 +1564,35 @@ namespace DSHHotplugHub
                                 await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('发现新版本 v" + latestCheck + "，请到 自检更新 下载');");
                             }
                         }
+                        else
+                        {
+                            // 审计修复（导航失败兜底）：temp 页被占位/杀软拦截时此前直接跳过全部注入，
+                            // 页面永远停留在 mock 态且无提示。重试一次导航；仍失败记日志供诊断。
+                            if (_navRetryCount < 1)
+                            {
+                                _navRetryCount += 1;
+                                webView.CoreWebView2.Navigate(file);
+                            }
+                            else
+                            {
+                                try
+                                {
+                                    string logDir = Path.Combine(
+                                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                        "DSH-Hotplug-Hub");
+                                    Directory.CreateDirectory(logDir);
+                                    File.AppendAllText(Path.Combine(logDir, "ipc-error.log"),
+                                        DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " NavigationCompleted failed (retry exhausted)" + Environment.NewLine);
+                                }
+                                catch { /* 日志失败不影响主流程 */ }
+                            }
+                        }
                     }
                     catch
                     {
                     }
                 };
 
-                string dir = Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-webview2");
-                Directory.CreateDirectory(dir);
-                string file = Path.Combine(dir, "index.html");
-                File.WriteAllText(file, html, new UTF8Encoding(true));
                 webView.CoreWebView2.Navigate(file);
             }
             catch (Exception ex)
@@ -1603,7 +1632,9 @@ namespace DSHHotplugHub
             string pnpm = GetPnpmVersion();
             string dshDesktop = FindOfficialHarness();
             string dshVersion = GetDshCoreVersion();
-            string dshCli = FindDshCommand() != null ? "ok" : null;
+            // 探测去重：harness 路径传提示给 FindDshCommand（跳过第二次目录扫描）；
+            // dsh --version 已由 DshPathVersionProbe 短缓存共享。
+            string dshCli = FindDshCommand(dshDesktop) != null ? "ok" : null;
             string wv = null;
             try { wv = CoreWebView2Environment.GetAvailableBrowserVersionString(); } catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
             string profiles = DetectProfiles();
@@ -1633,28 +1664,43 @@ namespace DSHHotplugHub
                 "wslAvailable:" + JsString(wslAvailable) + "," +
                 "wslDsh:" + JsString(wslDsh) +
                 "};" +
-                "if(window.__nativeSelfCheck.dshVersion){state.dshVersion=window.__nativeSelfCheck.dshVersion;if(window.__nativeSelfCheck.latestVersion){state.latestVersion=window.__nativeSelfCheck.latestVersion;}if(typeof renderShell==='function')renderShell();}" +
+                // 审计修复（健壮性）：对页面全局（state/getChecks）一律 typeof/try 守卫——
+                // 页面脚本半失败（TDZ/早期异常）时注入脚本不再级联 ReferenceError，把
+                // 其后的补丁安装与重渲全部拖死（此前「数据在、渲染链死」且无任何日志）。
+                "try{" +
+                "if(typeof state!=='undefined'){state.dshVersion=window.__nativeSelfCheck.dshVersion||'';" +
+                // 审计修复（mock 泄漏）：dsh 未安装时此前跳过同步，state.dshVersion 保持
+                // 演示默认值 '0.1.0-rc.7'——自检行 val/侧栏/顶栏渲染假版本号，与
+                // 「未检测到 dsh CLI」同屏矛盾。现恒同步（空串由页面回退「未安装」）。
+                "if(window.__nativeSelfCheck.latestVersion){state.latestVersion=window.__nativeSelfCheck.latestVersion;}" +
                 "if(window.__nativeSelfCheck.panelInstalled||window.__nativeSelfCheck.panelLatest){state.panelInstalled=window.__nativeSelfCheck.panelInstalled||state.panelInstalled||null;state.panelLatest=window.__nativeSelfCheck.panelLatest||state.panelLatest||null;}" +
-                "(function(){window.__baseGetChecks=window.__baseGetChecks||getChecks;getChecks=function(){var r=window.__baseGetChecks();" +
+                "if(typeof renderShell==='function')renderShell();}" +
+                "}catch(e){}" +
+                "try{" +
+                "(function(){if(typeof getChecks!=='function')return;window.__baseGetChecks=window.__baseGetChecks||getChecks;getChecks=function(){var r=window.__baseGetChecks();" +
                 // semver 比较（数值段，pre/build 后缀整版本剔除，与 PatchContract.CompareVersions 语义一致）：latest > app 才算「可更新」——本地领先（如 0.9.8 未发布）不误报
                 "var nv=function(a,b){var A=String(a||'').replace(/^v/i,'').trim().split(/[-+]/)[0].split('.'),B=String(b||'').replace(/^v/i,'').trim().split(/[-+]/)[0].split('.');for(var i=0;i<Math.max(A.length,B.length);i++){var x=parseInt(A[i]||'0',10)||0,y=parseInt(B[i]||'0',10)||0;if(x!==y)return x-y;}return 0;};" +
                 "for(var i=0;i<r.length;i++){" +
                 "if(r[i].name==='Node.js'){r[i].val=window.__nativeSelfCheck.node||'未检测到';r[i].text=window.__nativeSelfCheck.node?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.node?'ok':'err';}" +
                 "if(r[i].name==='pnpm'){r[i].val=window.__nativeSelfCheck.pnpm||'未检测到';r[i].text=window.__nativeSelfCheck.pnpm?'已检测':'未安装';r[i].status=window.__nativeSelfCheck.pnpm?'ok':'err';}" +
-                "if(r[i].name==='DSH 版本'){var dv=window.__nativeSelfCheck.dshVersion||'';var dl=window.__nativeSelfCheck.dshLatest||'';r[i].val=dv||r[i].val;if(dv){r[i].text='当前 v'+dv+(dl&&dl!==dv?' · 最新 v'+dl:'');r[i].status='ok';}else{r[i].text='未检测到 dsh CLI（可自动安装）';r[i].status='warn';}}" +
+                "if(r[i].name==='DSH 版本'){var dv=window.__nativeSelfCheck.dshVersion||'';var dl=window.__nativeSelfCheck.dshLatest||'';r[i].val=dv||'未安装';if(dv){r[i].text='当前 v'+dv+(dl&&dl!==dv?' · 最新 v'+dl:'');r[i].status='ok';}else{r[i].text='未检测到 dsh CLI（可自动安装）';r[i].status='warn';}}" +
+                // 审计修复（假自检行）：'Profile 清单' 基础行此前恒显示演示值「desktop/完好」，
+                // 外壳真实探测（DetectProfiles）只追加为独立行——现直接回填该行，删除冗余 push。
+                "if(r[i].name==='Profile 清单'){var pf=window.__nativeSelfCheck.profiles;if(pf){r[i].val=pf;r[i].status='ok';r[i].text='已探测';}else{r[i].val='未探测到';r[i].status='warn';r[i].text='~/.dsh/profiles 无既有 profile';}}" +
                 "if(r[i].name==='官方 Skill/MCP 面板'){var pi=window.__nativeSelfCheck.panelInstalled;var pl=window.__nativeSelfCheck.panelLatest;r[i].val=pi||'未安装';if(!pi){r[i].status='warn';r[i].text='可安装 v'+(pl||'?');}else if(pl&&pi!==pl){r[i].status='update';r[i].text='可更新至 v'+pl;}else{r[i].status='ok';r[i].text='已最新';}}" +
                 "}" +
                 "if(window.__nativeSelfCheck.webview2){r.push({name:'WebView2',desc:'桌面渲染内核',val:window.__nativeSelfCheck.webview2,status:'ok',text:'可用'});}" +
-                "if(window.__nativeSelfCheck.profiles){r.push({name:'本地 DSH Profile',desc:'~/.dsh/profiles 探测',val:window.__nativeSelfCheck.profiles,status:'ok',text:'已探测'});}" +
                 "if(window.__nativeSelfCheck.dshCli){r.push({name:'dsh CLI',desc:'官方 DeepSeek Harness 命令行',val:window.__nativeSelfCheck.dshVersion||'已安装',status:'ok',text:'可用'});}" +
                 "if(window.__nativeSelfCheck.appVersion){r.push({name:'本程序版本',desc:'当前安装版本',val:window.__nativeSelfCheck.appVersion,status:'ok',text:'v'+window.__nativeSelfCheck.appVersion});}" +
                 "if(window.__nativeSelfCheck.latestVersion){var nCmp=nv(window.__nativeSelfCheck.latestVersion,window.__nativeSelfCheck.appVersion);r.push({name:'最新版本',desc:'GitHub 最新发布',val:window.__nativeSelfCheck.latestVersion,status:nCmp>0?'warn':'ok',text:nCmp>0?'可更新':'已最新'});}" +
                 "return r;};" +
-                "if(typeof renderCheck==='function'){renderCheck();}" +
+                // 审计修复（隐藏视图重渲）：此前无条件 renderCheck()——用户停在任意视图都会
+                // 重建隐藏的 view-check。改渲当前视图（check 页即自检页，主页同步刷新环境点）。
+                "if(typeof renderCurrent==='function'){renderCurrent();}" +
                 // 客户端中心开着时同步重渲（setEnvMode 切换后 Windows/WSL 高亮即时刷新，与 toast 一致）
                 "if(document.getElementById('clientCenterBackdrop')&&document.getElementById('clientCenterBackdrop').classList.contains('show')&&typeof renderClientCenter==='function'){renderClientCenter();}" +
 
-                "})();";
+                "})();}catch(e){}";
             return js;
         }
 
@@ -1692,7 +1738,17 @@ namespace DSHHotplugHub
             return sb.ToString();
         }
 
-        internal static string RunCli(string fileName, string arguments)
+        internal static string RunCli(string fileName, string arguments) { return RunCli(fileName, arguments, 5000, null); }
+
+        // 审计修复（探测语义三处）：
+        //  1) 超时改杀整棵进程树（taskkill /T /F）——.NET Framework 的 Kill() 只杀直接子进程，
+        //     cmd.exe /c pnpm ... 链下的 node.exe 成孤儿且管道不 EOF，输出任务永不完成；
+        //  2) WaitForExit 返回后显式等待输出管道排空——进程退出与异步读取完成之间无
+        //     happens-before，快速退出的探测（node --version ~50ms）此前会间歇性丢输出；
+        //  3) 超时可调（versionMs 参数）——冷启动（杀软扫描/首载）超过 5s 的 pnpm/dsh
+        //     此前被当"未安装"，版本探测统一放宽到 15s（只影响慢而存在的场景；真缺失时
+        //     命令立即报错返回，不拉长耗时）。
+        internal static string RunCli(string fileName, string arguments, int timeoutMs, Encoding outputEncoding)
         {
             try
             {
@@ -1701,16 +1757,34 @@ namespace DSHHotplugHub
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
                 psi.CreateNoWindow = true;
+                if (outputEncoding != null) psi.StandardOutputEncoding = outputEncoding;
                 using (Process p = Process.Start(psi))
                 {
                     // 先异步接管输出再等退出：ReadToEnd() 是无限阻塞的，进程挂起时必须靠超时 + Kill 脱身
                     Task<string> stdout = p.StandardOutput.ReadToEndAsync();
                     Task<string> stderr = p.StandardError.ReadToEndAsync();
-                    if (!p.WaitForExit(5000))
+                    if (!p.WaitForExit(timeoutMs))
                     {
+                        // 杀整棵树：cmd.exe 包装的孙进程（node/pnpm）不会被 Kill() 连带终止；
+                        // 等 taskkill 完成（最多 2s）再杀直接子进程，防父先死导致树枚举落空。
+                        try
+                        {
+                            string taskkill = Path.Combine(Environment.SystemDirectory, "taskkill.exe");
+                            using (Process killer = Process.Start(new ProcessStartInfo(taskkill, "/PID " + p.Id + " /T /F")
+                            {
+                                UseShellExecute = false,
+                                CreateNoWindow = true
+                            }))
+                            {
+                                if (killer != null && !killer.WaitForExit(2000)) { /* 尽力而为 */ }
+                            }
+                        }
+                        catch { /* 回退：至少杀直接子进程 */ }
                         try { p.Kill(); } catch { /* 有意吞掉：尽力而为的清理 */ }
                         try { p.WaitForExit(2000); } catch { /* 有意吞掉：尽力而为的清理 */ }
                     }
+                    // 排空输出管道（最多再等 3s）：退出信号与管道 EOF 无同步关系
+                    try { Task.WaitAll(new[] { stdout, stderr }, 3000); } catch { /* 超时即用已读到的部分 */ }
                     return stdout.Status == TaskStatus.RanToCompletion ? stdout.Result.Trim() : "";
                 }
             }
@@ -1723,12 +1797,12 @@ namespace DSHHotplugHub
         // pnpm 在 Windows 下通常是 pnpm.ps1 / pnpm.cmd，直接 spawn "pnpm" 会失败，这里做多路探测
         private static string GetPnpmVersion()
         {
-            // 1) 通过 cmd.exe 解析 pnpm（能识别 PATH 里的 pnpm.cmd / pnpm.ps1）
-            string v = RunCli("cmd.exe", "/c pnpm --version");
+            // 1) 通过 cmd.exe 解析 pnpm（能识别 PATH 里的 pnpm.cmd / pnpm.ps1）；15s——冷启动慢≠未安装
+            string v = RunCli("cmd.exe", "/c pnpm --version", 15000, null);
             if (!string.IsNullOrEmpty(v)) return v;
 
             // 2) 直接尝试 pnpm.cmd
-            v = RunCli("pnpm.cmd", "--version");
+            v = RunCli("pnpm.cmd", "--version", 15000, null);
             if (!string.IsNullOrEmpty(v)) return v;
 
             // 3) 常见 npm 全局目录
@@ -1737,7 +1811,7 @@ namespace DSHHotplugHub
                 "npm", "pnpm.cmd");
             if (File.Exists(known))
             {
-                v = RunCli(known, "--version");
+                v = RunCli(known, "--version", 15000, null);
                 if (!string.IsNullOrEmpty(v)) return v;
             }
 
@@ -1745,7 +1819,7 @@ namespace DSHHotplugHub
             string portablePnpm = Path.Combine(GetNodeInstallDir(), "pnpm.cmd");
             if (File.Exists(portablePnpm))
             {
-                v = RunCli("cmd.exe", "/c \"" + portablePnpm + "\" --version");
+                v = RunCli("cmd.exe", "/c \"" + portablePnpm + "\" --version", 15000, null);
                 if (!string.IsNullOrEmpty(v)) return v;
             }
 
@@ -1758,9 +1832,11 @@ namespace DSHHotplugHub
             {
                 string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
                 string dsh = Path.Combine(home, ".dsh", "profiles");
-                if (!Directory.Exists(dsh)) return "未找到 ~/.dsh/profiles";
+                // 审计修复：未找到/空目录返回 null（而非"未找到…"文案）——调用方（自检注入）
+                // 以非空判定"已探测"，文案串此前被当成 profile 名渲染成「已探测 · 未找到 ~/.dsh/profiles」。
+                if (!Directory.Exists(dsh)) return null;
                 string[] names = Directory.GetDirectories(dsh);
-                if (names.Length == 0) return "空";
+                if (names.Length == 0) return null;
                 StringBuilder sb = new StringBuilder();
                 foreach (string name in names)
                 {
@@ -2300,6 +2376,17 @@ namespace DSHHotplugHub
         private static void ClearGitHubCache()
         {
             lock (_githubCache) { _githubCache.Clear(); }
+            // 本地探测短缓存一并失效：recheck/installHarness/autoInstallEnv/checkUpdate 后
+            // 必须能看到新安装的 dsh/pnpm（此前 dsh --version 探测结果跨 recheck 复用旧值）。
+            // npm 负缓存的清空在 _npmLatestLock 内（防在途请求完成回写复活刚清掉的旧值）。
+            _dshPathProbe = null;
+            _dshPathProbeDone = false;
+            lock (_npmLatestLock)
+            {
+                _npmLatestCache = null;
+                _npmLatestCacheAt = DateTime.MinValue;
+                _npmLatestCacheHit = false;
+            }
         }
 
         // 版本号规范化：去掉空白与前导 v/V，"v0.8.0-pre" 与 "0.8.0-pre" 视为相同
@@ -2333,8 +2420,21 @@ namespace DSHHotplugHub
 
         // dsh CLI（@deepseek-ai/dsh）最新版本：官方 deepseek-ai/deepseek-harness 仓库无 release，
         // 最新版本从 npm registry 查（与 dsh 实际分发渠道一致）。
+        // 审计修复：加 TTL 缓存（与 GitHubGetJsonCached 对齐）——此前每次
+        // recheck/checkUpdate/导航注入都直连 registry。失败也写 60s 负缓存（null）：
+        // 离线机器不再每次新增 15s 阻塞（成功缓存 10 分钟，失败短 TTL 便于联网后自愈）。
+        private static string _npmLatestCache = null;
+        private static DateTime _npmLatestCacheAt = DateTime.MinValue;
+        private static bool _npmLatestCacheHit = false;
+        private static readonly object _npmLatestLock = new object();
         private static string GetLatestDshCliVersion()
         {
+            lock (_npmLatestLock)
+            {
+                if (_npmLatestCacheHit && (DateTime.UtcNow - _npmLatestCacheAt).TotalMinutes < 10) return _npmLatestCache;
+                if (!_npmLatestCacheHit && (DateTime.UtcNow - _npmLatestCacheAt).TotalSeconds < 60 && _npmLatestCacheAt != DateTime.MinValue) return null;
+            }
+            string result = null;
             try
             {
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://registry.npmjs.org/@deepseek-ai/dsh/latest");
@@ -2348,12 +2448,18 @@ namespace DSHHotplugHub
                     if (root != null && root.ContainsKey("version"))
                     {
                         string v = Convert.ToString(root["version"]);
-                        if (!string.IsNullOrEmpty(v)) return v.TrimStart('v');
+                        if (!string.IsNullOrEmpty(v)) result = v.TrimStart('v');
                     }
                 }
             }
-            catch { /* 网络失败返回 null，UI 不显示"最新"即可 */ }
-            return null;
+            catch { /* 网络失败返回 null，UI 不显示"最新"即可（60s 负缓存防离线反复阻塞） */ }
+            lock (_npmLatestLock)
+            {
+                _npmLatestCache = result;
+                _npmLatestCacheHit = result != null;
+                _npmLatestCacheAt = DateTime.UtcNow;
+            }
+            return result;
         }
 
 
@@ -2395,7 +2501,9 @@ namespace DSHHotplugHub
         }
 
         // 返回 dsh 命令启动方式：{可执行文件, 参数前缀}；找不到返回 null。
-        internal static string[] FindDshCommand()
+        // officialHarnessHint：调用方已探测过的官方桌面壳路径（BuildNativeSelfCheckScript 一周期
+        // 内探测两次 → 传提示跳过第二次目录扫描）；缺省自行探测，行为不变。
+        internal static string[] FindDshCommand(string officialHarnessHint = null)
         {
             // 环境切换：WSL 模式下直接用 wsl.exe 在 Linux 子系统里跑 dsh
             if (GetEnvMode() == "wsl")
@@ -2416,7 +2524,8 @@ namespace DSHHotplugHub
             // 1. PATH 中直接有 dsh（npm/pnpm 全局安装）。
             //    注意：cmd.exe /c dsh --version 在找不到 dsh 时会打印 cmd 自身版本横幅，
             //    必须排除 "Microsoft"/"Windows" 字样，避免把 cmd 横幅误判成 dsh 版本。
-            string probe = RunCli("cmd.exe", "/c dsh --version");
+            //    探测结果与 GetDshCoreVersion 共享短缓存（同一周期只跑一次）。
+            string probe = DshPathVersionProbe();
             if (!string.IsNullOrEmpty(probe) && probe.Contains(".")
                 && !probe.Contains("Microsoft") && !probe.Contains("Windows"))
             {
@@ -2432,7 +2541,7 @@ namespace DSHHotplugHub
             }
 
             // 3. 官方 DSH Desktop 内置 dsh CLI（兜底，仅在装了桌面壳时才用）
-            string harness = FindOfficialHarness();
+            string harness = officialHarnessHint != null ? officialHarnessHint : FindOfficialHarness();
             if (harness != null)
             {
                 string appDir = Path.GetDirectoryName(harness);
@@ -2618,13 +2727,28 @@ namespace DSHHotplugHub
             return null;
         }
 
+        // dsh --version 的 PATH 探测短缓存：同一探测周期内 GetDshCoreVersion 与 FindDshCommand
+        // 复用同一结果（此前一次自检要跑两遍，冷启动场景双倍 15s）。缓存随 ClearGitHubCache
+        // 一并失效（recheck/installHarness/autoInstallEnv/checkUpdate 后必能看到新装结果）。
+        private static string _dshPathProbe = null;
+        private static bool _dshPathProbeDone = false;
+        private static string DshPathVersionProbe()
+        {
+            if (!_dshPathProbeDone)
+            {
+                _dshPathProbe = RunCli("cmd.exe", "/c dsh --version", 15000, null);
+                _dshPathProbeDone = true;
+            }
+            return _dshPathProbe;
+        }
+
         private static string GetDshCoreVersion()
         {
             try
             {
                 // 架构改为直接用 dsh CLI 启动官方 web 服务，因此「DSH 版本」= 本机 dsh CLI 版本。
-                // 1. 直接跑 dsh --version（最准确，和启动逻辑一致）
-                string cliVer = RunCli("cmd.exe", "/c dsh --version");
+                // 1. 直接跑 dsh --version（最准确，和启动逻辑一致；15s——冷启动慢≠未安装）
+                string cliVer = DshPathVersionProbe();
                 if (!string.IsNullOrEmpty(cliVer) && cliVer.Contains(".")
                     && !cliVer.Contains("Microsoft") && !cliVer.Contains("Windows"))
                 {
@@ -2778,8 +2902,26 @@ namespace DSHHotplugHub
         {
             try
             {
-                string outText = RunCli("wsl.exe", "-l -q");
-                return !string.IsNullOrEmpty(outText) && !outText.Contains("未安装") && !outText.Contains("not installed");
+                // 审计修复（编码）：wsl.exe 在 stdout 重定向时输出 UTF-16LE（Windows 已知行为），
+                // 按控制台 OEM 页解码得到夹 \0 的乱码——旧判据（子串排除）永不命中，
+                // 无发行版的机器也被误判可用。现以 Unicode 解码，并只接受「发行版名形态」
+                // 的行（单个词字符/点/连字符，无空格中文）——各语言的提示文案
+                // （"no installed distributions" / 「没有已安装的分发版」）均含空格或中文，
+                // 天然被排除，不再依赖枚举消息串。
+                string outText = RunCli("wsl.exe", "-l -q", 5000, Encoding.Unicode);
+                if (string.IsNullOrEmpty(outText)) return false;
+                foreach (string raw in outText.Split('\n'))
+                {
+                    string line = raw.Trim('\0', '\r', ' ', '\t', '\uFEFF'); // \uFEFF：个别构建的 UTF-16 BOM 兜底
+                    if (line.Length == 0) continue;
+                    bool distroName = true;
+                    foreach (char c in line)
+                    {
+                        if (!(char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-')) { distroName = false; break; }
+                    }
+                    if (distroName) return true;
+                }
+                return false;
             }
             catch { return false; }
         }

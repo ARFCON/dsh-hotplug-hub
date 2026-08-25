@@ -711,7 +711,7 @@ describe('D. gateway 串行与恢复', () => {
 
   it('D3 bundles 生命周期：github store 预置 dsh.bundle.patch:true → activate 登记、deactivate 清空', async () => {
     // github store 预置法：写 store 目录 package.json 含 dsh.bundle.patch:true（ensureGithub reused，零网络）
-    const storeDir = join(iso.dshHome, 'hotplug-store', 'pkg-g@main')
+    const storeDir = join(iso.dshHome, 'hotplug-store', 'acme%2Fpkg-g#pkg-g@main')
     mkdirSync(storeDir, { recursive: true })
     writeFileSync(join(storeDir, 'package.json'),
       JSON.stringify({ name: 'pkg-g', version: '1.0.0', dsh: { bundle: { patch: true } } }))

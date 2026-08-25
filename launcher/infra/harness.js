@@ -80,12 +80,41 @@ function verifyHarness(fsPort, file) {
 }
 
 /**
+ * 零子进程的 PATH 扫描（审计修复：status/launch 口径对齐）——只读命令（probe:false）
+ * 此前只扫固定候选目录，PATH 上装的 dsh CLI（npm/pnpm 全局）被报「未找到 harness」，
+ * 而同机 launch（probe:true）却成功，STATUS OK 与 harnessError 同屏自相矛盾。
+ * 纯 fs existsSync + verifyHarness，无任何子进程副作用（保持只读契约）。
+ * @param {object} fsPort
+ * @param {string} platform
+ * @param {object} env
+ * @returns {{ok: boolean, harness?: string, error?: Error}}
+ */
+function scanPathForDsh(fsPort, platform, env) {
+  const pathValue = env && typeof env.PATH === 'string' ? env.PATH : '';
+  if (pathValue === '') return { ok: false };
+  const names = platform === 'win32' ? ['dsh.cmd', 'dsh.exe'] : ['dsh'];
+  let lastError = null;
+  for (const dir of pathValue.split(path.delimiter)) {
+    if (!dir) continue;
+    for (const name of names) {
+      const file = path.join(dir, name);
+      if (!fsPort.existsSync(file)) continue;
+      const v = verifyHarness(fsPort, file);
+      if (v.ok) return { ok: true, harness: file };
+      lastError = v.error;
+    }
+  }
+  return lastError ? { ok: false, error: lastError } : { ok: false };
+}
+
+/**
  * 探测官方 harness（先候选，后 dsh CLI 回退）。
  * @param {object} core
  * @param {object} [opts]
  * @param {string} [opts.platform]
  * @param {boolean} [opts.probe] 是否允许 spawn 探测 PATH 上的 dsh CLI（默认 true；
- *   只读命令如 status 应传 false，保持零子进程副作用——FIX-22/只读契约强化）
+ *   只读命令如 status 应传 false，保持零子进程副作用——FIX-22/只读契约强化。
+ *   probe:false 时仍会做零子进程的 PATH 文件扫描，见 scanPathForDsh）
  * @returns {{ok: boolean, harness?: string, error?: Error}}
  */
 function findHarness(core, opts = {}) {
@@ -104,8 +133,14 @@ function findHarness(core, opts = {}) {
     lastError = v.error;
   }
 
-  // dsh CLI 回退（N5/FIX-11）：真实探测 PATH（where/which，Windows 兼容 dsh.cmd），
-  // 不再用 existsSync('dsh') 相对路径误判。
+  // dsh CLI 回退（N5/FIX-11）：先做零子进程的 PATH 文件扫描（probe:false 也生效，
+  // 与 launch 的 PATH 发现口径对齐）。
+  const scanned = scanPathForDsh(fsPort, platform, env);
+  if (scanned.ok) return { ok: true, harness: scanned.harness };
+  if (scanned.error) lastError = scanned.error;
+
+  // 真实探测 PATH（where/which，Windows 兼容 dsh.cmd），不再用 existsSync('dsh')
+  // 相对路径误判。
   // 回退结果同样必须过 verifyHarness（A2 修复：N44 完整性校验缺口——此前
   // PATH 上的符号链接/零字节文件会被直接采纳为 harness 并执行）。
   if (opts.probe !== false && procPortAvailable(core)) {
@@ -135,4 +170,4 @@ function procPortAvailable(core) {
   return core.ports && core.ports.proc && typeof core.ports.proc.spawnSync === 'function';
 }
 
-module.exports = { candidatePaths, verifyHarness, findHarness };
+module.exports = { candidatePaths, verifyHarness, findHarness, scanPathForDsh };

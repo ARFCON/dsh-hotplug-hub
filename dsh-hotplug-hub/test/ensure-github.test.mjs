@@ -229,31 +229,31 @@ describe('storeKeySegment / storeDirOf（store 键单段化）', () => {
   })
 
   it('storeDirOf：scoped 名 + 含 / 的 ref → 单段 store 键', () => {
-    const d = storeDirOf({ name: '@scope/pkg', source: { type: 'github', ref: 'feature/x' } })
-    expect(d).toBe(join(iso.dshHome, 'hotplug-store', '@scope%2Fpkg@feature%2Fx'))
+    const d = storeDirOf({ name: '@scope/pkg', source: { type: 'github', repo: 'o/r', ref: 'feature/x' } })
+    expect(d).toBe(join(iso.dshHome, 'hotplug-store', 'o%2Fr#@scope%2Fpkg@feature%2Fx'))
     // 末段不含路径分隔符（真正的单段，junction/cpSync 安全）
     const seg = d.split(/[\\/]/).pop()
-    expect(seg).toBe('@scope%2Fpkg@feature%2Fx')
+    expect(seg).toBe('o%2Fr#@scope%2Fpkg@feature%2Fx')
   })
 
   it('storeDirOf 按 source.type 分派：path 原样 / npm 走 profile node_modules', () => {
     expect(storeDirOf({ name: 'n', source: { type: 'path', path: 'C:/x' } })).toBe('C:/x')
     expect(storeDirOf({ name: 'n', source: { type: 'npm' } })).toBe(join(iso.profile, 'node_modules', 'n'))
-    expect(storeDirOf({ name: 'n', source: { type: 'github', ref: 'main' } })).toBe(join(iso.dshHome, 'hotplug-store', 'n@main'))
+    expect(storeDirOf({ name: 'n', source: { type: 'github', repo: 'o/r', ref: 'main' } })).toBe(join(iso.dshHome, 'hotplug-store', 'o%2Fr#n@main'))
   })
 })
 
 // ---------- ensureGithub 主流程 ----------
 
 describe('ensureGithub（真实 spawn 假 curl + 假 tar）', () => {
-  it('首次下载：downloaded + 落到 hotplug-store/<name>@<ref>，整树（含子目录）拷贝', async () => {
+  it('首次下载：downloaded + 落到 hotplug-store/<repo>#<name>@<ref>，整树（含子目录）拷贝', async () => {
     stdFixture('pkg-g')
     const entry = ghEntry('pkg-g', 'acme/ok-repo', 'v1')
     const r = await ensureGithub(entry)
     expect(r.ok).toBe(true)
     expect(r.status).toBe('downloaded')
     expect(r.path).toBe(storeDirOf(entry))
-    expect(r.path).toBe(join(iso.dshHome, 'hotplug-store', 'pkg-g@v1'))
+    expect(r.path).toBe(join(iso.dshHome, 'hotplug-store', 'acme%2Fok-repo#pkg-g@v1'))
     expect(r.detail).toContain('acme/ok-repo@v1')
     // store 内 package.json 内部包名一致 + index.js / lib/util.js 递归拷贝
     expect(readJson(join(r.path, 'package.json'))).toMatchObject({ name: 'pkg-g', version: '1.0.0' })
@@ -281,8 +281,8 @@ describe('ensureGithub（真实 spawn 假 curl + 假 tar）', () => {
     const entryX = ghEntry('pkg-g', 'acme/ok-repo', 'feature/x')
     const r1 = await ensureGithub(entryX)
     expect(r1.status).toBe('downloaded')
-    expect(r1.path.endsWith('pkg-g@feature%2Fx')).toBe(true)
-    // 再下载 ref='feature'（平铺键 pkg-g@feature）→ 不得连带删除 feature/x 的缓存
+    expect(r1.path.endsWith('acme%2Fok-repo#pkg-g@feature%2Fx')).toBe(true)
+    // 再下载 ref='feature'（平铺键 …#pkg-g@feature）→ 不得连带删除 feature/x 的缓存
     const r2 = await ensureGithub(ghEntry('pkg-g', 'acme/ok-repo', 'feature'))
     expect(r2.status).toBe('downloaded')
     expect(existsSync(join(r1.path, 'package.json'))).toBe(true)
@@ -290,13 +290,13 @@ describe('ensureGithub（真实 spawn 假 curl + 假 tar）', () => {
     expect(existsSync(join(r2.path, 'package.json'))).toBe(true)
   })
 
-  it('scoped 插件名 @scope/pkg-g：store 键单段（@scope%2Fpkg-g@v1），可正常下载', async () => {
+  it('scoped 插件名 @scope/pkg-g：store 键单段（acme%2Fok-repo#@scope%2Fpkg-g@v1），可正常下载', async () => {
     stdFixture('@scope/pkg-g')
     const entry = ghEntry('@scope/pkg-g', 'acme/ok-repo', 'v1')
     const r = await ensureGithub(entry)
     expect(r.ok).toBe(true)
     expect(r.status).toBe('downloaded')
-    expect(r.path).toBe(join(iso.dshHome, 'hotplug-store', '@scope%2Fpkg-g@v1'))
+    expect(r.path).toBe(join(iso.dshHome, 'hotplug-store', 'acme%2Fok-repo#@scope%2Fpkg-g@v1'))
     expect(readJson(join(r.path, 'package.json')).name).toBe('@scope/pkg-g')
   })
 

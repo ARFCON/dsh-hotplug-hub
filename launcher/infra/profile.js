@@ -15,6 +15,7 @@ const { PATCH_FILE, PROFILE_MANIFEST } = require('../contracts/constants');
 const { makeError } = require('../contracts/errors');
 const ids = require('../domain/ids');
 const { createSnapshot, restoreSnapshot } = require('./snapshot');
+const { withPatchLock } = require('./patch-lock');
 
 /**
  * 同步 sandbox 产物到 profile。
@@ -25,6 +26,8 @@ const { createSnapshot, restoreSnapshot } = require('./snapshot');
  * @param {Array<string>} [opts.exclude] 排除的插件名（quarantine 消费）——
  *   复制后从 profile/package.json 的 dependencies/bundles 与 cordis.patch.yml 的
  *   insert 中剔除，保证被隔离插件不会被 DSH 加载。
+ * @param {number} [opts.patchLockWaitMs] 四写者补丁锁等待预算（默认 10000；
+ *   测试/特殊调用方可缩短，生产行为不变）
  * @returns {{ok: boolean, result?: object, error?: Error}}
  */
 function syncProfile(core, id, opts = {}) {
@@ -68,44 +71,51 @@ function syncProfile(core, id, opts = {}) {
   if (pre.ok && pre.snapshot.files.length > 0) snapshot = pre.snapshot;
 
   // 3) 原子复制（C5 修复：临时名带随机后缀，防可预测名符号链接预置）
+  // 审计修复（四写者锁）：patch/package 写盘纳入 <profile>/.dsh-patch.lock——与 hub 的
+  // appendPatchBlock/removePatchBlock 互斥（此前 launcher 整文件替换可在 hub 持锁写盘
+  // 期间并发进行，互相吞更新；契约常量 PATCH_LOCK_FILE 在 launcher 侧此前零引用）。
   let tmpPkg = null;
   let tmpPatch = null;
-  try {
-    fsPort.mkdirSync(profileDir, { recursive: true });
-    const rand = crypto.randomBytes(4).toString('hex');
-    tmpPkg = path.join(profileDir, `.${PROFILE_MANIFEST}.${Date.now()}.${rand}.tmp`);
-    tmpPatch = path.join(profileDir, `.${PATCH_FILE}.${Date.now()}.${rand}.tmp`);
-    fsPort.copyFileSync(sandboxPkg, tmpPkg);
-    if (fsPort.existsSync(sandboxPatch)) fsPort.copyFileSync(sandboxPatch, tmpPatch);
-    fsPort.renameSync(tmpPkg, path.join(profileDir, PROFILE_MANIFEST));
-    if (fsPort.existsSync(sandboxPatch)) fsPort.renameSync(tmpPatch, path.join(profileDir, PATCH_FILE));
+  const locked = withPatchLock(fsPort, profileDir, () => {
+    try {
+      fsPort.mkdirSync(profileDir, { recursive: true });
+      const rand = crypto.randomBytes(4).toString('hex');
+      tmpPkg = path.join(profileDir, `.${PROFILE_MANIFEST}.${Date.now()}.${rand}.tmp`);
+      tmpPatch = path.join(profileDir, `.${PATCH_FILE}.${Date.now()}.${rand}.tmp`);
+      fsPort.copyFileSync(sandboxPkg, tmpPkg);
+      if (fsPort.existsSync(sandboxPatch)) fsPort.copyFileSync(sandboxPatch, tmpPatch);
+      fsPort.renameSync(tmpPkg, path.join(profileDir, PROFILE_MANIFEST));
+      if (fsPort.existsSync(sandboxPatch)) fsPort.renameSync(tmpPatch, path.join(profileDir, PATCH_FILE));
 
-    // FIX-1：install 产物打通 —— sandbox/node_modules → profile/node_modules junction
-    // （方案 B，与 install-plugins.mjs 对齐：依赖真正落地到 profile 侧，DSH 可 require）
-    const sandboxNm = path.join(sandboxResolved, 'node_modules');
-    const profileNm = path.join(profileDir, 'node_modules');
-    const note = refreshNodeModulesLink(fsPort, sandboxNm, profileNm);
-    if (note) syncNote = note;
+      // FIX-1：install 产物打通 —— sandbox/node_modules → profile/node_modules junction
+      // （方案 B，与 install-plugins.mjs 对齐：依赖真正落地到 profile 侧，DSH 可 require）
+      const sandboxNm = path.join(sandboxResolved, 'node_modules');
+      const profileNm = path.join(profileDir, 'node_modules');
+      const note = refreshNodeModulesLink(fsPort, sandboxNm, profileNm);
+      if (note) syncNote = note;
 
-    // C6 修复（quarantine 消费）：同步后按 exclude 剔除被隔离插件的
-    // dependencies/bundles 与 patch insert——不重新组装也能让隔离生效。
-    if (exclude.length > 0) {
-      const exNote = applyExcludes(core, profileDir, exclude);
-      if (exNote) syncNote = syncNote ? `${syncNote}；${exNote}` : exNote;
-    }
-  } catch (e) {
-    // FIX-23：清理未 rename 的 tmp 残留
-    try { if (tmpPkg && fsPort.existsSync(tmpPkg)) fsPort.unlinkSync(tmpPkg); } catch (_) { /* 忽略 */ }
-    try { if (tmpPatch && fsPort.existsSync(tmpPatch)) fsPort.unlinkSync(tmpPatch); } catch (_) { /* 忽略 */ }
-    // 4) 失败回滚
-    if (snapshot) {
-      const rb = restoreSnapshot(fsPort, snapshot, profileDir);
-      if (!rb.ok) {
-        return { ok: false, error: makeError('ERR_HEAL_ROLLBACK', `同步失败且回滚失败：${rb.error.message}`) };
+      // C6 修复（quarantine 消费）：同步后按 exclude 剔除被隔离插件的
+      // dependencies/bundles 与 patch insert——不重新组装也能让隔离生效。
+      if (exclude.length > 0) {
+        const exNote = applyExcludes(core, profileDir, exclude);
+        if (exNote) syncNote = syncNote ? `${syncNote}；${exNote}` : exNote;
       }
+      return { ok: true };
+    } catch (e) {
+      // FIX-23：清理未 rename 的 tmp 残留
+      try { if (tmpPkg && fsPort.existsSync(tmpPkg)) fsPort.unlinkSync(tmpPkg); } catch (_) { /* 忽略 */ }
+      try { if (tmpPatch && fsPort.existsSync(tmpPatch)) fsPort.unlinkSync(tmpPatch); } catch (_) { /* 忽略 */ }
+      // 4) 失败回滚
+      if (snapshot) {
+        const rb = restoreSnapshot(fsPort, snapshot, profileDir);
+        if (!rb.ok) {
+          return { ok: false, error: makeError('ERR_HEAL_ROLLBACK', `同步失败且回滚失败：${rb.error.message}`) };
+        }
+      }
+      return { ok: false, error: makeError('ERR_INSTALL_FAILED', `同步 profile 失败：${e.message}`) };
     }
-    return { ok: false, error: makeError('ERR_INSTALL_FAILED', `同步 profile 失败：${e.message}`) };
-  }
+  }, { waitMs: opts.patchLockWaitMs });
+  if (!locked.ok) return locked;
 
   return { ok: true, result: { profile: profileDir, snapshot, note: syncNote } };
 }

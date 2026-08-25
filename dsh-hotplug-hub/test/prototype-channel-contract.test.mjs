@@ -68,9 +68,10 @@ const coveredByPage = (cmd, pageLiterals) =>
 // C# 侧主动发送（非页面发送）的命令——白名单必须与 Main.cs 实际注入脚本逐条对应：
 //   ai            BuildApiIntegrationScript：EXE 渠道把对话轮转发给 C#（qa7 实测覆盖）
 //   listSkills / listMcp：外壳引导注入（Main.cs ExecuteScriptAsync 启动拉取）
-//   installPanel / updatePanel / openPanelPage / addSkill:：面板时代遗留处理器，
-//   v4 UI 无发送方（历史保留，页面契约文档未列入；如清理需同步删白名单与处理器）
-const SHELL_ONLY_ALLOWLIST = ['ai', 'listSkills', 'listMcp', 'installPanel', 'updatePanel', 'openPanelPage', 'addSkill']
+//   updatePanel / openPanelPage / addSkill:：面板时代遗留处理器，v4 UI 无发送方
+//   （历史保留，页面契约文档未列入；如清理需同步删白名单与处理器）。
+//   注：installPanel 已有页面发送方（自检页「官方 Skill/MCP 面板」行内按钮，审计修复接入）。
+const SHELL_ONLY_ALLOWLIST = ['ai', 'listSkills', 'listMcp', 'updatePanel', 'openPanelPage', 'addSkill']
 
 describe('postMessage 命令契约：页面 → 外壳（无死发送）', () => {
   const shell = extractShellCommands(mainCs)

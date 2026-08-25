@@ -54,8 +54,17 @@ async function runPipeline(core, command, args) {
     // （后写者用过期快照覆盖先写者的更新）。锁内读取保证整个
     // read-modify-write 周期串行。
     const read = core.infra.store.readState(fsPort, stateFile);
-    if (!read.ok) return errResult(read.error);
-    const state = read.state || core.infra.store.createEmptyState(id);
+    let state;
+    if (read.ok) {
+      state = read.state || core.infra.store.createEmptyState(id);
+    } else {
+      // 审计修复（只读命令诚实降级）：state.json 损坏此前把 check/status/logs 一并拦死
+      // （ERR_ENV_UNSUPPORTED）——check 只读 assembly、logs 只读 runlog，根本不消费 state；
+      // status 应显式报 DEGRADED 而不是拒答。写命令维持硬失败（损坏态下读-改-写不可信）。
+      if (WRITE_COMMANDS.has(command)) return errResult(read.error);
+      state = core.infra.store.createEmptyState(id);
+      state._corrupted = true; // stageStatus 消费（healthy=false + stateOk:false 显式可见）
+    }
 
     const stage = STAGES[command];
     if (!stage) {
