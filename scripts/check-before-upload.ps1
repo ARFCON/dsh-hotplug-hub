@@ -37,6 +37,18 @@ Step '启动器 heal 测试' {
   try { node launcher/index.js heal example | Out-Null } finally { Pop-Location }
 }
 
+# 3.5 版本号一致性检查（v1.1 PC18：package.json / Main.cs / Setup.cs 同源）
+Step '版本号一致性检查' {
+  Push-Location $repo
+  try { node scripts/check-version-consistency.mjs | Out-Null } finally { Pop-Location }
+}
+
+# 3.6 注入脚本健壮性验收（v1.1 PC15：桌面壳注入 JS 页面半失败不级联）
+Step '注入脚本健壮性验收（qa13）' {
+  Push-Location $repo
+  try { node scripts/qa13-shell-injection.mjs | Out-Null } finally { Pop-Location }
+}
+
 # 3. PowerShell 脚本语法检查
 Step 'PowerShell 脚本语法检查' {
   $psFiles = Get-ChildItem (Join-Path $repo 'scripts') -Filter '*.ps1' -File

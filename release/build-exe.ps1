@@ -19,6 +19,10 @@ $shellContract = Join-Path $srcDir 'ShellContract.cs'
 $repairContract = Join-Path $srcDir 'RepairContract.cs'
 # 全局记忆面板契约（MemoryHubContract：与 dsh-memory-hub 插件同一存储协议；可被 tests 独立编译验证）
 $memoryHubContract = Join-Path $srcDir 'MemoryHubContract.cs'
+# v1.1（桌面壳审计）：Skill/MCP 面板/进程执行三个纯逻辑契约（与 Main.cs 同编译单元；tests 可独立编译验证）
+$skillContract = Join-Path $srcDir 'SkillContract.cs'
+$panelContract = Join-Path $srcDir 'PanelContract.cs'
+$processContract = Join-Path $srcDir 'ProcessContract.cs'
 $out = Join-Path $root 'DSH-Hotplug-Hub.exe'
 
 # WebView2 托管 DLL 与原生 Loader（从本机 Office/OfficePLUS 复制，避免联网）
@@ -59,7 +63,10 @@ $args = @(
   $patchContract,
   $shellContract,
   $repairContract,
-  $memoryHubContract
+  $memoryHubContract,
+  $skillContract,
+  $panelContract,
+  $processContract
 )
 & $csc $args
 if ($LASTEXITCODE -ne 0) { throw "编译失败，exit=$LASTEXITCODE" }

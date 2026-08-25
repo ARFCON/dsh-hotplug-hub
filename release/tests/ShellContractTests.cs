@@ -179,8 +179,19 @@ namespace DSHHotplugHub
                 started.WaitOne();
                 t.Join();
             }
-            Mutex takeover;
-            Check(ShellContract.TryAcquireSingleInstance(abName, out takeover), "接管崩溃遗留的弃置互斥（旧实现永远启动失败）");
+            // 有界轮询接管：Thread.Join 返回与内核层线程终止（互斥被标记弃置）之间存在
+            // 竞态窗口，系统负载下窗口放大——固定断言在批量运行时间歇失败（本机复现）。
+            // 轮询上限 2s：真弃置必然接管成功；若互斥仍被存活持有则 2s 后如实失败。
+            Mutex takeover = null;
+            bool takeoverOk = false;
+            DateTime deadline = DateTime.UtcNow.AddSeconds(2);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (ShellContract.TryAcquireSingleInstance(abName, out takeover)) { takeoverOk = true; break; }
+                if (takeover != null) { try { takeover.ReleaseMutex(); } catch { /* 有意吞掉 */ } takeover.Dispose(); takeover = null; }
+                Thread.Sleep(50);
+            }
+            Check(takeoverOk, "接管崩溃遗留的弃置互斥（旧实现永远启动失败）");
             if (takeover != null) { try { takeover.ReleaseMutex(); } catch { /* 有意吞掉 */ } takeover.Dispose(); }
             keeper.Dispose();
 

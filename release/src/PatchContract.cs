@@ -79,10 +79,34 @@ namespace DSHHotplugHub
             return value;
         }
 
-        // 内嵌资源释放目录（与 Main.cs ExtractEmbeddedTgz 的落盘位置一致）
+        // 内嵌资源释放目录（与 Main.cs ExtractEmbeddedTgz 的落盘位置一致）。
+        // v1.1（桌面壳审计 PC1）：ExtractEmbeddedTgz 为进程隔离落盘到带 PID 后缀的
+        // `dsh-hotplug-hub-embedded-<pid>`，而本契约此前只认固定名 `dsh-hotplug-hub-embedded`
+        // —— 两条独立修复互相冲突，导致所有内嵌 tgz 安装一律 ERR_PLUGIN_ADD（实测复现）。
+        // 现契约升格为「目录族」：`<Temp>\dsh-hotplug-hub-embedded[-<纯数字>]` 均合法，
+        // 既保留双实例进程隔离，又让安全校验与落盘路径重新对齐。
         public static string EmbeddedTgzDir()
         {
             return Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embedded");
+        }
+
+        /// <summary>带 PID 后缀的进程隔离释放目录（ExtractEmbeddedTgz 的落盘位置）。</summary>
+        public static string EmbeddedTgzDirForProcess(int pid)
+        {
+            return Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embedded-" + pid);
+        }
+
+        // 目录族形态：dsh-hotplug-hub-embedded 或 dsh-hotplug-hub-embedded-<纯数字>
+        private static readonly Regex EmbeddedDirNameRe = new Regex("^dsh-hotplug-hub-embedded(-\\d+)?$", RegexOptions.IgnoreCase);
+
+        /// <summary>路径是否位于内嵌资源释放目录族（含进程隔离的 PID 后缀形态）内。</summary>
+        public static bool IsEmbeddedTgzDir(string dir)
+        {
+            if (string.IsNullOrEmpty(dir)) return false;
+            string tempRoot = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string parent = Path.GetDirectoryName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (!string.Equals(parent, tempRoot, StringComparison.OrdinalIgnoreCase)) return false;
+            return EmbeddedDirNameRe.IsMatch(Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
         }
 
         // 本地 tgz 文件名白名单（ExtractEmbeddedTgz 的 fileName 参数均为常量拼接）
@@ -113,8 +137,8 @@ namespace DSHHotplugHub
             string fullPath = Path.GetFullPath(value);
             if (!Path.IsPathRooted(fullPath)) throw new ArgumentException(what + " 必须是绝对路径");
             string dir = Path.GetDirectoryName(fullPath);
-            if (!string.Equals(dir, EmbeddedTgzDir(), StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException(what + " 必须位于内嵌资源目录 " + EmbeddedTgzDir());
+            if (!IsEmbeddedTgzDir(dir))
+                throw new ArgumentException(what + " 必须位于内嵌资源目录族 " + EmbeddedTgzDir() + "[-<pid>]（实际：" + dir + "）");
             string file = Path.GetFileName(fullPath);
             if (!EmbeddedFileNameRe.IsMatch(file)) throw new ArgumentException(what + " 文件名含非法字符");
             // 审计修复（审查轮）：返回归一化后的绝对路径——原样返回相对输入会按进程 CWD
@@ -422,6 +446,265 @@ namespace DSHHotplugHub
             if (i >= segments.Length) return 0;
             int n;
             return int.TryParse(segments[i], out n) ? n : 0;
+        }
+
+        // ---------- 内嵌插件安装决策（PC2：三个内置插件统一防降级契约） ----------
+
+        /// <summary>pre 后缀感知的「已装 ≥ 内置」判定：完全相等 → true；核心段相等且已装无 pre → true
+        /// （semver 0.8.0 &gt; 0.8.0-pre，正式版不因内置 pre 包回退）；其余走数值段比较。
+        /// 与 MemoryHubContract.IsAtLeastEmbedded 同语义（该方法为本契约的薄委托，
+        /// 供 memory-hub 既有测试继续锁定）。</summary>
+        public static bool IsAtLeastVersion(string installed, string embedded)
+        {
+            if (string.IsNullOrEmpty(installed)) return false;
+            if (string.Equals(installed, embedded, StringComparison.Ordinal)) return true;
+            string coreInstalled = installed.Split('-')[0];
+            string coreEmbedded = embedded.Split('-')[0];
+            if (string.Equals(coreInstalled, coreEmbedded, StringComparison.Ordinal))
+            {
+                return !installed.Contains("-");
+            }
+            return IsNewerVersion(installed, embedded);
+        }
+
+        /// <summary>内置插件是否需要（重）装：未装 → true；已装严格更旧 → true；
+        /// 已装等于/更新于内置 → false（防降级：用户/上游装了更新版本时不被内置包覆盖）。
+        /// 同版本内容漂移的检测不在本契约（memory-hub 用 SHA256 marker，其余插件无 marker 时
+        /// 按版本相等即跳过）。</summary>
+        public static bool ShouldInstallEmbedded(string installedVersion, string embeddedVersion)
+        {
+            return string.IsNullOrEmpty(installedVersion) || !IsAtLeastVersion(installedVersion, embeddedVersion);
+        }
+
+        // ---------- 插件源/ID 白名单（PC24：从 Main.cs IsSafePluginSpec 迁移，单一真源） ----------
+
+        /// <summary>插件源/ID 白名单：字母数字与 npm 包名、semver range、GitHub URL 常见字符。
+        /// 引号/&amp;/|/^/%/反引号/空白与路径分隔符一律拒绝，防止经 cmd.exe 的回退路径被拼接注入。
+        /// 返回 false = 拒绝执行。</summary>
+        public static bool IsValidPluginSpec(string spec)
+        {
+            if (string.IsNullOrEmpty(spec)) return false;
+            foreach (char c in spec)
+            {
+                if (!(char.IsLetterOrDigit(c) || "/:@._~#+,=-".IndexOf(c) >= 0)) return false;
+            }
+            return true;
+        }
+
+        // ---------- profile cordis.patch.yml 插件启停手术（PC24：从 Main.cs 迁移，官方设置页双向兼容） ----------
+        // 官方壳通过 cordis.patch.yml 顶层 `- id: <loaderId>` + `disabled: true` 覆盖条目启停插件；
+        // 此前 ~400 行正则手术私有内联在 WinForms 类中零测试，现迁移至契约供行为锁定。
+
+        /// <summary>YAML 单引号字面量（' → ''）。</summary>
+        public static string YamlSingleQuote(string s)
+        {
+            return "'" + (s ?? "").Replace("'", "''") + "'";
+        }
+
+        private static string RegexEscapeForPatch(string s)
+        {
+            return Regex.Escape(s ?? "");
+        }
+
+        /// <summary>从插件包自带 cordis.patch.yml 的首个 insert 块读 loader id。
+        /// dshmarket→dsh-market、dsh-memory-hub→memory-hub 等。</summary>
+        public static string FirstInsertIdFromPatch(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            Match m = Regex.Match(text, @"- insert:\s*\r?\n[ \t]+- id:\s*([A-Za-z0-9_.-]+)");
+            if (m.Success && m.Groups.Count > 1) return m.Groups[1].Value;
+            return null;
+        }
+
+        /// <summary>非 bundle 插件（如 dsh-hub）的 loader id 登记在 profile patch 的 insert 块里，按包名反查。</summary>
+        public static string ProfilePatchInsertId(string patchText, string name)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(patchText) || string.IsNullOrEmpty(name)) return null;
+                string text = patchText.Replace("\r\n", "\n");
+                string[] lines = text.Split('\n');
+                for (int k = 0; k + 1 < lines.Length; k++)
+                {
+                    string t = lines[k].Trim();
+                    if (t != "- insert:") continue;
+                    string blockId = null;
+                    string blockName = null;
+                    for (int n = k + 1; n < lines.Length; n++)
+                    {
+                        string lt = lines[n].Trim();
+                        if (lt.StartsWith("- id:")) blockId = lt.Substring(5).Trim().Trim('\'', '"');
+                        else if (lt.StartsWith("name:")) blockName = lt.Substring(5).Trim().Trim('\'', '"');
+                        else if (lt.StartsWith("- ")) break;
+                        if (blockId != null && blockName != null) break;
+                    }
+                    if (blockId != null && blockName == name) return blockId;
+                }
+            }
+            catch { /* 反查不到时走净化名兜底 */ }
+            return null;
+        }
+
+        /// <summary>包名 → 安全 loader id 兜底：取 '/' 后段，非 [A-Za-z0-9_-] 压缩为 '-'，
+        /// 空 id 用 tick 兜底，超 64 截断（与 PACK_ID_RE 上限一致）。</summary>
+        public static string SanitizePluginInsertId(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "plugin";
+            string id = name.Contains("/") ? name.Substring(name.IndexOf('/') + 1) : name;
+            id = Regex.Replace(id, "[^A-Za-z0-9_-]+", "-").Trim('-');
+            if (id.Length == 0) id = "plugin-" + Environment.TickCount.ToString();
+            if (id.Length > 64) id = id.Substring(0, 64);
+            return id;
+        }
+
+        /// <summary>三源 loader id 决议：包内 bundle patch → profile patch 反查 → 净化名兜底。
+        /// （包内/profile 读取由调用方完成——本重载直接接受两段探测结果。）</summary>
+        public static string ResolveLoaderId(string bundlePatchText, string profilePatchText, string packageName)
+        {
+            string loaderId = FirstInsertIdFromPatch(bundlePatchText);
+            if (string.IsNullOrEmpty(loaderId)) loaderId = ProfilePatchInsertId(profilePatchText, packageName);
+            if (string.IsNullOrEmpty(loaderId)) loaderId = SanitizePluginInsertId(packageName);
+            return loaderId;
+        }
+
+        /// <summary>顶层用户层条目是否带 disabled: true（官方插件管理页与我们的启停共用这一判定）。</summary>
+        public static bool HasDisabledEntry(string patchText, string id)
+        {
+            try
+            {
+                if (!IsValidLoaderId(id)) return false;
+                if (string.IsNullOrEmpty(patchText)) return false;
+                string text = patchText.Replace("\r\n", "\n");
+                string pattern = @"(?:^|\n)([ \t]{0,2})- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|(?:\n#)|\s*$)";
+                foreach (Match m in Regex.Matches(text, pattern))
+                {
+                    if (Regex.IsMatch(m.Value, @"(?:^|\n)[ \t]{0,2}disabled\s*:\s*true\b")) return true;
+                }
+                return false;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>把 profile cordis.patch.yml 的某插件启停条目与 DSH Desktop 保持一致：
+        /// 关闭 = 从 insert 块移除内层条目 + 顶层写 disabled: true；启用 = 移除 disabled 行。
+        /// id 非法抛 ArgumentException（调用方以失败文案回传）。</summary>
+        public static string TogglePluginSection(string text, string id, bool enabled, string name)
+        {
+            if (text == null) text = "";
+            if (!IsValidLoaderId(id)) throw new ArgumentException("id 含非法字符（仅允许字母/数字开头，1-64 位，允许 . _ -）: " + id);
+            string outText = text;
+            string pkgName = string.IsNullOrEmpty(name) ? id : name;
+            const string desktopOwner = "desktop";
+            // 旧 `# 插件管理（设置页「插件」栏）：关闭 <id>` 标记块（迁移期识别，写时清理为 ## desktop:<id>）
+            string legacyMarkerPattern = @"(?:^|(?<=\n))# [^\n]*关闭 " + RegexEscapeForPatch(id) + @"[^\n]*(?:\n|$)";
+            // 顶层/块内无标记 disabled 条目（官方壳语义，双向兼容——保留识别）
+            string topEntryPattern = @"(?:^|\n)([ \t]{0,2})- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|(?:\n#)|\s*$)";
+
+            if (!enabled)
+            {
+                // 1) 从 insert 块移除内层条目（保持既有语义）
+                string innerPattern = @"(?:^|\n)[ \t]+- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]+- id:)|(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|\s*$)";
+                outText = Regex.Replace(outText, innerPattern, delegate(Match m) { return m.Value.StartsWith("\n") ? "\n" : ""; });
+                string emptyInsert = @"(?:^|\n)- insert:\s*\n(?![ \t]+-)";
+                outText = Regex.Replace(outText, emptyInsert, delegate(Match m) { return m.Value.StartsWith("\n") ? "\n" : ""; });
+
+                // 2) 已有顶层/块内无标记 disabled 条目 → 保证 disabled:true（官方语义，保留识别）
+                if (Regex.IsMatch(outText, topEntryPattern))
+                {
+                    outText = Regex.Replace(outText, topEntryPattern, delegate(Match m)
+                    {
+                        string block = m.Value;
+                        if (Regex.IsMatch(block, @"(?:^|\n)[ \t]{0,2}disabled\s*:")) return block;
+                        Match nameMatch = Regex.Match(block, @"(?:\n[ \t]{0,2}name\s*:[^\n]*)");
+                        if (nameMatch.Success) return block.Replace(nameMatch.Value, nameMatch.Value + "\n  disabled: true");
+                        return block.TrimEnd('\n') + "\n  disabled: true\n";
+                    });
+                }
+                else
+                {
+                    // 3) 迁移：清理旧 `# 插件管理…` 标记块（下次写时清理为契约块）
+                    outText = Regex.Replace(outText, legacyMarkerPattern, "");
+                    // 4) 分节保留合并：`## desktop:<id>` 块替换/追加；其余块/注释原样保留
+                    string blockYaml = "- id: " + id + "\n  name: " + YamlSingleQuote(pkgName) + "\n  disabled: true";
+                    outText = MergePatchSection(outText, desktopOwner, id, blockYaml);
+                }
+                return outText;
+            }
+
+            // 启用：移除 `## desktop:<id>` 块 + 旧标记块 + 无标记 disabled 条目（其余原样保留）
+            outText = MergePatchSection(outText, desktopOwner, id, "");
+            outText = Regex.Replace(outText, legacyMarkerPattern, "");
+            outText = Regex.Replace(outText, topEntryPattern, delegate(Match m)
+            {
+                string withoutDisabled = Regex.Replace(m.Value, @"\n[ \t]{0,2}disabled\s*:\s*(?:true|false)[^\n]*", "");
+                if (Regex.IsMatch(withoutDisabled, @"(?:^|\n)[ \t]{0,2}config\s*:")) return withoutDisabled;
+                return m.Value.StartsWith("\n") ? "\n" : "";
+            });
+            return outText;
+        }
+
+        // ---------- 宽松 semver range 判定（PC24：从 Main.cs SpecSatisfiedBy 迁移） ----------
+
+        /// <summary>宽松的 semver range 判断（^ ~ &gt;= 精确值 */latest）；URL/git/file 形式的 spec
+        /// 无法判断，一律视为满足以免误报。核心段解析复用 CoreSegments（单一真源）。</summary>
+        public static bool SpecSatisfiedBy(string spec, string version)
+        {
+            string s = (spec ?? "").Trim();
+            if (s.Length == 0 || s == "*" || s == "x" || s == "latest") return true;
+            if (s.Contains("/") || s.Contains(":")) return true; // URL / git / file: 形式
+            bool caret = s.StartsWith("^");
+            bool tilde = s.StartsWith("~");
+            bool gte = s.StartsWith(">=");
+            string body = NormalizeVersionString(s.TrimStart('^', '~', '>', '='));
+            int[] specParts = ParseVersionParts(body);
+            int[] verParts = ParseVersionParts(NormalizeVersionString(version));
+            if (specParts == null || verParts == null) return true;
+            int cmp = CompareVersionParts(verParts, specParts);
+            if (caret)
+            {
+                if (specParts[0] > 0) return verParts[0] == specParts[0] && cmp >= 0;
+                return verParts[0] == 0 && verParts[1] == specParts[1] && cmp >= 0; // ^0.x.y 锁定 minor
+            }
+            if (tilde) return verParts[0] == specParts[0] && verParts[1] == specParts[1] && cmp >= 0;
+            if (gte) return cmp >= 0;
+            return cmp == 0;
+        }
+
+        /// <summary>版本号规范化：去空白与前导 v/V（Main.cs NormalizeVersion 迁移）。</summary>
+        public static string NormalizeVersionString(string v)
+        {
+            if (string.IsNullOrEmpty(v)) return null;
+            string s = v.Trim();
+            return s.Length > 0 && (s[0] == 'v' || s[0] == 'V') ? s.Substring(1) : s;
+        }
+
+        /// <summary>核心段数值数组（≤3 段；非数字段返回 null 表示无法判定）。</summary>
+        public static int[] ParseVersionParts(string v)
+        {
+            if (string.IsNullOrEmpty(v)) return null;
+            string core = v.Split('-', '+')[0];
+            string[] raw = core.Split('.');
+            if (raw.Length == 0) return null;
+            int[] parts = new int[3];
+            int seen = 0;
+            for (int i = 0; i < raw.Length && i < 3; i++)
+            {
+                int n;
+                if (!int.TryParse(raw[i], out n)) return null;
+                parts[i] = n;
+                seen++;
+            }
+            return seen > 0 ? parts : null;
+        }
+
+        /// <summary>核心段数值逐位比较。</summary>
+        public static int CompareVersionParts(int[] a, int[] b)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                if (a[i] != b[i]) return a[i] > b[i] ? 1 : -1;
+            }
+            return 0;
         }
     }
 }

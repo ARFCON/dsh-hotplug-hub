@@ -34,6 +34,10 @@ namespace DSHHotplugHub
         private const int HWND_BROADCAST = 0xFFFF;
         internal static readonly int WM_DSH_HARNESS_FOCUS = RegisterWindowMessage("LocalDseamWorld-DSH-Harness-Focus");
         internal static readonly int WM_DSH_MAIN_FOCUS = RegisterWindowMessage("LocalDseamWorld-DSH-Main-Focus");
+        // v1.1（PC6）：explorer 崩溃重启后系统广播 TaskbarCreated——NotifyIcon 不自动恢复，
+        // 此前不处理会导致托盘图标永久消失而 _trayReady 仍为 true，关闭=藏托盘 →
+        // 窗口/托盘/任务栏三处皆无、程序"消失"但驻留（只能任务管理器收场）。
+        internal static readonly int WM_TASKBAR_CREATED = RegisterWindowMessage("TaskbarCreated");
 
         [STAThread]
         private static void Main()
@@ -710,9 +714,7 @@ namespace DSHHotplugHub
             {
                 string env = Environment.GetEnvironmentVariable("DSH_HUB_GITHUB_TOKEN");
                 if (!string.IsNullOrEmpty(env)) return env.Trim();
-                string file = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    ".dsh", "github-token.txt");
+                string file = Path.Combine(DshRoot(), "github-token.txt");
                 if (File.Exists(file))
                 {
                     string t = File.ReadAllText(file).Trim();
@@ -853,6 +855,19 @@ namespace DSHHotplugHub
             Load += async delegate { await InitializeAsync(); };
             FormClosing += (sender, e) =>
             {
+                // v1.1（PC7）：系统关机/注销/任务管理器结束任务 → 放行关闭并整体回收资源。
+                // 此前不分 CloseReason 一律 e.Cancel=true 藏托盘——直接阻塞 Windows 关机。
+                if (e.CloseReason == CloseReason.WindowsShutDown
+                    || e.CloseReason == CloseReason.TaskManagerClosing)
+                {
+                    if (!_allowExit)
+                    {
+                        _allowExit = true;
+                        SaveWindowState();
+                        CleanupAndExit();
+                    }
+                    return;
+                }
                 // 统一关闭语义（单一真源 ShellContract.ShouldHideToTray）：
                 if (ShellContract.ShouldHideToTray(_trayReady, _allowExit))
                 {
@@ -929,6 +944,15 @@ namespace DSHHotplugHub
             if (m.Msg == Program.WM_DSH_MAIN_FOCUS)
             {
                 try { ShowMainForm(); } catch { /* 有意吞掉 */ }
+                return;
+            }
+            // v1.1（PC6）：explorer 重启（TaskbarCreated 广播）→ 重建托盘图标；
+            // 重建失败则降级 _trayReady=false（此后关闭=真退出，窗口永不"消失"）。
+            // 复审风险-4：退出流程已 Dispose 托盘后不再重建（否则遗留幽灵图标）。
+            if (m.Msg == Program.WM_TASKBAR_CREATED && !_allowExit)
+            {
+                try { RebuildTrayIcon(); } catch { _trayReady = false; }
+                base.WndProc(ref m);
                 return;
             }
             if (m.Msg == WM_NCHITTEST)
@@ -1023,8 +1047,10 @@ namespace DSHHotplugHub
         }
 
         // 托盘常驻：关闭窗口不退出，从托盘恢复或退出。
+        // v1.1（PC6）：支持重建（explorer 重启后 TaskbarCreated → RebuildTrayIcon 复用本方法）。
         private void SetupTray()
         {
+            DisposeTrayIcon();
             try
             {
                 _trayIcon = new NotifyIcon();
@@ -1058,7 +1084,53 @@ namespace DSHHotplugHub
                 _trayIcon.Visible = true;
                 _trayReady = true; // 托盘图标完整就绪后才置位
             }
-            catch { /* 有意吞掉：托盘不可用时 _trayReady=false，关闭将退出而非藏入不可恢复的托盘 */ }
+            catch
+            {
+                // 托盘不可用：关闭语义降级为真退出（含重建失败的降级路径）；
+                // 复审风险-7：半构造的 _trayIcon 立即回收，不留到下次重建。
+                _trayReady = false;
+                DisposeTrayIcon();
+            }
+        }
+
+        // v1.1（PC6）：explorer 重启后重建托盘图标（复用 SetupTray 的完整创建流程）。
+        private void RebuildTrayIcon()
+        {
+            bool wasReady = _trayReady;
+            _trayReady = false; // 创建中途先降级：异常路径下绝不保持旧的"托盘可用"假象
+            SetupTray();
+            if (!_trayReady && wasReady)
+            {
+                // 重建失败（此前可用）：如实降级并记诊断日志
+                try
+                {
+                    string logDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "DSH-Hotplug-Hub");
+                    Directory.CreateDirectory(logDir);
+                    File.AppendAllText(Path.Combine(logDir, "ipc-error.log"),
+                        DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " tray rebuild failed after TaskbarCreated" + Environment.NewLine);
+                }
+                catch { /* 日志失败不影响主流程 */ }
+            }
+        }
+
+        // v1.1（PC6）：托盘资源完整释放——NotifyIcon + ContextMenuStrip（NotifyIcon.Dispose
+        // 不级联释放菜单）；重复 SetupTray / 退出路径共用。
+        private void DisposeTrayIcon()
+        {
+            try
+            {
+                if (_trayIcon != null)
+                {
+                    ContextMenuStrip menu = _trayIcon.ContextMenuStrip;
+                    _trayIcon.Visible = false;
+                    _trayIcon.Dispose();
+                    if (menu != null) menu.Dispose();
+                }
+            }
+            catch { /* 有意吞掉 */ }
+            _trayIcon = null;
         }
 
         private void ShowMainForm()
@@ -1111,9 +1183,13 @@ namespace DSHHotplugHub
         {
             CloseHarnessChildForms();
             HideMainSafely();
-            try { if (_trayIcon != null) { _trayIcon.Visible = false; _trayIcon.Dispose(); } } catch { /* 有意吞掉 */ }
+            DisposeTrayIcon();
             CloseStandaloneHarness();
             StopOfficialHarness();
+            // v1.1（PC11）：fire-and-forget 的安装任务（InstallPluginsToHarness → npm/pnpm）
+            // 退出时统一回收——ProcessContract 登记的全部活动子进程树补杀，
+            // 不再遗留"程序已退出、npm 还在写 profile"的孤儿。
+            try { ProcessContract.KillAllOwnedProcesses(); } catch { /* 有意吞掉：尽力而为 */ }
         }
 
         private async Task InitializeAsync()
@@ -1211,9 +1287,9 @@ namespace DSHHotplugHub
                             else
                             {
                                 await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('正在重启 DSH…');");
-                                CloseStandaloneHarness();
                                 int port = await Task.Run(() =>
                                 {
+                                    CloseStandaloneHarness(); // v1.1（复审 M3）：进程回收移出 UI 线程（WaitForExit 1.5s + 树杀不再落消息泵）
                                     StopOfficialHarness();
                                     bool ok = LaunchOfficialHarness();
                                     return ok ? _harnessPort : 0;
@@ -1252,14 +1328,15 @@ namespace DSHHotplugHub
                             }
                             else
                             {
-                                _harnessPort = port;
+                                AdoptHarnessPort(port);
                                 LaunchStandaloneHarnessWindow();
                             }
                         }
                         else if (message == "harnessStop")
                         {
-                            StopOfficialHarness();
-                            CloseStandaloneHarness();
+                            // v1.1（复审 M3）：停止/关闭是进程树回收操作（taskkill + WaitForExit），
+                            // 与其余 CLI 分支一致移出 UI 线程，最坏阻塞不再落在消息泵上。
+                            await Task.Run(() => { StopOfficialHarness(); CloseStandaloneHarness(); });
                             await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('官方 DSH 已停止');");
                         }
                         else if (message == "harnessEnv")
@@ -1338,16 +1415,6 @@ namespace DSHHotplugHub
                             await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast(" + JsString(panelResult) + ");");
                             await webView.CoreWebView2.ExecuteScriptAsync(await BuildNativeSelfCheckScriptAsync());
                         }
-                        else if (message == "openPanelPage")
-                        {
-                            try
-                            {
-                                Process.Start("https://github.com/ARFCON/dsh-hotplug-hub/releases/tag/v" + APP_VERSION);
-                            }
-                            catch
-                            {
-                            }
-                        }
                         else if (message == "listMemory")
                         {
                             // 写锁竞争时最长 10s——契约调用走后台线程，绝不冻结 UI 消息泵（复审 #3）
@@ -1385,37 +1452,52 @@ namespace DSHHotplugHub
                         }
                         else if (message == "listSkills")
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
-                        }
-                        else if (message != null && message.StartsWith("addSkill:"))
-                        {
-                            SaveSkillFile(message.Substring("addSkill:".Length));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                            // v1.1（PC4）：目录枚举也走后台线程——网络盘/大量 skill 目录时 UI 线程不再冻结
+                            string skillsJson = await Task.Run(() => GetSkillsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + skillsJson + ");");
                         }
                         else if (message != null && message.StartsWith("deleteSkill:"))
                         {
-                            DeleteSkillFile(message.Substring("deleteSkill:".Length));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                            // v1.1（复审风险-6/备注-2）：拒绝（穿越向量 / 历史遗留不合规目录名）与
+                            // IO 失败分别提示，不再静默 no-op、不再错误归因。
+                            DeleteSkillResult skillDeleteResult = await Task.Run(() => DeleteSkillFile(message.Substring("deleteSkill:".Length)));
+                            if (skillDeleteResult == DeleteSkillResult.Rejected)
+                            {
+                                await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('该 Skill 目录名不符合安全命名规范，已拒绝删除（详见 ipc-error.log）');");
+                            }
+                            else if (skillDeleteResult == DeleteSkillResult.Failed)
+                            {
+                                await webView.CoreWebView2.ExecuteScriptAsync("if(typeof toast==='function')toast('Skill 删除失败（目录可能被占用，详见 ipc-error.log）');");
+                            }
+                            string refreshedSkills = await Task.Run(() => GetSkillsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + refreshedSkills + ");");
                         }
                         else if (message == "listSkillSource")
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkillSource(" + GetSkillSourceJson() + ");");
+                            // v1.1（PC4）：源目录是 AllDirectories 递归扫描（可能落在网络盘），必须离开 UI 线程
+                            string sourceJson = await Task.Run(() => GetSkillSourceJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkillSource(" + sourceJson + ");");
                         }
                         else if (message != null && message.StartsWith("addSkillSource:"))
                         {
                             await Task.Run(() => AddSkillsFromSource(message.Substring("addSkillSource:".Length)));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkillSource(" + GetSkillSourceJson() + ");");
+                            // v1.1（PC4 补齐）：刷新读取（目录枚举/递归扫描）同样离开 UI 线程
+                            string refreshedSkills = await Task.Run(() => GetSkillsJson());
+                            string refreshedSource = await Task.Run(() => GetSkillSourceJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + refreshedSkills + ");");
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkillSource(" + refreshedSource + ");");
                         }
                         else if (message != null && message.StartsWith("enableSkill:"))
                         {
                             await Task.Run(() => RunDshPanelCli("skill enable \"" + SanitizeServerName(message.Substring("enableSkill:".Length)) + "\""));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                            string refreshedSkills = await Task.Run(() => GetSkillsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + refreshedSkills + ");");
                         }
                         else if (message != null && message.StartsWith("disableSkill:"))
                         {
                             await Task.Run(() => RunDshPanelCli("skill disable \"" + SanitizeServerName(message.Substring("disableSkill:".Length)) + "\""));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + GetSkillsJson() + ");");
+                            string refreshedSkills = await Task.Run(() => GetSkillsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setSkills(" + refreshedSkills + ");");
                         }
                         else if (message == "checkPlugins")
                         {
@@ -1477,17 +1559,21 @@ namespace DSHHotplugHub
                         }
                         else if (message == "listMcp")
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                            // v1.1（PC4）：文件读取统一离开 UI 线程（与其余 list* 分支一致）
+                            string mcpJson = await Task.Run(() => GetMcpsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + mcpJson + ");");
                         }
                         else if (message != null && message.StartsWith("addMcp:"))
                         {
                             await Task.Run(() => SaveMcpFile(message.Substring("addMcp:".Length)));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                            string refreshedMcps = await Task.Run(() => GetMcpsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + refreshedMcps + ");");
                         }
                         else if (message != null && message.StartsWith("deleteMcp:"))
                         {
                             await Task.Run(() => DeleteMcpFile(message.Substring("deleteMcp:".Length)));
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                            string refreshedMcps = await Task.Run(() => GetMcpsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + refreshedMcps + ");");
                         }
                         else if (message != null && message.StartsWith("startMcp:"))
                         {
@@ -1496,13 +1582,17 @@ namespace DSHHotplugHub
                         }
                         else if (message != null && message.StartsWith("enableMcp:"))
                         {
-                            RunDshPanelCli("mcp enable \"" + SanitizeServerName(message.Substring("enableMcp:".Length)) + "\"");
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                            // v1.1（PC4）：与 enableSkill 对齐——CLI 调用走后台线程（此前 UI 线程同步
+                            // 执行最多冻结 5s+，期间投递的托盘/聚焦消息全部排队）。
+                            await Task.Run(() => RunDshPanelCli("mcp enable \"" + SanitizeServerName(message.Substring("enableMcp:".Length)) + "\""));
+                            string refreshedMcps = await Task.Run(() => GetMcpsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + refreshedMcps + ");");
                         }
                         else if (message != null && message.StartsWith("disableMcp:"))
                         {
-                            RunDshPanelCli("mcp disable \"" + SanitizeServerName(message.Substring("disableMcp:".Length)) + "\"");
-                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + GetMcpsJson() + ");");
+                            await Task.Run(() => RunDshPanelCli("mcp disable \"" + SanitizeServerName(message.Substring("disableMcp:".Length)) + "\""));
+                            string refreshedMcps = await Task.Run(() => GetMcpsJson());
+                            await webView.CoreWebView2.ExecuteScriptAsync("window.__setMcps(" + refreshedMcps + ");");
                         }
                         else if (message != null && message.StartsWith("ai:"))
                         {
@@ -1738,7 +1828,7 @@ namespace DSHHotplugHub
             return sb.ToString();
         }
 
-        internal static string RunCli(string fileName, string arguments) { return RunCli(fileName, arguments, 5000, null); }
+        internal static string RunCli(string fileName, string arguments) { return RunCli(fileName, arguments, ProcessContract.ProbeTimeoutMs, null); }
 
         // 审计修复（探测语义三处）：
         //  1) 超时改杀整棵进程树（taskkill /T /F）——.NET Framework 的 Kill() 只杀直接子进程，
@@ -1748,50 +1838,15 @@ namespace DSHHotplugHub
         //  3) 超时可调（versionMs 参数）——冷启动（杀软扫描/首载）超过 5s 的 pnpm/dsh
         //     此前被当"未安装"，版本探测统一放宽到 15s（只影响慢而存在的场景；真缺失时
         //     命令立即报错返回，不拉长耗时）。
+        // v1.1（PC5）：实现收敛到 ProcessContract.RunProcess 单一真源（超时树杀/管道排空/
+        // 启动失败→null 语义统一；RunCliLong 此前超时只杀直接子进程、与自身注释矛盾）。
         internal static string RunCli(string fileName, string arguments, int timeoutMs, Encoding outputEncoding)
         {
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo(fileName, arguments);
-                psi.UseShellExecute = false;
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.CreateNoWindow = true;
-                if (outputEncoding != null) psi.StandardOutputEncoding = outputEncoding;
-                using (Process p = Process.Start(psi))
-                {
-                    // 先异步接管输出再等退出：ReadToEnd() 是无限阻塞的，进程挂起时必须靠超时 + Kill 脱身
-                    Task<string> stdout = p.StandardOutput.ReadToEndAsync();
-                    Task<string> stderr = p.StandardError.ReadToEndAsync();
-                    if (!p.WaitForExit(timeoutMs))
-                    {
-                        // 杀整棵树：cmd.exe 包装的孙进程（node/pnpm）不会被 Kill() 连带终止；
-                        // 等 taskkill 完成（最多 2s）再杀直接子进程，防父先死导致树枚举落空。
-                        try
-                        {
-                            string taskkill = Path.Combine(Environment.SystemDirectory, "taskkill.exe");
-                            using (Process killer = Process.Start(new ProcessStartInfo(taskkill, "/PID " + p.Id + " /T /F")
-                            {
-                                UseShellExecute = false,
-                                CreateNoWindow = true
-                            }))
-                            {
-                                if (killer != null && !killer.WaitForExit(2000)) { /* 尽力而为 */ }
-                            }
-                        }
-                        catch { /* 回退：至少杀直接子进程 */ }
-                        try { p.Kill(); } catch { /* 有意吞掉：尽力而为的清理 */ }
-                        try { p.WaitForExit(2000); } catch { /* 有意吞掉：尽力而为的清理 */ }
-                    }
-                    // 排空输出管道（最多再等 3s）：退出信号与管道 EOF 无同步关系
-                    try { Task.WaitAll(new[] { stdout, stderr }, 3000); } catch { /* 超时即用已读到的部分 */ }
-                    return stdout.Status == TaskStatus.RanToCompletion ? stdout.Result.Trim() : "";
-                }
-            }
-            catch
-            {
-                return null;
-            }
+            CliOptions opt = new CliOptions();
+            opt.TimeoutMs = timeoutMs;
+            opt.MergeStderr = false;   // 探测契约：只读 stdout（stderr 噪声不污染版本解析）
+            opt.OutputEncoding = outputEncoding;
+            return ProcessContract.RunProcess(fileName, arguments, opt).Output;
         }
 
         // pnpm 在 Windows 下通常是 pnpm.ps1 / pnpm.cmd，直接 spawn "pnpm" 会失败，这里做多路探测
@@ -1830,8 +1885,7 @@ namespace DSHHotplugHub
         {
             try
             {
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string dsh = Path.Combine(home, ".dsh", "profiles");
+                string dsh = Path.Combine(DshRoot(), "profiles");
                 // 审计修复：未找到/空目录返回 null（而非"未找到…"文案）——调用方（自检注入）
                 // 以非空判定"已探测"，文案串此前被当成 profile 名渲染成「已探测 · 未找到 ~/.dsh/profiles」。
                 if (!Directory.Exists(dsh)) return null;
@@ -1856,7 +1910,7 @@ namespace DSHHotplugHub
             // 已在运行且端口已知：直接返回（聚焦交给 DSH 独立程序/内嵌窗口）
             if (_harnessProc != null && !_harnessProc.HasExited && _harnessPort > 0)
             {
-                WriteHarnessPortFile(_harnessPort);
+                WriteOwnHarnessPortFile(_harnessPort);
                 return true;
             }
 
@@ -1879,10 +1933,35 @@ namespace DSHHotplugHub
                 }
             }
 
+            // v1.1（PC9）：覆盖前 Dispose 旧引用——launch/restart 每周期泄漏一个 Process 句柄
+            try { if (_harnessProc != null) _harnessProc.Dispose(); } catch { /* 有意吞掉 */ }
             _harnessProc = p;
             _harnessPort = port;
-            WriteHarnessPortFile(port); // 与 DSH 独立程序握手
+            WriteOwnHarnessPortFile(port); // 与 DSH 独立程序握手
             return true;
+        }
+
+        // v1.1（PC8）：端口握手文件的写入者标记——只有本进程写过文件，退出时才有资格删它。
+        // 此前 StopOfficialHarness 无条件 File.Delete：服务由 DSH 独立程序自起（_harnessProc==null）
+        // 时，主程序退出会删掉独立程序仍在使用的端口文件，破坏其修复重启流的重连。
+        private bool _wroteHarnessPortFile = false;
+
+        private void WriteOwnHarnessPortFile(int port)
+        {
+            WriteHarnessPortFile(port);
+            _wroteHarnessPortFile = true;
+        }
+
+        // v1.1（复审风险-1）：探测采纳端口（嵌入/跳出/独立程序拉起前的握手）——当探测命中的
+        // 不是我们启动且仍存活的服务时，视为「外部服务」：端口文件所有权不属于本进程
+        //（此前自己启动的服务崩溃后，陈旧的 _wroteHarnessPortFile=true 会在退出时误删
+        //  外部服务/独立程序正在使用的端口文件——PC8 要修的场景在另一条路径复发）。
+        private void AdoptHarnessPort(int port)
+        {
+            _harnessPort = port;
+            bool oursAlive = false;
+            try { oursAlive = _harnessProc != null && !_harnessProc.HasExited; } catch { oursAlive = false; }
+            if (!oursAlive) _wroteHarnessPortFile = false;
         }
 
         // 轮询等待端口开始监听（dsh web 启动需要数秒）；超时返回 false
@@ -1946,13 +2025,21 @@ namespace DSHHotplugHub
                         }
                     }
                     catch { /* 有意吞掉 */ }
+                    // v1.1（PC9）：置空前 Dispose——每次启停泄漏一个 Process 句柄
+                    try { _harnessProc.Dispose(); } catch { /* 有意吞掉 */ }
                 }
             }
             catch { /* 有意吞掉 */ }
             _harnessProc = null;
             _harnessPort = 0;
-            // 同步清掉端口握手文件：避免残留过期端口误导后续 DSH 独立程序（重启流会随即重写新端口）
-            try { File.Delete(HarnessPortFile()); } catch { /* 有意吞掉：文件不存在/被占 */ }
+            // v1.1（PC8）：仅本进程写入过端口文件才删除——服务由 DSH 独立程序自起时
+            // （_harnessProc==null、_wroteHarnessPortFile==false），文件归独立程序所有，
+            // 主程序退出不得误删（删了会破坏独立程序修复重启后的端口重连）。
+            if (_wroteHarnessPortFile)
+            {
+                try { File.Delete(HarnessPortFile()); } catch { /* 有意吞掉：文件不存在/被占 */ }
+                _wroteHarnessPortFile = false;
+            }
         }
 
         // 内嵌弹窗：加载官方 harness web UI（async Task：异常沿 await 链抛给消息处理 try/catch，不再 async void 崩溃）
@@ -1971,7 +2058,7 @@ namespace DSHHotplugHub
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            _harnessPort = port;
+            AdoptHarnessPort(port);
             _harnessEmbedForm = BuildHarnessForm("官方 DSH · 内嵌", new Size(1080, 720), false);
             _harnessEmbedForm.Owner = this; // CenterParent 依赖 Owner；并随主窗最小化/还原
             _harnessEmbedForm.FormClosed += delegate { _harnessEmbedForm = null; };
@@ -1996,7 +2083,7 @@ namespace DSHHotplugHub
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            _harnessPort = port;
+            AdoptHarnessPort(port);
             _harnessPopoutForm = BuildHarnessForm("DSH 对话", new Size(1280, 800), true);
             _harnessPopoutForm.FormClosed += delegate { _harnessPopoutForm = null; };
             await ((BorderlessHarnessForm)_harnessPopoutForm).WebView.EnsureCoreWebView2Async(_env);
@@ -2045,7 +2132,12 @@ namespace DSHHotplugHub
                     _standaloneHarnessProc.CloseMainWindow();
                     try
                     {
-                        if (!_standaloneHarnessProc.WaitForExit(1500)) _standaloneHarnessProc.Kill();
+                        if (!_standaloneHarnessProc.WaitForExit(1500))
+                        {
+                            // v1.1（PC10）：强杀改杀整棵树——独立程序的 FormClosing 不会执行，
+                            // 它自起的 dsh web（StopOwnDsh 不触发）此前成孤儿；taskkill /T 连带回收。
+                            ProcessContract.KillProcessTree(_standaloneHarnessProc);
+                        }
                     }
                     catch { /* 有意吞掉 */ }
                 }
@@ -2390,11 +2482,11 @@ namespace DSHHotplugHub
         }
 
         // 版本号规范化：去掉空白与前导 v/V，"v0.8.0-pre" 与 "0.8.0-pre" 视为相同
+        // 版本号规范化：去掉空白与前导 v/V，"v0.8.0-pre" 与 "0.8.0-pre" 视为相同
+        // v1.1（PC24）：实现收敛到 PatchContract.NormalizeVersionString（单一真源）。
         private static string NormalizeVersion(string v)
         {
-            if (string.IsNullOrEmpty(v)) return null;
-            string s = v.Trim();
-            return s.Length > 0 && (s[0] == 'v' || s[0] == 'V') ? s.Substring(1) : s;
+            return PatchContract.NormalizeVersionString(v);
         }
 
         // semver 语义比较（数值段逐个比对，pre/build 后缀整版本剥离后比较）：
@@ -2469,19 +2561,22 @@ namespace DSHHotplugHub
         {
             try
             {
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                // v1.1（PC2/PC14）：探测目标 = 安装目标（web profile）优先，其余 profile/源码目录
+                // 仅作信息兜底（与 GetInstalledMemoryHubVersion 的 B-6 修复对齐）；根域走 DshRoot()。
                 List<string> candidates = new List<string>();
-                string profilesDir = Path.Combine(home, ".dsh", "profiles");
+                candidates.Add(Path.Combine(MemoryHubContract.WebProfileDir(), "node_modules", "dseam-skillmcp", "package.json"));
+                candidates.Add(Path.Combine(MemoryHubContract.WebProfileDir(), "node_modules", "dsh-skill-mcp-panel", "package.json"));
+                string profilesDir = Path.Combine(DshRoot(), "profiles");
                 if (Directory.Exists(profilesDir))
                 {
-                    foreach (string profileDir in Directory.GetDirectories(profilesDir))
+                    foreach (string profileDir in Directory.GetDirectories(profilesDir).OrderBy(pd => pd, StringComparer.OrdinalIgnoreCase))
                     {
                         candidates.Add(Path.Combine(profileDir, "node_modules", "dseam-skillmcp", "package.json"));
                         candidates.Add(Path.Combine(profileDir, "node_modules", "dsh-skill-mcp-panel", "package.json"));
                     }
                 }
-                candidates.Add(Path.Combine(home, ".dsh", "plugin-src", "dseam-skillmcp", "package.json"));
-                candidates.Add(Path.Combine(home, ".dsh", "plugin-src", "dsh-skill-mcp-panel", "package.json"));
+                candidates.Add(Path.Combine(DshRoot(), "plugin-src", "dseam-skillmcp", "package.json"));
+                candidates.Add(Path.Combine(DshRoot(), "plugin-src", "dsh-skill-mcp-panel", "package.json"));
                 foreach (string pkgFile in candidates)
                 {
                     if (!File.Exists(pkgFile)) continue;
@@ -2522,19 +2617,16 @@ namespace DSHHotplugHub
             // 返回 {可执行文件, 参数前缀}；找不到返回 null。
 
             // 1. PATH 中直接有 dsh（npm/pnpm 全局安装）。
-            //    注意：cmd.exe /c dsh --version 在找不到 dsh 时会打印 cmd 自身版本横幅，
-            //    必须排除 "Microsoft"/"Windows" 字样，避免把 cmd 横幅误判成 dsh 版本。
+            //    判定收敛到 ProcessContract.LooksLikeVersionText（正向版本形态，拒 cmd 横幅/乱码）。
             //    探测结果与 GetDshCoreVersion 共享短缓存（同一周期只跑一次）。
             string probe = DshPathVersionProbe();
-            if (!string.IsNullOrEmpty(probe) && probe.Contains(".")
-                && !probe.Contains("Microsoft") && !probe.Contains("Windows"))
+            if (ProcessContract.LooksLikeVersionText(probe))
             {
                 return new string[] { "cmd.exe", "/c dsh" };
             }
 
             // 2. ~/.dsh 下的 dsh（用户级安装）
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            string altBin = Path.Combine(home, ".dsh", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+            string altBin = Path.Combine(DshRoot(), "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
             if (File.Exists(altBin))
             {
                 return new string[] { GetNodeExe(), "\"" + altBin + "\"" };
@@ -2582,13 +2674,10 @@ namespace DSHHotplugHub
         {
             try
             {
-                string dshRoot = Environment.GetEnvironmentVariable("DSH_HOME");
-                if (string.IsNullOrEmpty(dshRoot))
-                {
-                    string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                    dshRoot = Path.Combine(home, ".dsh");
-                }
-                string profileDir = Path.Combine(dshRoot, "profiles", "web");
+                // v1.1（PC14）：根域三源契约（DSH_HOTPLUG_ROOT > DSH_HOME > ~/.dsh），
+                // 与 GetProfileDir / launcher resolveDshRoot 一致——此前此处只认 DSH_HOME，
+                // DSH_HOTPLUG_ROOT 环境下 .npmrc 与 patch 写进两个不同 profile。
+                string profileDir = MemoryHubContract.WebProfileDir();
                 Directory.CreateDirectory(profileDir);
                 string npmrc = Path.Combine(profileDir, ".npmrc");
                 const string line = "strict-ssl=false";
@@ -2657,45 +2746,20 @@ namespace DSHHotplugHub
 
         private static string RunCliLong(string fileName, string arguments)
         {
-            return RunCliLong(fileName, arguments, 180000, null);
+            return RunCliLong(fileName, arguments, ProcessContract.InstallTimeoutMs, null);
         }
 
-        // extraEnv 用于进程级注入 npm 配置（如证书降级重试），不污染全局 .npmrc
+        // extraEnv 用于进程级注入 npm 配置（如证书降级重试），不污染全局 .npmrc。
+        // v1.1（PC5）：实现收敛到 ProcessContract.RunProcess——超时改杀整棵进程树
+        // （此前只 Kill() 直接子进程，cmd /c npm 链的孙进程孤儿，与 RunCli 树杀语义分裂）；
+        // 启动失败统一返回 null（「未找到命令」语义，FormatCliResult 的 null 判定自此可达）。
         private static string RunCliLong(string fileName, string arguments, int timeoutMs, IDictionary<string, string> extraEnv)
         {
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo(fileName, arguments);
-                psi.UseShellExecute = false;
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.CreateNoWindow = true;
-                if (extraEnv != null)
-                {
-                    foreach (KeyValuePair<string, string> kv in extraEnv)
-                    {
-                        psi.EnvironmentVariables[kv.Key] = kv.Value;
-                    }
-                }
-                using (Process p = Process.Start(psi))
-                {
-                    Task<string> stdout = p.StandardOutput.ReadToEndAsync();
-                    Task<string> stderr = p.StandardError.ReadToEndAsync();
-                    if (!p.WaitForExit(timeoutMs))
-                    {
-                        try { p.Kill(); } catch { /* 有意吞掉：尽力而为的清理 */ }
-                        try { p.WaitForExit(2000); } catch { /* 有意吞掉：尽力而为的清理 */ }
-                    }
-                    string outText = stdout.Status == TaskStatus.RanToCompletion ? stdout.Result.Trim() : "";
-                    // pnpm 的报错大多走 stderr，合并进来上层的错误关键字（ERR_PNPM 等）才能命中
-                    string errText = stderr.Status == TaskStatus.RanToCompletion ? stderr.Result.Trim() : "";
-                    return errText.Length > 0 ? outText + Environment.NewLine + errText : outText;
-                }
-            }
-            catch (Exception ex)
-            {
-                return ex.Message;
-            }
+            CliOptions opt = new CliOptions();
+            opt.TimeoutMs = timeoutMs;
+            opt.MergeStderr = true;  // 用户可见 CLI 操作契约：pnpm/dsh 报错大多走 stderr，合并后错误关键字才能命中
+            opt.ExtraEnv = extraEnv;
+            return ProcessContract.RunProcess(fileName, arguments, opt).Output;
         }
 
         private static string InstallOrUpdatePanel()
@@ -2747,10 +2811,10 @@ namespace DSHHotplugHub
             try
             {
                 // 架构改为直接用 dsh CLI 启动官方 web 服务，因此「DSH 版本」= 本机 dsh CLI 版本。
-                // 1. 直接跑 dsh --version（最准确，和启动逻辑一致；15s——冷启动慢≠未安装）
+                // 1. 直接跑 dsh --version（最准确，和启动逻辑一致；15s——冷启动慢≠未安装；
+                //    判定收敛到 LooksLikeVersionText，与 FindDshCommand 单一真源）
                 string cliVer = DshPathVersionProbe();
-                if (!string.IsNullOrEmpty(cliVer) && cliVer.Contains(".")
-                    && !cliVer.Contains("Microsoft") && !cliVer.Contains("Windows"))
+                if (ProcessContract.LooksLikeVersionText(cliVer))
                 {
                     return cliVer.Trim();
                 }
@@ -2927,10 +2991,16 @@ namespace DSHHotplugHub
         }
 
         // 探测 WSL 里是否装了 dsh
+        // v1.1（PC13）：正向版本形态判定（ProcessContract.LooksLikeVersionText）。旧判定
+        // 「含 . 且不含 command not found」是负向串匹配：`wsl.exe -e dsh` 的版本输出来自
+        // Linux 进程透传（ASCII，默认页解码正确），但 wsl.exe 自身的错误消息是 UTF-16LE，
+        // 按系统页解码成夹 \0 乱码后仍含 '.'（如英文 "There is no distribution..."）——
+        // 「WSL 未装 dsh」被误判成可用，FindDshCommand(wsl 模式) 随之拿到必然失败的命令。
+        // 新判定：乱码（含 \0）与错误文案一律拒绝，仅版本形态行放行。
         private static bool WslDshAvailable()
         {
-            string outText = RunCli("wsl.exe", "-e dsh --version");
-            return !string.IsNullOrEmpty(outText) && outText.Contains(".") && !outText.Contains("command not found");
+            string outText = RunCli("wsl.exe", "-e dsh --version", ProcessContract.ProbeTimeoutMs, null);
+            return ProcessContract.LooksLikeVersionText(outText);
         }
 
         // 窗口状态（尺寸/位置/最大化）持久化文件
@@ -3181,12 +3251,14 @@ namespace DSHHotplugHub
         private static string EnsureDshCliEnvironment()
         {
             string step1 = null, step2 = null, step3 = null;
-            string node = RunCli(GetNodeExe(), "--version");
+            string node = RunCli(GetNodeExe(), "--version", ProcessContract.ProbeTimeoutMs, null);
             if (string.IsNullOrEmpty(node)) step1 = EnsureNodeEnvironment();
             string pnpm = GetPnpmVersion();
             if (string.IsNullOrEmpty(pnpm)) step2 = EnsurePnpmEnvironment();
-            string dsh = RunCli("cmd.exe", "/c dsh --version");
-            if (string.IsNullOrEmpty(dsh) || dsh.Contains("Microsoft") || dsh.Contains("Windows"))
+            // v1.1（PC12）：探测统一 15s 探测档（冷启动慢≠未安装）+ 正向版本形态判定
+            // （取代「含 Microsoft/Windows 即判未装」的负向串匹配，与 DshPathVersionProbe 对齐）。
+            string dsh = RunCli("cmd.exe", "/c dsh --version", ProcessContract.ProbeTimeoutMs, null);
+            if (!ProcessContract.LooksLikeVersionText(dsh))
                 step3 = EnsureDshCli();
             List<string> steps = new List<string>();
             if (step1 != null) steps.Add(step1);
@@ -3204,8 +3276,8 @@ namespace DSHHotplugHub
                 // npm 是 npm.cmd / npm.ps1，必须经 cmd.exe /c 调用，直接 spawn "npm" 会报「系统找不到文件」；
                 // 带 --allow-scripts 允许 koffi/node-pty 等原生模块编译，否则运行时「Mismatched native Koffi modules」。
                 RunCliLong("cmd.exe", "/c npm install -g --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs @deepseek-ai/dsh", 600000, null);
-                string after = RunCli("cmd.exe", "/c dsh --version");
-                if (!string.IsNullOrEmpty(after) && !after.Contains("Microsoft") && !after.Contains("Windows"))
+                string after = RunCli("cmd.exe", "/c dsh --version", ProcessContract.ProbeTimeoutMs, null);
+                if (ProcessContract.LooksLikeVersionText(after))
                     return "dsh v" + after.Trim() + " 已安装";
                 return "dsh 安装已提交，请重启程序后重试";
             }
@@ -3220,8 +3292,8 @@ namespace DSHHotplugHub
         {
             try
             {
-                string before = RunCli("cmd.exe", "/c dsh --version");
-                string beforeVer = (before != null && before.Contains(".") && !before.Contains("Microsoft") && !before.Contains("Windows")) ? before.Trim() : null;
+                string before = RunCli("cmd.exe", "/c dsh --version", ProcessContract.ProbeTimeoutMs, null);
+                string beforeVer = ProcessContract.LooksLikeVersionText(before) ? before.Trim() : null;
                 string latest = GetLatestDshCliVersion();
 
                 // npm 是 npm.cmd / npm.ps1，UseShellExecute=false 直接 spawn "npm" 会报「系统找不到文件」，
@@ -3230,8 +3302,8 @@ namespace DSHHotplugHub
                 // 否则运行时「Mismatched native Koffi modules」导致 dsh web 起不来。
                 string outText = RunCliLong("cmd.exe", "/c npm install -g --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs @deepseek-ai/dsh@latest", 600000, null);
 
-                string after = RunCli("cmd.exe", "/c dsh --version");
-                string afterVer = (after != null && after.Contains(".") && !after.Contains("Microsoft") && !after.Contains("Windows")) ? after.Trim() : null;
+                string after = RunCli("cmd.exe", "/c dsh --version", ProcessContract.ProbeTimeoutMs, null);
+                string afterVer = ProcessContract.LooksLikeVersionText(after) ? after.Trim() : null;
 
                 // 以 npm 最新版为准判断是否更新到位，而非「前后版本没变就说已是最新」
                 if (afterVer != null && latest != null && afterVer == latest)
@@ -3273,8 +3345,7 @@ namespace DSHHotplugHub
         internal static string RepairDshConfig()
         {
             List<string> results = new List<string>();
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            string dshDir = Path.Combine(home, ".dsh");
+            string dshDir = DshRoot();
             if (!Directory.Exists(dshDir)) return "未找到 ~/.dsh 目录，跳过配置修复";
 
             // 1. settings.yaml：移除同一缩进层级下连续重复的键（保留第一个）
@@ -3363,8 +3434,7 @@ namespace DSHHotplugHub
                     }
                     catch { /* 配置损坏时回退官方配置 */ }
                 }
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string dshDir = Path.Combine(home, ".dsh");
+                string dshDir = DshRoot();
                 string settingsPath = Path.Combine(dshDir, "settings.yaml");
                 string credPath = Path.Combine(dshDir, ".credentials.yaml");
 
@@ -3455,7 +3525,7 @@ namespace DSHHotplugHub
             // 直接使用官方 DSH 的配置目录
             try
             {
-                string cred = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", ".credentials.yaml");
+                string cred = Path.Combine(DshRoot(), ".credentials.yaml");
                 if (File.Exists(cred))
                 {
                     foreach (string line in File.ReadAllLines(cred))
@@ -3582,8 +3652,7 @@ namespace DSHHotplugHub
                     cfg.defaultModel = cboDefault.Text.Trim();
                     if (cfg.defaultModel.Length == 0 && cfg.models.Length > 0) cfg.defaultModel = cfg.models.Split(',')[0].Trim();
                     SaveApiConfig(cfg);
-                    SaveProviderToOfficial(cfg);
-                    SyncApiConfigToOfficialDesktop(cfg);
+                    SyncApiConfigToOfficialDesktop(cfg); // v1.1（PC23）：凭证写入 + agent-default-model 同步单一真源
                     MessageBox.Show("已保存并同步到官方 DSH。", "模型", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 };
 
@@ -3601,7 +3670,7 @@ namespace DSHHotplugHub
             {
                 List<string> ids = new List<string>();
                 ids.Add("DeepSeek 官方");
-                string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "settings.yaml");
+                string settings = Path.Combine(DshRoot(), "settings.yaml");
                 if (File.Exists(settings))
                 {
                     string yaml = File.ReadAllText(settings);
@@ -3634,7 +3703,7 @@ namespace DSHHotplugHub
             cfg.defaultModel = "deepseek-chat";
             try
             {
-                string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "settings.yaml");
+                string settings = Path.Combine(DshRoot(), "settings.yaml");
                 if (File.Exists(settings))
                 {
                     string yaml = File.ReadAllText(settings);
@@ -3678,7 +3747,7 @@ namespace DSHHotplugHub
                     }
                 }
 
-                string cred = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", ".credentials.yaml");
+                string cred = Path.Combine(DshRoot(), ".credentials.yaml");
                 if (File.Exists(cred))
                 {
                     string keyName = ProviderKeyName(id);
@@ -3709,7 +3778,7 @@ namespace DSHHotplugHub
         {
             try
             {
-                string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "settings.yaml");
+                string settings = Path.Combine(DshRoot(), "settings.yaml");
                 if (!File.Exists(settings)) return;
                 string yaml = File.ReadAllText(settings);
                 string pattern = @"\n\s{4}" + System.Text.RegularExpressions.Regex.Escape(id) + @":[\s\S]*?(?=\n\s{4}[a-zA-Z0-9_-]+:|\n\s{2}[a-zA-Z0-9_-]+:|\z)";
@@ -3719,35 +3788,14 @@ namespace DSHHotplugHub
             catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
 
-        private static void SaveProviderToOfficial(ApiConfig cfg)
-        {
-            try
-            {
-                string cred = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", ".credentials.yaml");
-                string keyName = ProviderKeyName(cfg.provider);
-                string keyLine = keyName + ": " + cfg.apiKey;
-                string credText = File.Exists(cred) ? File.ReadAllText(cred) : "";
-                if (credText.Contains(keyName + ":"))
-                {
-                    string[] lines = credText.Replace("\r\n", "\n").Split('\n');
-                    for (int i = 0; i < lines.Length; i++) if (lines[i].StartsWith(keyName + ":")) lines[i] = keyLine;
-                    File.WriteAllText(cred, string.Join(Environment.NewLine, lines));
-                }
-                else
-                {
-                    File.AppendAllText(cred, (credText.Length == 0 || credText.EndsWith("\n") ? "" : Environment.NewLine) + keyLine + Environment.NewLine);
-                }
-                // M-48（v5 阶段 4）：凭据文件 owner-only ACL
-                PatchContract.ApplyOwnerOnlyAcl(cred);
-            }
-            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
-        }
+        // v1.1（PC23）：SaveProviderToOfficial 已删除——其「写 API Key 到 .credentials.yaml」
+        // 与 SyncApiConfigToOfficialDesktop 的第 1 步逐字重复（保存时背靠背写两遍同一文件），
+        // 收敛为只调用 Sync（其内含同样的凭证写入 + owner-only ACL + agent-default-model 同步）。
         private static void SyncApiConfigToOfficialDesktop(ApiConfig cfg)
         {
             try
             {
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string dshDir = Path.Combine(home, ".dsh");
+                string dshDir = DshRoot();
                 if (!Directory.Exists(dshDir)) return;
 
                 // 1. 同步 API Key 到 .credentials.yaml
@@ -3810,9 +3858,16 @@ namespace DSHHotplugHub
 
             // 与原型同构：EXE 渠道复用页面的 beginTurn/processAiRaw/failAssistTurn/aiErrorText，
             // 保证按钮锁定、轮次徽标、欢迎卡移除、产物校验与话术与 standalone 完全一致。
+            // v1.1（PC15）：对页面全局一律 typeof/try 守卫——页面脚本半失败（TDZ/早期异常）时
+            // `var origRenderAi=renderAi` 这类裸引用会 ReferenceError，整段注入级联失效，
+            // compose 被替换成必然抛错的包装（比不注入更糟：原发送框彻底不可用）。
+            // 守卫语义与 BuildNativeSelfCheckScript 的同类审计修复对齐：
+            //   · 页面函数缺失 → 包装函数退化为透传原实现（orig 为 null 时为空操作）；
+            //   · aiSession 未定义 → typeof 探测，不触 TDZ；
+            //   · 整段包 try/catch，异常绝不外抛到注入调用点。
             string js =
                 "window.__apiConfig=" + configJson + ";var HAS_SHELL_KEY=" + hasKeyJs + ";" +
-                "(function(){var cfg=window.__apiConfig||{};" +
+                "try{(function(){var cfg=window.__apiConfig||{};" +
                 // 面板由页面统一渲染（模型/Key/端点直接填写）；外壳配置仅在留空时兜底填充，
                 // 不再注入「外壳提供」UI（该功能后续再拓展）
                 "var ensure=function(){" +
@@ -3824,10 +3879,12 @@ namespace DSHHotplugHub
                 "var ki2=document.getElementById('aiKeyInput');var kt=((ki2&&ki2.value&&ki2.value.trim())?true:HAS_SHELL_KEY);" +
                 "if(note){var m0=(mi&&mi.value)||(cfg&&cfg.defaultModel)||'?';note.textContent='当前模型：'+m0+(kt?'（DSH API）':'（未配置 Key，点「⚙ 模型」填写）');}" +
                 "};" +
-                "var origRenderAi=renderAi;renderAi=function(){origRenderAi();ensure();};" +
-                "var origRefresh=refreshConnNote;refreshConnNote=function(){var mi2=document.getElementById('aiModelInput');var ki3=document.getElementById('aiKeyInput');var kt2=((ki3&&ki3.value&&ki3.value.trim())?true:HAS_SHELL_KEY);var n2=document.getElementById('aiConnNote');if(n2){n2.textContent='当前模型：'+((mi2&&mi2.value)||(cfg&&cfg.defaultModel)||'?')+(kt2?'（DSH API）':'（未配置 Key，点「⚙ 模型」填写）');}};" +
-                "if(document.readyState!=='loading'){ensure();}" +
-                "var origCompose=compose;" +
+                "var origRenderAi=(typeof renderAi==='function')?renderAi:null;" +
+                "renderAi=function(){try{if(origRenderAi)origRenderAi();ensure();}catch(e){}};" +
+                "var origRefresh=(typeof refreshConnNote==='function')?refreshConnNote:null;" +
+                "refreshConnNote=function(){try{var mi2=document.getElementById('aiModelInput');var ki3=document.getElementById('aiKeyInput');var kt2=((ki3&&ki3.value&&ki3.value.trim())?true:HAS_SHELL_KEY);var n2=document.getElementById('aiConnNote');if(n2){n2.textContent='当前模型：'+((mi2&&mi2.value)||(cfg&&cfg.defaultModel)||'?')+(kt2?'（DSH API）':'（未配置 Key，点「⚙ 模型」填写）');}}catch(e){}};" +
+                "if(document.readyState!=='loading'){try{ensure();}catch(e){}}" +
+                "var origCompose=(typeof compose==='function')?compose:null;" +
                 "compose=function(){" +
                 "var input=document.getElementById('reqInput');if(!input)return;" +
                 "var text=(input.value||'').trim();if(!text)return;" +
@@ -3836,27 +3893,30 @@ namespace DSHHotplugHub
                 "var mi3=document.getElementById('aiModelInput');var model=(mi3&&mi3.value&&mi3.value.trim())||(cfg&&cfg.defaultModel)||'deepseek-chat';" +
                 "var ki3=document.getElementById('aiKeyInput');var key=(ki3&&ki3.value&&ki3.value.trim())||'';" +
                 "var bi3=document.getElementById('aiBaseUrlInput');var bUrl=(bi3&&bi3.value&&bi3.value.trim())||(cfg&&cfg.baseUrl)||'';" +
-                "var isFirst=(!aiSession||aiSession.messages.length===0||!aiSession.pack);" +
-                "if(typeof beginTurn!=='function'){origCompose();return;}" +   // 页面组件未就绪：回退原路径
+                "var ses=(typeof aiSession!=='undefined')?aiSession:null;" +
+                "var isFirst=(!ses||!ses.messages||ses.messages.length===0||!ses.pack);" +
+                "if(typeof beginTurn!=='function'){if(origCompose){try{origCompose();}catch(e){}}return;}" +   // 页面组件未就绪：回退原路径（原实现缺失时静默放弃）
                 "beginTurn(text,persona);" +
                 "input.value='';input.style.height='auto';" +
                 "if((!key&&!HAS_SHELL_KEY)||!bUrl){" +
                 "if(typeof failAssistTurn==='function'){failAssistTurn('未配置 API Key：请点击「⚙ 模型」填写（仅本次会话内存，不持久化）',persona);}" +
                 "return;}" +
                 "var sys='';if(typeof buildAiSystem==='function'){sys=buildAiSystem(persona,isFirst?'assembly':'chat');}" +
-                "var hist=[];if(aiSession&&aiSession.messages){hist=aiSession.messages.slice(0,-1);}" +
-                "var pk=null;if(aiSession&&aiSession.pack){pk=aiSession.pack;}" +
+                "var hist=[];if(ses&&ses.messages){hist=ses.messages.slice(0,-1);}" +
+                "var pk=null;if(ses&&ses.pack){pk=ses.pack;}" +
                 "if(window.chrome&&window.chrome.webview){" +
                 "window.chrome.webview.postMessage('ai:'+JSON.stringify({text:text,model:model,persona:persona,system:sys,history:hist,pack:pk,apiKey:key,baseURL:bUrl}));" +
                 "return;}" +
-                "origCompose();" +
+                "if(origCompose){try{origCompose();}catch(e){}}" +
                 "};" +
                 // 结果/错误回调整合进聊天流：与原型同一套校验 + 人设化话术 + 状态恢复
                 "window.__onAiResult=function(raw){" +
                 "try{" +
                 "var persona='maid';var ps=document.getElementById('aiPersona');if(ps)persona=ps.value;" +
-                "var isFirst=(!aiSession||aiSession.messages.length===0||!aiSession.pack);" +
-                "var inp='';if(aiMessages&&aiMessages.length){var last=aiMessages[aiMessages.length-1];if(last&&last.role==='user')inp=last.text||'';}" +
+                "var ses2=(typeof aiSession!=='undefined')?aiSession:null;" +
+                "var isFirst=(!ses2||!ses2.messages||ses2.messages.length===0||!ses2.pack);" +
+                "var msgs=(typeof aiMessages!=='undefined')?aiMessages:null;" +
+                "var inp='';if(msgs&&msgs.length){var last=msgs[msgs.length-1];if(last&&last.role==='user')inp=last.text||'';}" +
                 "if(typeof processAiRaw==='function'){processAiRaw(String(raw),persona,isFirst,inp);}" +
                 "else{var d=document.getElementById('aiTyping');if(d)d.remove();if(typeof toast==='function')toast('AI 结果解析失败：页面组件未就绪');}" +
                 "}catch(e){if(typeof toast==='function')toast('AI 结果解析失败');}" +
@@ -3866,7 +3926,7 @@ namespace DSHHotplugHub
                 "if(typeof failAssistTurn==='function'){failAssistTurn((typeof aiErrorText==='function'?aiErrorText(persona,String(msg),false):String(msg)),persona);return;}" +
                 "var d=document.getElementById('aiTyping');if(d)d.remove();" +
                 "};" +
-                "})();";
+                "})()}catch(e){}";
             return js;
         }
 
@@ -3972,12 +4032,12 @@ namespace DSHHotplugHub
 
         private static string SkillsDir()
         {
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "skills");
+            return Path.Combine(DshRoot(), "skills");
         }
 
         private static string McpFilePath()
         {
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "mcp.json");
+            return Path.Combine(DshRoot(), "mcp.json");
         }
 
         // 启动时自动把 dsh-memory-hub 安装/注册到本地 DeepSeek Harness。
@@ -4073,9 +4133,12 @@ namespace DSHHotplugHub
             try
             {
                 string installed = GetInstalledPanelVersion();
-                if (NormalizeVersion(installed) == PANEL_VERSION)
+                // v1.1（PC2）：防降级契约统一——已装等于/更新于内置版本时跳过
+                // （此前只判「不等」，用户装了更新版本会被内置包静默降级重装；
+                // 与 memory-hub 的 IsAtLeastEmbedded 防降级语义对齐，见 PatchContract.ShouldInstallEmbedded）。
+                if (!PatchContract.ShouldInstallEmbedded(NormalizeVersion(installed), PANEL_VERSION))
                 {
-                    return "内置 Skill/MCP 管理器已是最新 v" + PANEL_VERSION;
+                    return "内置 Skill/MCP 管理器已是最新 v" + installed;
                 }
                 string tgz = ExtractEmbeddedTgz("DSHHotplugHub.Resources.dseam_skillmcp.tgz", "dseam-skillmcp-" + PANEL_VERSION + ".tgz");
                 if (tgz == null)
@@ -4109,7 +4172,10 @@ namespace DSHHotplugHub
                     if (stream == null) return null;
                     // 临时目录带 PID：双实例并发启动时不再交织写同一 tgz（hash 稳定；
                     // 也消除固定路径的预置/替换面）。目录随进程退出由系统清理。
-                    string dir = Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embedded-" + Process.GetCurrentProcess().Id);
+                    // v1.1（PC1）：目录名走 PatchContract.EmbeddedTgzDirForProcess 单一真源——
+                    // 此前手拼的 PID 后缀目录被 AssertShellSafeLocalFile（当时只认固定名）拒绝，
+                    // 所有内嵌 tgz 安装一律 ERR_PLUGIN_ADD（进程隔离与安全校验两条修复互相冲突）。
+                    string dir = PatchContract.EmbeddedTgzDirForProcess(Process.GetCurrentProcess().Id);
                     Directory.CreateDirectory(dir);
                     string tgz = Path.Combine(dir, fileName);
                     using (FileStream fs = new FileStream(tgz, FileMode.Create, FileAccess.Write))
@@ -4163,14 +4229,17 @@ namespace DSHHotplugHub
             try
             {
                 string installed = GetInstalledDshHubVersion();
-                if (NormalizeVersion(installed) == DSH_HUB_VERSION) return;
+                // v1.1（PC2）：防降级契约统一（与 skillmcp / memory-hub 对齐）——
+                // 已装等于/更新于内置版本时跳过，不再被内置包或 main 分支 tarball 静默降级。
+                if (!PatchContract.ShouldInstallEmbedded(NormalizeVersion(installed), DSH_HUB_VERSION)) return;
                 string tgz = ExtractEmbeddedTgz("DSHHotplugHub.Resources.dsh_hub.tgz", "dsh-hub-" + DSH_HUB_VERSION + ".tgz");
                 if (tgz == null)
                 {
                     string latest = GetLatestDshHubVersion();
                     // 离线/接口失败（latest 为空）时跳过：旧逻辑此时会每次启动都重新下载 main 分支 tarball
                     if (string.IsNullOrEmpty(latest)) return;
-                    if (NormalizeVersion(installed) == NormalizeVersion(latest)) return;
+                    // 仅当「未装 或 落后于上游 latest」才从 main 分支安装（防降级：已装 ≥ latest 时跳过）
+                    if (!string.IsNullOrEmpty(installed) && PatchContract.IsAtLeastVersion(NormalizeVersion(installed), NormalizeVersion(latest))) return;
                     InstallPluginPackage("https://codeload.github.com/ARFCON/dsh-hub-DSH/tar.gz/refs/heads/main");
                     return;
                 }
@@ -4213,17 +4282,18 @@ namespace DSHHotplugHub
         {
             try
             {
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                // v1.1（PC2/PC14）：探测目标 = 安装目标（web profile）优先（B-6 对齐）；根域走 DshRoot()
                 List<string> candidates = new List<string>();
-                string profilesDir = Path.Combine(home, ".dsh", "profiles");
+                candidates.Add(Path.Combine(MemoryHubContract.WebProfileDir(), "node_modules", "dsh-hub", "package.json"));
+                string profilesDir = Path.Combine(DshRoot(), "profiles");
                 if (Directory.Exists(profilesDir))
                 {
-                    foreach (string profileDir in Directory.GetDirectories(profilesDir))
+                    foreach (string profileDir in Directory.GetDirectories(profilesDir).OrderBy(pd => pd, StringComparer.OrdinalIgnoreCase))
                     {
                         candidates.Add(Path.Combine(profileDir, "node_modules", "dsh-hub", "package.json"));
                     }
                 }
-                candidates.Add(Path.Combine(home, ".dsh", "plugin-src", "dsh-hub", "package.json"));
+                candidates.Add(Path.Combine(DshRoot(), "plugin-src", "dsh-hub", "package.json"));
                 foreach (string pkgFile in candidates)
                 {
                     if (!File.Exists(pkgFile)) continue;
@@ -4236,10 +4306,18 @@ namespace DSHHotplugHub
             return null;
         }
 
+        // v1.1（PC14）：DSH 根域单一真源——与 launcher resolveDshRoot / MemoryHubContract 对齐
+        // （DSH_HOTPLUG_ROOT > DSH_HOME > ~/.dsh）。此前 Main.cs 各处硬编码 ~/.dsh，
+        // 与 EnsureProfileNpmrc 的 DSH_HOME 分支自相矛盾：自定义根环境下 .npmrc 与
+        // cordis.patch.yml 会写到两个不同的 profile。
+        internal static string DshRoot()
+        {
+            return MemoryHubContract.DshRootDir();
+        }
+
         private static string GetProfileDir()
         {
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            string dir = Path.Combine(home, ".dsh", "profiles", "web");
+            string dir = MemoryHubContract.WebProfileDir();
             Directory.CreateDirectory(dir);
             return dir;
         }
@@ -4325,20 +4403,20 @@ namespace DSHHotplugHub
             return PatchContract.IsValidLoaderId(id);
         }
 
+        // v1.1（PC24）：正则手术/净化/Yaml 引号等纯逻辑全部上移 PatchContract（单一真源 + 行为锁定测试），
+        // Main.cs 只保留「读文件 → 契约 → 写文件」的编排。
         private static string RegexEscapeForPatch(string s)
         {
             return System.Text.RegularExpressions.Regex.Escape(s ?? "");
         }
 
-        private static string YamlSingleQuote(string s)
-        {
-            return "'" + (s ?? "").Replace("'", "''") + "'";
-        }
-
         // 从安装包自己的 cordis.patch.yml（bundle patch）读取 loader id：
         // dshmarket→dsh-market、dsh-memory-hub→memory-hub、dsh-ui-guard→ui-guard、
         // @deepseek-ai/dsh-bridge-browser→bridge-browser、@liustack/modlens→modlens 等。
-        private static string GetBundlePatchLoaderId(string name)
+        // v1.1（复审 BUG-1 修复）：返回 patch 【文本】，由 PatchContract.ResolveLoaderId 统一提取——
+        // 此前把已提取的裸 id 当文本再跑一次 FirstInsertIdFromPatch（恒 null），
+        // bundle loader id 被全部丢弃、三源决议退化为净化名兜底（写错 desktop:<id> 分节）。
+        private static string GetBundlePatchText(string name)
         {
             try
             {
@@ -4346,65 +4424,21 @@ namespace DSHHotplugHub
                 string dir = Path.Combine(Path.Combine(GetProfileDir(), "node_modules"), name.Replace("/", Path.DirectorySeparatorChar.ToString()));
                 string patch = Path.Combine(dir, "cordis.patch.yml");
                 if (!File.Exists(patch)) return null;
-                return GetFirstInsertIdFromPatch(File.ReadAllText(patch));
+                return File.ReadAllText(patch);
             }
             catch { return null; }
         }
 
-        private static string GetFirstInsertIdFromPatch(string text)
+        private static string GetLoaderIdForPackage(string name)
         {
-            if (string.IsNullOrEmpty(text)) return null;
-            System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(text, @"- insert:\s*\r?\n[ \t]+- id:\s*([A-Za-z0-9_.-]+)");
-            if (m.Success && m.Groups.Count > 1) return m.Groups[1].Value;
-            return null;
-        }
-
-        // 非 bundle 插件（如 dsh-hub）的 loader id 登记在 profile patch 的 insert 块里，按包名反查。
-        private static string GetProfilePatchInsertId(string name)
-        {
+            string profilePatchText = null;
             try
             {
                 string patchFile = ProfilePatchPath();
-                if (!File.Exists(patchFile) || string.IsNullOrEmpty(name)) return null;
-                string text = File.ReadAllText(patchFile).Replace("\r\n", "\n");
-                string[] lines = text.Split('\n');
-                for (int k = 0; k + 1 < lines.Length; k++)
-                {
-                    string t = lines[k].Trim();
-                    if (t != "- insert:") continue;
-                    string blockId = null;
-                    string blockName = null;
-                    for (int n = k + 1; n < lines.Length; n++)
-                    {
-                        string lt = lines[n].Trim();
-                        if (lt.StartsWith("- id:")) blockId = lt.Substring(5).Trim().Trim('\'', '"');
-                        else if (lt.StartsWith("name:")) blockName = lt.Substring(5).Trim().Trim('\'', '"');
-                        else if (lt.StartsWith("- ")) break;
-                        if (blockId != null && blockName != null) break;
-                    }
-                    if (blockId != null && blockName == name) return blockId;
-                }
+                if (File.Exists(patchFile)) profilePatchText = File.ReadAllText(patchFile);
             }
-            catch { /* 有意吞掉：反查不到时走净化名兜底 */ }
-            return null;
-        }
-
-        private static string SanitizePluginInsertId(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return "plugin";
-            string id = name.Contains("/") ? name.Substring(name.IndexOf('/') + 1) : name;
-            id = System.Text.RegularExpressions.Regex.Replace(id, "[^A-Za-z0-9_-]+", "-").Trim('-');
-            if (id.Length == 0) id = "plugin-" + Environment.TickCount.ToString();
-            if (id.Length > 64) id = id.Substring(0, 64);
-            return id;
-        }
-
-        private static string GetLoaderIdForPackage(string name)
-        {
-            string loaderId = GetBundlePatchLoaderId(name);
-            if (string.IsNullOrEmpty(loaderId)) loaderId = GetProfilePatchInsertId(name);
-            if (string.IsNullOrEmpty(loaderId)) loaderId = SanitizePluginInsertId(name);
-            return loaderId;
+            catch { /* 反查不到时走净化名兜底 */ }
+            return PatchContract.ResolveLoaderId(GetBundlePatchText(name), profilePatchText, name);
         }
 
         // 顶层用户层条目是否带 disabled: true（官方插件管理页与我们的启停共用这一判定）
@@ -4412,75 +4446,19 @@ namespace DSHHotplugHub
         {
             try
             {
-                if (!ValidPluginLoaderId(id)) return false;
                 string patchFile = ProfilePatchPath();
                 if (!File.Exists(patchFile)) return false;
-                string text = File.ReadAllText(patchFile).Replace("\r\n", "\n");
-                string pattern = @"(?:^|\n)([ \t]{0,2})- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|(?:\n#)|\s*$)";
-                foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text, pattern))
-                {
-                    if (System.Text.RegularExpressions.Regex.IsMatch(m.Value, @"(?:^|\n)[ \t]{0,2}disabled\s*:\s*true\b")) return true;
-                }
-                return false;
+                return PatchContract.HasDisabledEntry(File.ReadAllText(patchFile), id);
             }
             catch { return false; }
         }
 
         // 把 profile cordis.patch.yml 的某插件启停条目与 DSH Desktop 保持一致：
         // 关闭 = 从 insert 块移除内层条目 + 顶层写 disabled: true；启用 = 移除 disabled 行。
+        // v1.1（PC24）：实现收敛到 PatchContract.TogglePluginSection（行为锁定测试在 PatchContractTests）。
         private static string TogglePluginInPatch(string text, string id, bool enabled, string name)
         {
-            if (text == null) text = "";
-            if (!ValidPluginLoaderId(id)) throw new ArgumentException("id 含非法字符（仅允许字母/数字开头，1-64 位，允许 . _ -）: " + id);
-            string outText = text;
-            string pkgName = string.IsNullOrEmpty(name) ? id : name;
-            const string desktopOwner = "desktop";
-            // 旧 `# 插件管理（设置页「插件」栏）：关闭 <id>` 标记块（迁移期识别，写时清理为 ## desktop:<id>）
-            string legacyMarkerPattern = @"(?:^|(?<=\n))# [^\n]*关闭 " + RegexEscapeForPatch(id) + @"[^\n]*(?:\n|$)";
-            // 顶层/块内无标记 disabled 条目（官方壳语义，双向兼容——保留识别）
-            string topEntryPattern = @"(?:^|\n)([ \t]{0,2})- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|(?:\n#)|\s*$)";
-
-            if (!enabled)
-            {
-                // 1) 从 insert 块移除内层条目（保持既有语义）
-                string innerPattern = @"(?:^|\n)[ \t]+- id:\s*" + RegexEscapeForPatch(id) + @"(?![ \t]*[A-Za-z0-9_.-])[^\n]*\n([\s\S]*?)(?=(?:\n[ \t]+- id:)|(?:\n[ \t]{0,2}- id:)|(?:\n[ \t]{0,2}- insert:)|\s*$)";
-                outText = System.Text.RegularExpressions.Regex.Replace(outText, innerPattern, delegate(System.Text.RegularExpressions.Match m) { return m.Value.StartsWith("\n") ? "\n" : ""; });
-                string emptyInsert = @"(?:^|\n)- insert:\s*\n(?![ \t]+-)";
-                outText = System.Text.RegularExpressions.Regex.Replace(outText, emptyInsert, delegate(System.Text.RegularExpressions.Match m) { return m.Value.StartsWith("\n") ? "\n" : ""; });
-
-                // 2) 已有顶层/块内无标记 disabled 条目 → 保证 disabled:true（官方语义，保留识别）
-                if (System.Text.RegularExpressions.Regex.IsMatch(outText, topEntryPattern))
-                {
-                    outText = System.Text.RegularExpressions.Regex.Replace(outText, topEntryPattern, delegate(System.Text.RegularExpressions.Match m)
-                    {
-                        string block = m.Value;
-                        if (System.Text.RegularExpressions.Regex.IsMatch(block, @"(?:^|\n)[ \t]{0,2}disabled\s*:")) return block;
-                        System.Text.RegularExpressions.Match nameMatch = System.Text.RegularExpressions.Regex.Match(block, @"(?:\n[ \t]{0,2}name\s*:[^\n]*)");
-                        if (nameMatch.Success) return block.Replace(nameMatch.Value, nameMatch.Value + "\n  disabled: true");
-                        return block.TrimEnd('\n') + "\n  disabled: true\n";
-                    });
-                }
-                else
-                {
-                    // 3) 迁移：清理旧 `# 插件管理…` 标记块（下次写时清理为契约块）
-                    outText = System.Text.RegularExpressions.Regex.Replace(outText, legacyMarkerPattern, "");
-                    // 4) 分节保留合并：`## desktop:<id>` 块替换/追加；其余块/注释原样保留
-                    string blockYaml = "- id: " + id + "\n  name: " + YamlSingleQuote(pkgName) + "\n  disabled: true";
-                    outText = PatchContract.MergePatchSection(outText, desktopOwner, id, blockYaml);
-                }
-                return outText;
-            }
-
-            // 启用：移除 `## desktop:<id>` 块 + 旧标记块 + 无标记 disabled 条目（其余原样保留）
-            outText = PatchContract.MergePatchSection(outText, desktopOwner, id, "");
-            outText = System.Text.RegularExpressions.Regex.Replace(outText, legacyMarkerPattern, "");
-            outText = System.Text.RegularExpressions.Regex.Replace(outText, topEntryPattern, delegate(System.Text.RegularExpressions.Match m)
-            {
-                string withoutDisabled = System.Text.RegularExpressions.Regex.Replace(m.Value, @"\n[ \t]{0,2}disabled\s*:\s*(?:true|false)[^\n]*", "");
-                if (System.Text.RegularExpressions.Regex.IsMatch(withoutDisabled, @"(?:^|\n)[ \t]{0,2}config\s*:")) return withoutDisabled;
-                return m.Value.StartsWith("\n") ? "\n" : "";
-            });
-            return outText;
+            return PatchContract.TogglePluginSection(text, id, enabled, name);
         }
         private static string CheckPluginUpdates()
         {
@@ -4568,54 +4546,10 @@ namespace DSHHotplugHub
         }
 
         // 宽松的 semver range 判断（^ ~ >= 精确值 */latest）；URL/git/file 形式的 spec 无法判断，一律视为满足以免误报
+        // v1.1（PC24）：实现收敛到 PatchContract.SpecSatisfiedBy（行为锁定测试）。
         private static bool SpecSatisfiedBy(string spec, string version)
         {
-            string s = (spec ?? "").Trim();
-            if (s.Length == 0 || s == "*" || s == "x" || s == "latest") return true;
-            if (s.Contains("/") || s.Contains(":")) return true; // URL / git / file: 形式
-            bool caret = s.StartsWith("^");
-            bool tilde = s.StartsWith("~");
-            bool gte = s.StartsWith(">=");
-            string body = NormalizeVersion(s.TrimStart('^', '~', '>', '='));
-            int[] specParts = ParseVersionParts(body);
-            int[] verParts = ParseVersionParts(NormalizeVersion(version));
-            if (specParts == null || verParts == null) return true;
-            int cmp = CompareVersionParts(verParts, specParts);
-            if (caret)
-            {
-                if (specParts[0] > 0) return verParts[0] == specParts[0] && cmp >= 0;
-                return verParts[0] == 0 && verParts[1] == specParts[1] && cmp >= 0; // ^0.x.y 锁定 minor
-            }
-            if (tilde) return verParts[0] == specParts[0] && verParts[1] == specParts[1] && cmp >= 0;
-            if (gte) return cmp >= 0;
-            return cmp == 0;
-        }
-
-        private static int[] ParseVersionParts(string v)
-        {
-            if (string.IsNullOrEmpty(v)) return null;
-            string core = v.Split('-', '+')[0];
-            string[] raw = core.Split('.');
-            if (raw.Length == 0) return null;
-            int[] parts = new int[3];
-            int seen = 0;
-            for (int i = 0; i < raw.Length && i < 3; i++)
-            {
-                int n;
-                if (!int.TryParse(raw[i], out n)) return null;
-                parts[i] = n;
-                seen++;
-            }
-            return seen > 0 ? parts : null;
-        }
-
-        private static int CompareVersionParts(int[] a, int[] b)
-        {
-            for (int i = 0; i < 3; i++)
-            {
-                if (a[i] != b[i]) return a[i] > b[i] ? 1 : -1;
-            }
-            return 0;
+            return PatchContract.SpecSatisfiedBy(spec, version);
         }
 
         private static string SetPluginEnabled(string id, bool enabled)
@@ -4677,14 +4611,10 @@ namespace DSHHotplugHub
 
         // 插件源/ID 白名单：字母数字与 npm 包名、semver range、GitHub URL 常见字符。
         // 引号/&/|/^/%/反引号等 shell 元字符一律拒绝，防止经 cmd.exe 的回退路径被拼接注入
+        // v1.1（PC24）：实现收敛到 PatchContract.IsValidPluginSpec（行为锁定测试）。
         private static bool IsSafePluginSpec(string spec)
         {
-            if (string.IsNullOrEmpty(spec)) return false;
-            foreach (char c in spec)
-            {
-                if (!(char.IsLetterOrDigit(c) || "/:@._~#+,=-".IndexOf(c) >= 0)) return false;
-            }
-            return true;
+            return PatchContract.IsValidPluginSpec(spec);
         }
 
         private static string AddPlugin(string payload)
@@ -4870,8 +4800,11 @@ namespace DSHHotplugHub
 
         private static bool SkillInstalled(string id)
         {
-            string dir = SkillsDir();
-            return Directory.Exists(Path.Combine(dir, id)) || File.Exists(Path.Combine(dir, id + ".md")) || File.Exists(Path.Combine(dir, id + ".md.disabled"));
+            // v1.1（PC3）：读探测同样走 SafeSkillDir——id 来自源目录枚举（frontmatter name），
+            // 与删除共用同一语法契约；非法 id 直接判未安装。
+            string dir = SkillContract.SafeSkillDir(SkillsDir(), id);
+            if (dir == null) return false;
+            return Directory.Exists(dir) || File.Exists(dir + ".md") || File.Exists(dir + ".md.disabled");
         }
 
         private static void AddSkillsFromSource(string payload)
@@ -4889,7 +4822,9 @@ namespace DSHHotplugHub
                     if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) continue;
                     if (cli != null)
                     {
-                        RunCli(GetNodeExe(), "\"" + cli + "\" skill add \"" + path.Replace("\"", "\\\"") + "\"");
+                        // v1.1（PC16）：skill add 是安装类操作（复制目录/写配置），此前用探测档
+                        // 5s 超时——稍慢即被杀树中断且报错丢失。改用面板 CLI 档 30s。
+                        RunCli(GetNodeExe(), "\"" + cli + "\" skill add \"" + path.Replace("\"", "\\\"") + "\"", ProcessContract.PanelCliTimeoutMs, null);
                     }
                     else
                     {
@@ -4924,101 +4859,75 @@ namespace DSHHotplugHub
             catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
         }
 
+        // v1.1（PC24）：frontmatter 解析单一真源移至 SkillContract.ReadSkillFrontmatter（行为逐字一致）。
         private static Dictionary<string, string> ReadSkillFrontmatter(string file)
         {
-            Dictionary<string, string> m = new Dictionary<string, string>();
-            m["name"] = Path.GetFileNameWithoutExtension(file);
-            m["desc"] = "本地 Skill";
-            try
-            {
-                string text = File.ReadAllText(file);
-                if (text.StartsWith("---"))
-                {
-                    int end = text.IndexOf("\n---", 3);
-                    if (end > 0)
-                    {
-                        string fm = text.Substring(3, end - 3);
-                        foreach (string line in fm.Split('\n'))
-                        {
-                            string t = line.TrimEnd('\r');
-                            if (t.StartsWith("name:"))
-                            {
-                                string v = t.Substring("name:".Length).Trim().Trim('\'', '"');
-                                if (v.Length > 0) m["name"] = v;
-                            }
-                            else if (t.StartsWith("description:"))
-                            {
-                                string v = t.Substring("description:".Length).Trim().Trim('\'', '"');
-                                if (v.Length > 0) m["desc"] = v;
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    string first = text.TrimStart('#', ' ', '\t', '\r', '\n');
-                    if (first.Length > 0)
-                    {
-                        int nl = first.IndexOf('\n');
-                        string n = (nl > 0 ? first.Substring(0, nl) : first).Trim();
-                        if (n.Length > 0) m["name"] = n;
-                    }
-                }
-            }
-            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
-            return m;
+            return SkillContract.ReadSkillFrontmatter(file);
         }
 
-        private static void SaveSkillFile(string payload)
-        {
-            try
-            {
-                JavaScriptSerializer ser = new JavaScriptSerializer();
-                Dictionary<string, object> data = ser.Deserialize<Dictionary<string, object>>(payload);
-                string name = data != null && data.ContainsKey("name") ? Convert.ToString(data["name"]) : "skill";
-                string desc = data != null && data.ContainsKey("desc") ? Convert.ToString(data["desc"]) : "";
-                string id = SanitizeSkillName(name);
-                if (id.Length == 0) id = "skill-" + DateTime.Now.Ticks.ToString("x");
-                string dir = Path.Combine(SkillsDir(), id);
-                if (Directory.Exists(dir)) id = id + "-" + DateTime.Now.Ticks.ToString("x");
-                dir = Path.Combine(SkillsDir(), id);
-                Directory.CreateDirectory(dir);
-                string frontmatter =
-                    "---\n" +
-                    "name: " + id + "\n" +
-                    "description: " + desc + "\n" +
-                    "disable-model-invocation: false\n" +
-                    "---\n\n" +
-                    desc + "\n";
-                File.WriteAllText(Path.Combine(dir, "SKILL.md"), frontmatter);
-            }
-            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
-        }
+        // v1.1（复审风格-2）：SaveSkillFile 已删除——其唯一调用方 addSkill IPC 分支是死分支
+        // （prototype.html 从不发送 addSkill:），安全契约收紧（PC3）后该路径也无法触达；
+        // 新建 skill 的能力由 SkillContract.BuildSkillMarkdown 契约承载（页面侧接线待后续 UI 需求）。
 
+        // v1.1（PC24）：skill 名净化单一真源移至 SkillContract.SanitizeSkillName。
         private static string SanitizeSkillName(string name)
         {
-            string s = System.Text.RegularExpressions.Regex.Replace((name ?? "").ToLowerInvariant(), "[^a-z0-9]+", "-");
-            s = s.Trim('-');
-            if (s.Length > 64) s = s.Substring(0, 64);
-            return s;
+            return SkillContract.SanitizeSkillName(name);
         }
 
-        private static void DeleteSkillFile(string id)
+        // v1.1（PC3·安全根治）：删除目标的路径安全契约——id 来自 WebView IPC 消息，
+        // 此前未经校验直接 Path.Combine + Directory.Delete(true)，`deleteSkill:..\..`
+        // 可递归删除任意目录。现经 SkillContract.SafeSkillDir 语法白名单 + 逃逸双保险。
+        // 三态返回（复审备注-2 修复）：Deleted=已删/目标本就不存在；Rejected=非法 id（绝不触碰文件系统）；
+        // Failed=目标合法但 IO 失败（被占用等）——调用方按各自语义提示，不再错误归因。
+        private enum DeleteSkillResult { Deleted, Rejected, Failed }
+
+        private static DeleteSkillResult DeleteSkillFile(string id)
         {
             try
             {
-                string dir = Path.Combine(SkillsDir(), id);
-                if (Directory.Exists(dir))
+                string root = SkillsDir();
+                string dir = SkillContract.SafeSkillDir(root, id);
+                if (dir != null)
                 {
-                    Directory.Delete(dir, true);
-                    return;
+                    if (Directory.Exists(dir))
+                    {
+                        Directory.Delete(dir, true);
+                        return DeleteSkillResult.Deleted;
+                    }
+                    string file = dir + ".md";
+                    if (File.Exists(file)) File.Delete(file);
+                    string disabledFile = dir + ".md.disabled";
+                    if (File.Exists(disabledFile)) File.Delete(disabledFile);
+                    return DeleteSkillResult.Deleted;
                 }
-                string file = Path.Combine(SkillsDir(), id + ".md");
-                if (File.Exists(file)) File.Delete(file);
-                string disabledFile = Path.Combine(SkillsDir(), id + ".md.disabled");
-                if (File.Exists(disabledFile)) File.Delete(disabledFile);
+                // 非法 id（含路径分隔/穿越，或历史遗留的不合规目录名）：记诊断日志（尽力而为），不执行任何删除
+                try
+                {
+                    string logDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "DSH-Hotplug-Hub");
+                    Directory.CreateDirectory(logDir);
+                    File.AppendAllText(Path.Combine(logDir, "ipc-error.log"),
+                        DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " deleteSkill rejected illegal id: " + (id ?? "(null)") + Environment.NewLine);
+                }
+                catch { /* 日志失败不影响主流程 */ }
+                return DeleteSkillResult.Rejected;
             }
-            catch { /* 有意吞掉：尽力而为的探测/清理，失败使用回退值，不影响主流程 */ }
+            catch (Exception ex)
+            {
+                try
+                {
+                    string logDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "DSH-Hotplug-Hub");
+                    Directory.CreateDirectory(logDir);
+                    File.AppendAllText(Path.Combine(logDir, "ipc-error.log"),
+                        DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " deleteSkill io-failed: " + ex.Message + Environment.NewLine);
+                }
+                catch { /* 日志失败不影响主流程 */ }
+                return DeleteSkillResult.Failed;
+            }
         }
 
 
@@ -5026,12 +4935,11 @@ namespace DSHHotplugHub
         {
             try
             {
-                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string cli = Path.Combine(home, ".dsh", "profiles", "web", "node_modules", "dseam-skillmcp", "lib", "cli.js");
+                string cli = Path.Combine(MemoryHubContract.WebProfileDir(), "node_modules", "dseam-skillmcp", "lib", "cli.js");
                 if (File.Exists(cli)) return cli;
-                cli = Path.Combine(home, ".dsh", "profiles", "desktop", "node_modules", "dseam-skillmcp", "lib", "cli.js");
+                cli = Path.Combine(DshRoot(), "profiles", "desktop", "node_modules", "dseam-skillmcp", "lib", "cli.js");
                 if (File.Exists(cli)) return cli;
-                cli = Path.Combine(home, ".dsh", "profiles", "web", "node_modules", "dsh-skill-mcp-panel", "lib", "cli.js");
+                cli = Path.Combine(MemoryHubContract.WebProfileDir(), "node_modules", "dsh-skill-mcp-panel", "lib", "cli.js");
                 if (File.Exists(cli)) return cli;
             }
             catch { /* 有意吞掉：找不到面板 CLI 时 MCP 管理按失败处理 */ }
@@ -5042,115 +4950,30 @@ namespace DSHHotplugHub
         {
             string cli = PanelCliPath();
             if (cli == null) return null;
-            return RunCli(GetNodeExe(), "\"" + cli + "\" " + arguments);
+            // v1.1（PC16）：面板 CLI 档 30s——mcp test 需要与真实服务器完成握手，
+            // enable/disable/add/remove 会写配置；此前探测档 5s 对这些操作是错档。
+            return RunCli(GetNodeExe(), "\"" + cli + "\" " + arguments, ProcessContract.PanelCliTimeoutMs, null);
         }
 
+        // v1.1（PC24）：YAML 标量/内联数组提取收敛到 PanelContract（行为锁定测试）。
         private static string ExtractYamlValue(string text, string key)
         {
-            string pattern = "^\\s*" + key + ":\\s*(.*)$";
-            foreach (string line in text.Replace("\r\n", "\n").Split('\n'))
-            {
-                System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(line, pattern);
-                if (m.Success)
-                {
-                    string v = m.Groups[1].Value.Trim();
-                    if (v.Length >= 2 && ((v[0] == '\'' && v[v.Length - 1] == '\'') || (v[0] == '"' && v[v.Length - 1] == '"'))) v = v.Substring(1, v.Length - 2);
-                    return v;
-                }
-            }
-            return null;
+            return PanelContract.ExtractYamlValue(text, key);
         }
 
         private static List<string> ExtractYamlStringList(string text, string key)
         {
-            List<string> list = new List<string>();
-            string pattern = "^\\s*" + key + ":\\s*\\[(.*)\\]\\s*$";
-            foreach (string line in text.Replace("\r\n", "\n").Split('\n'))
-            {
-                System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(line, pattern);
-                if (m.Success)
-                {
-                    string inner = m.Groups[1].Value;
-                    foreach (string part in inner.Split(','))
-                    {
-                        string p = part.Trim().Trim('\'', '"');
-                        if (p.Length > 0) list.Add(p);
-                    }
-                    break;
-                }
-            }
-            return list;
+            return PanelContract.ExtractYamlStringList(text, key);
         }
 
         private static string GetMcpsJson()
         {
             try
             {
-                List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
+                // v1.1（PC24）：MCP 分节提取/行解析收敛到 PanelContract（行为锁定测试）。
                 string patch = McpPatchPath();
-                if (File.Exists(patch))
-                {
-                    string text = File.ReadAllText(patch);
-                    string block = null;
-                    // v5 阶段 4：先契约单行 marker（## <owner>:mcp），再旧 begin/end 形态（迁移期读兼容）
-                    string[] newMarkers = new string[] { "## dseam-skillmcp:mcp", "## dsh-skill-mcp-panel:mcp" };
-                    foreach (string marker in newMarkers)
-                    {
-                        int mb = text.IndexOf(marker);
-                        if (mb >= 0)
-                        {
-                            int blockStart = text.IndexOf('\n', mb);
-                            if (blockStart >= 0)
-                            {
-                                int me = text.Length;
-                                foreach (string m2 in newMarkers)
-                                {
-                                    int idx = text.IndexOf(m2, blockStart + 1);
-                                    if (idx >= 0 && idx < me) me = idx;
-                                }
-                                block = text.Substring(blockStart + 1, me - blockStart - 1);
-                            }
-                            break;
-                        }
-                    }
-                    if (block == null)
-                    {
-                        string begin = "# >>> dseam-skillmcp:mcp:begin";
-                        string end = "# <<< dseam-skillmcp:mcp:end";
-                        int b = text.IndexOf(begin);
-                        int e = text.IndexOf(end);
-                        if (b < 0 || e <= b)
-                        {
-                            begin = "# >>> dsh-skill-mcp-panel:mcp:begin";
-                            end = "# <<< dsh-skill-mcp-panel:mcp:end";
-                            b = text.IndexOf(begin);
-                            e = text.IndexOf(end);
-                        }
-                        if (b >= 0 && e > b)
-                            block = text.Substring(b + begin.Length, e - b - begin.Length);
-                    }
-                    if (block != null)
-                    {
-                        System.Text.RegularExpressions.MatchCollection rows = System.Text.RegularExpressions.Regex.Matches(block, @"- id:\s*((?:dseam-mcp|panel-mcp)-[A-Za-z0-9_-]+)[\s\S]*?(?=\n\s*- id:|\z)");
-                        foreach (System.Text.RegularExpressions.Match rowMatch in rows)
-                        {
-                            string rowText = rowMatch.Value;
-                            string id = rowMatch.Groups[1].Value;
-                            string serverName = ExtractYamlValue(rowText, "serverName") ?? id;
-                            string transport = ExtractYamlValue(rowText, "transport") ?? "stdio";
-                            Dictionary<string, object> item = new Dictionary<string, object>();
-                            item["id"] = serverName;
-                            item["name"] = serverName;
-                            item["enabled"] = !rowText.Contains("disabled: true");
-                            item["transport"] = transport;
-                            item["command"] = ExtractYamlValue(rowText, "command") ?? "";
-                            item["url"] = ExtractYamlValue(rowText, "url") ?? "";
-                            item["args"] = ExtractYamlStringList(rowText, "args");
-                            item["autoStart"] = false;
-                            list.Add(item);
-                        }
-                    }
-                }
+                string block = File.Exists(patch) ? PanelContract.ExtractMcpBlock(File.ReadAllText(patch)) : null;
+                List<Dictionary<string, object>> list = PanelContract.ParseMcpRows(block);
                 return new JavaScriptSerializer().Serialize(list);
             }
             catch { return "[]"; }
@@ -5217,14 +5040,13 @@ namespace DSHHotplugHub
 
         private static string McpPatchPath()
         {
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "profiles", "web", "cordis.patch.yml");
+            return Path.Combine(GetProfileDir(), "cordis.patch.yml");
         }
 
+        // v1.1（PC24）：服务器名净化收敛到 PanelContract.SanitizeServerName（行为锁定测试）。
         private static string SanitizeServerName(string id)
         {
-            string s = System.Text.RegularExpressions.Regex.Replace(id ?? "", "[^A-Za-z0-9_-]", "-");
-            if (s.Length > 32) s = s.Substring(0, 32);
-            return s.Length == 0 ? "mcp" : s;
+            return PanelContract.SanitizeServerName(id);
         }
 
         private static string StartMcpProcess(string id)

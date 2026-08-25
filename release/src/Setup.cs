@@ -41,6 +41,9 @@ namespace DseamWorldSetup
         private const string CoreDllFileName = "Microsoft.Web.WebView2.Core.dll";
         private const string WinFormsDllFileName = "Microsoft.Web.WebView2.WinForms.dll";
         private const string LoaderDllFileName = "WebView2Loader.dll";
+        private const string UninstallerFileName = "Uninstall_Hotplug_Hub.exe";
+        // v1.1（PC21）：与 Main.cs APP_VERSION / package.json 一致；scripts/check-version-consistency.mjs 锁定四处同源
+        private const string AppVersion = "1.0.2";
 
         private TextBox _pathBox;
         private CheckBox _desktopCheck;
@@ -213,6 +216,13 @@ namespace DseamWorldSetup
             WriteResource("DSHHotplugHub.Setup.core.dll", Path.Combine(dir, CoreDllFileName));
             WriteResource("DSHHotplugHub.Setup.winforms.dll", Path.Combine(dir, WinFormsDllFileName));
             WriteResource("DSHHotplugHub.Setup.loader.dll", Path.Combine(dir, LoaderDllFileName));
+            // v1.1（PC21）：随装卸载器——卸载器（uninstaller/hotplug-hub）的清理管线会删除
+            // HKCU\...\Uninstall\DSH-Hotplug-Hub 键，但此前没有任何安装器【创建】它：
+            // 程序不出现在「应用和功能」，卸载入口断裂。现补齐契约两端。
+            string uninstallerPath = Path.Combine(dir, UninstallerFileName);
+            try { WriteResource("DSHHotplugHub.Setup.uninstall.exe", uninstallerPath); }
+            catch { /* 卸载器资源缺失（旧 Setup 重打包）：跳过，ARP 仍指向现有文件（如有） */ }
+            WriteArpRegistry(dir, appPath, File.Exists(uninstallerPath) ? uninstallerPath : null);
 
             if (desktopShortcut)
             {
@@ -262,6 +272,35 @@ namespace DseamWorldSetup
             catch
             {
                 // 注册表写入失败不阻塞安装
+            }
+        }
+
+        // v1.1（PC21）：ARP（应用和功能）注册——HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall。
+        // 卸载器（uninstaller/hotplug-hub）的清理管线已会删除该键（Uninstall_Hotplug_Hub.cs [6/6]），
+        // 此前只有删除端没有创建端。UninstallString 指向随装的卸载器；卸载器缺失时仍写 ARP
+        // （InstallLocation/DisplayIcon 可供定位），系统入口只提示缺失目标。
+        private static void WriteArpRegistry(string dir, string appPath, string uninstallerPath)
+        {
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\DSH-Hotplug-Hub"))
+                {
+                    k.SetValue("DisplayName", "Dseam世界 DSH-Hotplug-Hub", RegistryValueKind.String);
+                    k.SetValue("DisplayVersion", AppVersion, RegistryValueKind.String);
+                    k.SetValue("DisplayIcon", appPath + ",0", RegistryValueKind.String);
+                    k.SetValue("InstallLocation", dir, RegistryValueKind.String);
+                    k.SetValue("Publisher", "ARFCON", RegistryValueKind.String);
+                    if (!string.IsNullOrEmpty(uninstallerPath))
+                    {
+                        k.SetValue("UninstallString", "\"" + uninstallerPath + "\"", RegistryValueKind.String);
+                    }
+                    k.SetValue("NoModify", 1, RegistryValueKind.DWord);
+                    k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+                }
+            }
+            catch
+            {
+                // ARP 写入失败不阻塞安装（仍可从开始菜单/安装目录使用与手动卸载）
             }
         }
 

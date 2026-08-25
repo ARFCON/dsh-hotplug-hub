@@ -4,7 +4,7 @@
  *   Windows x64  安装版（Setup exe）+ 便携版（zip）
  *   Linux   x64  安装版（自解压 .sh）+ 便携版（tar.gz）
  *   macOS   x64  安装版（自解压 .command）+ 便携版（zip）
- * 两个自有插件（dseam-skillmcp / dsh-hub）随包内置在 plugins/ 目录。
+ * 三个自有插件（dseam-skillmcp / dsh-hub / dsh-memory-hub）随包内置在 plugins/ 目录。
  */
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -12,15 +12,27 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..')
-const version = '1.0.2'
+// v1.1（PC18）：版本号单一真源 = 根 package.json（此前与 Main.cs APP_VERSION /
+// Setup.cs 标题各自硬编码，靠人工同步；scripts/check-version-consistency.mjs 锁定四处同源）。
+const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
+if (!/^\d+\.\d+\.\d+/.test(String(version))) {
+  throw new Error('package.json version 缺失或非法: ' + version)
+}
 const releaseDir = join(root, 'release')
 const distDir = join(releaseDir, 'dist')
 const uiFile = join(root, 'dsh-hotplug-hub', 'dsh-pack-hub', 'prototype.html')
 const embeddedDir = join(releaseDir, 'embedded')
+// v1.1（PC17）：三个内置插件——此前漏 dsh-memory-hub，与 Linux/Windows README 的
+// 「三插件」文案矛盾（EXE 内嵌三个，便携包 plugins/ 只有两个）。
 const plugins = [
   'dseam-skillmcp-0.8.1-pre.tgz',
   'dsh-hub-1.1.8.tgz',
+  'dsh-memory-hub-0.8.0-pre.tgz',
 ]
+for (const f of plugins) {
+  if (!existsSync(join(embeddedDir, f))) throw new Error('内置插件缺失: ' + join(embeddedDir, f))
+}
+if (!existsSync(uiFile)) throw new Error('UI 文件缺失: ' + uiFile)
 const winDlls = [
   'Microsoft.Web.WebView2.Core.dll',
   'Microsoft.Web.WebView2.WinForms.dll',

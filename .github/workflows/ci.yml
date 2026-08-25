@@ -241,11 +241,47 @@ jobs:
           & $env:RUNNER_TEMP\MemoryHubContractTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Compile & run SkillContract 契约测试（skill id 语法 / 路径安全 / frontmatter；v1.1 PC3/PC24）
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\SkillContractTests.exe /reference:System.dll release\src\SkillContract.cs release\tests\SkillContractTests.cs
+          & $env:RUNNER_TEMP\SkillContractTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile & run PanelContract 契约测试（MCP/YAML 解析 / 服务器名净化；v1.1 PC24）
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\PanelContractTests.exe /reference:System.dll release\src\PanelContract.cs release\tests\PanelContractTests.cs
+          & $env:RUNNER_TEMP\PanelContractTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile & run ProcessContract 契约测试（真实子进程：执行/树杀/登记/版本判定；v1.1 PC5/PC11-13）
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\ProcessContractTests.exe /reference:System.dll release\src\ProcessContract.cs release\tests\ProcessContractTests.cs
+          & $env:RUNNER_TEMP\ProcessContractTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 注入脚本健壮性验收（qa13：页面半失败不级联；v1.1 PC15）
+        shell: pwsh
+        run: |
+          node scripts/qa13-shell-injection.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 版本号一致性检查（package.json / Main.cs / Setup.cs 同源；v1.1 PC18）
+        shell: pwsh
+        run: |
+          node scripts/check-version-consistency.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Compile Main.cs（WebView2 引用，语法完整性）
         shell: pwsh
         run: |
           $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\MainCheck.exe /reference:System.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:release\Microsoft.Web.WebView2.Core.dll" "/reference:release\Microsoft.Web.WebView2.WinForms.dll" release\src\PatchContract.cs release\src\ShellContract.cs release\src\RepairContract.cs release\src\MemoryHubContract.cs release\src\Main.cs
+          & $csc /nologo /target:exe /out:$env:RUNNER_TEMP\MainCheck.exe /reference:System.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:release\Microsoft.Web.WebView2.Core.dll" "/reference:release\Microsoft.Web.WebView2.WinForms.dll" release\src\PatchContract.cs release\src\ShellContract.cs release\src\RepairContract.cs release\src\MemoryHubContract.cs release\src\SkillContract.cs release\src\PanelContract.cs release\src\ProcessContract.cs release\src\Main.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Compile 安装器 / 卸载器（语法完整性；Setup.cs + 两个卸载器 + 契约）

@@ -229,6 +229,140 @@ namespace DSHHotplugHub
             Check(!PatchContract.IsNewerVersion("1.0.0", ""), "IsNewer 空 current false");
             Check(!PatchContract.IsNewerVersion(null, "1.0.0"), "IsNewer null candidate false");
 
+            // ⑧ 内嵌资源目录族（PC1：进程隔离 PID 目录 vs 安全校验对齐——断裂回归锁定）
+            Console.WriteLine("-- ⑧ EmbeddedTgzDirForProcess / IsEmbeddedTgzDir / AssertShellSafeLocalFile（PC1） --");
+            string embBase = PatchContract.EmbeddedTgzDir();
+            string embPid = PatchContract.EmbeddedTgzDirForProcess(4242);
+            Check(PatchContract.IsEmbeddedTgzDir(embBase), "固定目录在族内");
+            Check(PatchContract.IsEmbeddedTgzDir(embPid), "PID 后缀目录在族内（PC1 断裂点）");
+            Check(PatchContract.IsEmbeddedTgzDir(embBase.TrimEnd('\\') + "\\"), "尾随分隔符容忍");
+            Check(!PatchContract.IsEmbeddedTgzDir(Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embedded-abc")), "非数字后缀拒绝");
+            Check(!PatchContract.IsEmbeddedTgzDir(Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embeddedx")), "前缀延展拒绝");
+            Check(!PatchContract.IsEmbeddedTgzDir(Path.Combine(Path.GetTempPath(), "sub", "dsh-hotplug-hub-embedded")), "非 Temp 直接子目录拒绝");
+            Check(!PatchContract.IsEmbeddedTgzDir(Path.Combine(Path.GetTempPath(), "..", "dsh-hotplug-hub-embedded")), "穿越目录拒绝");
+            Check(!PatchContract.IsEmbeddedTgzDir(null), "null 拒绝");
+            Check(!PatchContract.IsEmbeddedTgzDir(""), "空串拒绝");
+            // ExtractEmbeddedTgz 的真实落盘形态（PID 目录 + 白名单文件名）必须过 AssertShellSafeLocalFile
+            string pidTgz = Path.Combine(embPid, "dsh-memory-hub-0.8.0-pre.tgz");
+            Check(SafeLocalFile(pidTgz), "PID 目录 + 合法文件名 → AssertShellSafeLocalFile 放行（PC1 主断言）");
+            Check(SafeLocalFile(Path.Combine(embBase, "dseam-skillmcp-0.8.1-pre.tgz")), "固定目录 + 合法文件名放行");
+            Check(!SafeLocalFile(Path.Combine(embPid, "evil name.tgz")), "文件名含空白拒绝");
+            Check(!SafeLocalFile(Path.Combine(embPid, "ev;il.tgz")), "文件名含元字符拒绝");
+            Check(!SafeLocalFile(Path.Combine(embPid, "ev&il.tgz")), "文件名含 & 拒绝");
+            Check(!SafeLocalFile(Path.Combine(embPid, "../escape.tgz")), "相对穿越拒绝");
+            Check(!SafeLocalFile(Path.Combine(Path.GetTempPath(), "dsh-hotplug-hub-embedded-999999999", "..", "..", "x.tgz")), "目录段穿越拒绝");
+            Check(PatchContract.EmbeddedTgzDirForProcess(Process.GetCurrentProcess().Id).EndsWith(Convert.ToString(Process.GetCurrentProcess().Id)), "PID 拼接正确");
+
+            // ⑨ 内嵌插件安装决策（PC2：三个内置插件统一防降级）
+            Console.WriteLine("-- ⑨ ShouldInstallEmbedded / IsAtLeastVersion（PC2 防降级） --");
+            Check(PatchContract.ShouldInstallEmbedded(null, "0.8.1-pre"), "未装 → 装");
+            Check(PatchContract.ShouldInstallEmbedded("", "0.8.1-pre"), "空版本 → 装");
+            Check(PatchContract.ShouldInstallEmbedded("0.8.0", "0.8.1-pre"), "更旧 → 装");
+            Check(PatchContract.ShouldInstallEmbedded("0.8.1-pre2", "0.8.1-pre"), "同 core 不同 pre → 重装（无 marker 插件的同 core 传播语义）");
+            Check(!PatchContract.ShouldInstallEmbedded("0.8.1-pre", "0.8.1-pre"), "完全相等 → 跳过");
+            Check(!PatchContract.ShouldInstallEmbedded("0.8.2", "0.8.1-pre"), "已装更新 → 跳过（防降级主断言）");
+            Check(!PatchContract.ShouldInstallEmbedded("1.0.0", "0.9.9"), "大版本已装更新 → 跳过");
+            Check(!PatchContract.ShouldInstallEmbedded("0.8.0", "0.8.0-pre"), "已装正式版 vs 内置 pre → 跳过（semver 0.8.0 > 0.8.0-pre）");
+            Check(PatchContract.ShouldInstallEmbedded("0.8.0-pre", "0.8.0"), "已装 pre vs 内置正式 → 装（升级）");
+            Check(PatchContract.IsAtLeastVersion("0.8.1-pre", "0.8.1-pre"), "IsAtLeast 相等 true");
+            Check(PatchContract.IsAtLeastVersion("0.8.0", "0.8.0-pre"), "IsAtLeast 正式 ≥ pre true");
+            Check(!PatchContract.IsAtLeastVersion("0.8.0-pre", "0.8.0"), "IsAtLeast pre < 正式 false");
+            Check(PatchContract.IsAtLeastVersion("0.9.0", "0.8.9"), "IsAtLeast 数值段 true");
+            Check(!PatchContract.IsAtLeastVersion(null, "1.0.0"), "IsAtLeast null false");
+            Check(!PatchContract.IsAtLeastVersion("", "1.0.0"), "IsAtLeast 空 false");
+
+            // ⑩ 插件源白名单（PC24：IsValidPluginSpec 迁移行为锁定）
+            Console.WriteLine("-- ⑩ IsValidPluginSpec（PC24 迁移） --");
+            Check(PatchContract.IsValidPluginSpec("@dsh-community/pkg"), "scoped 包名放行");
+            Check(PatchContract.IsValidPluginSpec("pkg@1.2.3"), "精确版本 spec 放行");
+            Check(!PatchContract.IsValidPluginSpec("pkg@^1.2.3"), "^ 拒绝（cmd 转义元字符，防御性拒绝）");
+            Check(PatchContract.IsValidPluginSpec("https://github.com/o/r@v1"), "GitHub URL 放行");
+            Check(PatchContract.IsValidPluginSpec("a:b"), "冒号放行");
+            Check(!PatchContract.IsValidPluginSpec(""), "空拒绝");
+            Check(!PatchContract.IsValidPluginSpec(null), "null 拒绝");
+            Check(!PatchContract.IsValidPluginSpec("a b"), "空白拒绝");
+            Check(!PatchContract.IsValidPluginSpec("a&b"), "& 拒绝");
+            Check(!PatchContract.IsValidPluginSpec("a|b"), "| 拒绝");
+            Check(!PatchContract.IsValidPluginSpec("a\"b"), "引号拒绝");
+            Check(!PatchContract.IsValidPluginSpec("a'b"), "单引号拒绝");
+            Check(!PatchContract.IsValidPluginSpec("a%b"), "% 拒绝（cmd 变量展开）");
+            Check(!PatchContract.IsValidPluginSpec("a`b"), "反引号拒绝");
+            Check(!PatchContract.IsValidPluginSpec("a\\b"), "反斜杠拒绝");
+            Check(!PatchContract.IsValidPluginSpec("a;b"), "分号拒绝");
+
+            // ⑪ 插件启停手术（PC24：TogglePluginSection / HasDisabledEntry / loader id 决议）
+            Console.WriteLine("-- ⑪ TogglePluginSection / HasDisabledEntry / ResolveLoaderId（PC24） --");
+            // 关闭（无既有条目）→ 追加 ## desktop:<id> 契约块
+            string basePatch = "# 保留注释\n- insert:\n  - id: memory-hub\n    name: dsh-memory-hub\n";
+            string disabled = PatchContract.TogglePluginSection(basePatch, "memory-hub", false, "dsh-memory-hub");
+            Check(disabled.Contains("## desktop:memory-hub"), "关闭追加契约 marker");
+            Check(disabled.Contains("- id: memory-hub\n  name: 'dsh-memory-hub'\n  disabled: true"), "关闭写入 disabled:true 块");
+            Check(disabled.Contains("# 保留注释"), "无关注释保留");
+            Check(!disabled.Contains("- insert:\n  - id: memory-hub"), "insert 内层条目移除");
+            Check(PatchContract.HasDisabledEntry(disabled, "memory-hub"), "HasDisabledEntry 命中");
+            Check(!PatchContract.HasDisabledEntry(disabled, "other-hub"), "HasDisabledEntry 不误命中");
+            // 再启用 → 契约块清除、insert 恢复由插件自带 patch 提供（本手术只移除 disabled）
+            string reEnabled = PatchContract.TogglePluginSection(disabled, "memory-hub", true, "dsh-memory-hub");
+            Check(!reEnabled.Contains("## desktop:memory-hub"), "启用移除契约块");
+            Check(!PatchContract.HasDisabledEntry(reEnabled, "memory-hub"), "启用后无 disabled");
+            Check(reEnabled.Contains("# 保留注释"), "启用保留无关注释");
+            // 官方壳语义条目（无 marker、顶层 - id + disabled:true）双向兼容
+            string officialPatch = "- id: ui-guard\n  name: dsh-ui-guard\n  disabled: true\n";
+            Check(PatchContract.HasDisabledEntry(officialPatch, "ui-guard"), "官方壳条目识别");
+            string officialEnabled = PatchContract.TogglePluginSection(officialPatch, "ui-guard", true, "dsh-ui-guard");
+            Check(!PatchContract.HasDisabledEntry(officialEnabled, "ui-guard"), "官方壳条目可启用");
+            // 含 config: 的官方条目启用时保留条目本身（只去 disabled 行）
+            string officialConfig = "- id: modlens\n  config:\n    foo: bar\n  disabled: true\n";
+            string ocEnabled = PatchContract.TogglePluginSection(officialConfig, "modlens", true, "@liustack/modlens");
+            Check(ocEnabled.Contains("config:"), "含 config 条目保留");
+            Check(!PatchContract.HasDisabledEntry(ocEnabled, "modlens"), "含 config 条目去 disabled");
+            // 非法 id 抛 ArgumentException
+            bool threw = false;
+            try { PatchContract.TogglePluginSection("", "../evil", false, "x"); }
+            catch (ArgumentException) { threw = true; }
+            Check(threw, "非法 id 抛 ArgumentException");
+            Check(!PatchContract.HasDisabledEntry(officialPatch, "../evil"), "HasDisabledEntry 非法 id false");
+            // 幂等：关闭两次结果稳定
+            string twice = PatchContract.TogglePluginSection(disabled, "memory-hub", false, "dsh-memory-hub");
+            Check(PatchContract.HasDisabledEntry(twice, "memory-hub"), "重复关闭仍 disabled");
+            Check((twice.Split(new[] { "## desktop:memory-hub" }, StringSplitOptions.None).Length - 1) == 1, "重复关闭不追加第二个契约块");
+            // CRLF 输入兼容
+            string crlfPatch = officialPatch.Replace("\n", "\r\n");
+            Check(PatchContract.HasDisabledEntry(crlfPatch, "ui-guard"), "CRLF 输入识别");
+            // loader id 决议三源
+            string bundlePatch = "- insert:\n  - id: dsh-market\n    name: dshmarket\n";
+            Check(PatchContract.ResolveLoaderId(bundlePatch, null, "dshmarket") == "dsh-market", "bundle patch 优先");
+            string profilePatch = "- insert:\n  - id: legacy-hub\n    name: dsh-hub\n";
+            Check(PatchContract.ResolveLoaderId(null, profilePatch, "dsh-hub") == "legacy-hub", "profile patch 反查次之");
+            Check(PatchContract.ResolveLoaderId(null, null, "@scope/pkg") == "pkg", "净化名兜底");
+            Check(PatchContract.ResolveLoaderId(null, null, "全中文") != "全中文", "非 ASCII 包名净化");
+            Check(PatchContract.FirstInsertIdFromPatch(null) == null, "FirstInsertId null 输入 null");
+            Check(PatchContract.YamlSingleQuote("it's") == "'it''s'", "YamlSingleQuote 单引号转义");
+
+            // ⑫ SpecSatisfiedBy 宽松 semver range（PC24 迁移 + 扩充）
+            Console.WriteLine("-- ⑫ SpecSatisfiedBy（PC24） --");
+            Check(PatchContract.SpecSatisfiedBy("^1.2.3", "1.2.3"), "^1.2.3 ⊇ 1.2.3");
+            Check(PatchContract.SpecSatisfiedBy("^1.2.3", "1.9.0"), "^1.2.3 ⊇ 1.9.0");
+            Check(!PatchContract.SpecSatisfiedBy("^1.2.3", "2.0.0"), "^1.2.3 ⊉ 2.0.0");
+            Check(!PatchContract.SpecSatisfiedBy("^1.2.3", "1.1.9"), "^1.2.3 ⊉ 1.1.9");
+            Check(PatchContract.SpecSatisfiedBy("^0.4.1", "0.4.9"), "^0.4.1 ⊇ 0.4.9（0.x 锁 minor）");
+            Check(!PatchContract.SpecSatisfiedBy("^0.4.1", "0.5.0"), "^0.4.1 ⊉ 0.5.0");
+            Check(PatchContract.SpecSatisfiedBy("~1.2.3", "1.2.9"), "~1.2.3 ⊇ 1.2.9");
+            Check(!PatchContract.SpecSatisfiedBy("~1.2.3", "1.3.0"), "~1.2.3 ⊉ 1.3.0");
+            Check(PatchContract.SpecSatisfiedBy(">=1.0.0", "3.2.1"), ">=1.0.0 ⊇ 3.2.1");
+            Check(PatchContract.SpecSatisfiedBy("1.2.3", "1.2.3"), "精确匹配");
+            Check(!PatchContract.SpecSatisfiedBy("1.2.3", "1.2.4"), "精确不匹配");
+            Check(PatchContract.SpecSatisfiedBy("*", "9.9.9"), "* 恒满足");
+            Check(PatchContract.SpecSatisfiedBy("", "1.0.0"), "空 spec 恒满足");
+            Check(PatchContract.SpecSatisfiedBy("latest", "1.0.0"), "latest 恒满足");
+            Check(PatchContract.SpecSatisfiedBy("file:../local", "1.0.0"), "file: 形式恒满足");
+            Check(PatchContract.SpecSatisfiedBy("https://x/y.tgz", "1.0.0"), "URL 形式恒满足");
+            Check(PatchContract.SpecSatisfiedBy("not-a-version", "1.0.0"), "无法解析 spec 恒满足（防误报）");
+            Check(PatchContract.SpecSatisfiedBy("v1.2.3", "v1.2.3"), "v 前缀归一");
+            Check(PatchContract.NormalizeVersionString("v0.8.0-pre") == "0.8.0-pre", "NormalizeVersionString 剥 v");
+            Check(PatchContract.NormalizeVersionString(" 1.2 ") == "1.2", "NormalizeVersionString 剥空白");
+            Check(PatchContract.NormalizeVersionString(null) == null, "NormalizeVersionString null");
+
             Directory.Delete(dir, true);
 
             Console.WriteLine("== 结果：PASS=" + _passes + " FAIL=" + _failures + " ==");
@@ -238,6 +372,12 @@ namespace DSHHotplugHub
         private static bool SafeArg(string value, string what)
         {
             try { PatchContract.AssertShellSafeArg(value, what); return true; }
+            catch (ArgumentException) { return false; }
+        }
+
+        private static bool SafeLocalFile(string value)
+        {
+            try { PatchContract.AssertShellSafeLocalFile(value, "tarballUrl"); return true; }
             catch (ArgumentException) { return false; }
         }
     }

@@ -32,7 +32,7 @@ const PORT = 3982
 // ---- 从 Main.cs 原样提取 BuildApiIntegrationScript 的 JS ----
 const mainCs = readFileSync(join(ROOT, 'release', 'src', 'Main.cs'), 'utf8')
 const startMarker = '"window.__apiConfig='
-const endMarker = '"})();";'
+const endMarker = '"})()}catch(e){}";'
 const sIdx = mainCs.indexOf(startMarker)
 const eIdx = mainCs.indexOf(endMarker, sIdx)
 if (sIdx < 0 || eIdx < 0) { console.error('FAIL 无法从 Main.cs 提取集成脚本'); process.exit(2) }

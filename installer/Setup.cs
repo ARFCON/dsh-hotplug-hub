@@ -349,6 +349,35 @@ namespace DSHHotplugHubInstaller
                 }
             }
             catch { /* 注册表写入失败不阻塞安装 */ }
+            // v1.1（PC21）：补齐 ARP 契约创建端——卸载器清理管线会删除
+            // HKCU\...\Uninstall\DSH-Hotplug-Hub，但此前没有安装器创建它（程序不出现在
+            // 「应用和功能」）。随装复制卸载器（源在仓库 uninstaller/hotplug-hub），UninstallString 指向它。
+            try
+            {
+                string uninstallerSrc = Path.Combine(
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..")),
+                    "uninstaller", "hotplug-hub", "Uninstall_Hotplug_Hub.exe");
+                string uninstallerDest = Path.Combine(target, "Uninstall_Hotplug_Hub.exe");
+                if (File.Exists(uninstallerSrc) && !File.Exists(uninstallerDest))
+                {
+                    File.Copy(uninstallerSrc, uninstallerDest, true);
+                }
+                using (RegistryKey k = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\DSH-Hotplug-Hub"))
+                {
+                    k.SetValue("DisplayName", "Dseam世界 DSH-Hotplug-Hub", RegistryValueKind.String);
+                    k.SetValue("DisplayVersion", "1.0.2", RegistryValueKind.String);
+                    k.SetValue("DisplayIcon", Path.Combine(target, "DSH-Hotplug-Hub.exe") + ",0", RegistryValueKind.String);
+                    k.SetValue("InstallLocation", target, RegistryValueKind.String);
+                    k.SetValue("Publisher", "ARFCON", RegistryValueKind.String);
+                    if (File.Exists(uninstallerDest))
+                    {
+                        k.SetValue("UninstallString", "\"" + uninstallerDest + "\"", RegistryValueKind.String);
+                    }
+                    k.SetValue("NoModify", 1, RegistryValueKind.DWord);
+                    k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+                }
+            }
+            catch { /* ARP 写入失败不阻塞安装 */ }
         }
 
         private static void CopyDirectory(string source, string target)
