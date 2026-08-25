@@ -99,18 +99,20 @@ namespace DSHHotplugHub
         }
 
         /// <summary>已装版本是否 ≥ 内置版本（防降级）。Core 段相等时：已装无 -pre 后缀而内置
-        /// 有 → 已装是正式版，视为更新（semver 0.8.0 &gt; 0.8.0-pre）；其余交给数值段比较。</summary>
+        /// 有 → 已装是正式版，视为更新（semver 0.8.0 &gt; 0.8.0-pre）；其余交给数值段比较。
+        /// v1.1（桌面壳审计 PC2）：语义上移到 PatchContract.IsAtLeastVersion 单一真源
+        /// （三个内置插件共用防降级契约），本方法保留为薄委托。</summary>
         public static bool IsAtLeastEmbedded(string installed, string embedded)
         {
-            if (string.IsNullOrEmpty(installed)) return false;
-            if (string.Equals(installed, embedded, StringComparison.Ordinal)) return true;
-            string coreInstalled = installed.Split('-')[0];
-            string coreEmbedded = embedded.Split('-')[0];
-            if (string.Equals(coreInstalled, coreEmbedded, StringComparison.Ordinal))
-            {
-                return !installed.Contains("-");
-            }
-            return PatchContract.IsNewerVersion(installed, embedded);
+            return PatchContract.IsAtLeastVersion(installed, embedded);
+        }
+
+        /// <summary>web profile 目录（&lt;dshRoot&gt;/profiles/web）——安装目标与探测目标的同一真源。
+        /// v1.1（PC14）：Main.cs 各处硬编码 ~/.dsh 的 profile 路径统一收口到此，
+        /// 与 launcher resolveDshRoot（DSH_HOTPLUG_ROOT &gt; DSH_HOME &gt; ~/.dsh）对齐。</summary>
+        public static string WebProfileDir()
+        {
+            return Path.Combine(DshRootDir(), "profiles", "web");
         }
 
         // ---------- 读面 ----------
