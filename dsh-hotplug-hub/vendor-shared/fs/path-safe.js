@@ -127,8 +127,13 @@ function realpathWithin(fsPort, root, target) {
 }
 
 /**
- * 检查单段路径名是否可安全用作文件系统条目（Windows 保留名 / 尾点空格 / 控制字符）。
+ * 检查单段路径名是否可安全用作文件系统条目（Windows 保留名 / 非法字符 / 尾点空格 / 控制字符）。
  * 错误码 ERR_ASSEMBLY_FIELD（与 launcher 历史语义一致；safeJoin 场景复用）。
+ *
+ * Windows 非法文件名字符 `\ / : * ? " < > |`：其中 `\` `/` 在单段名场景通常已被调用方
+ * 提前按分隔符处理，但此处仍一并拒绝（防御纵深）——`:` 尤其关键（盘符相对 `C:foo` 与
+ * NTFS ADS `file:stream` 语义）。盘符首段 `C:` 属「绝对路径首段」例外，由调用方
+ * （ids.validateSourcePath）在逐段校验前单独放行。
  * @param {string} name 单段名称
  * @param {string} [what]
  * @returns {{ok: boolean, error?: Error}}
@@ -137,14 +142,38 @@ function checkWindowsSafeName(name, what) {
   if (CONTROL_CHAR_RE.test(name)) {
     return { ok: false, error: makeError('ERR_ASSEMBLY_FIELD', `${what} 不得包含控制字符`) };
   }
+  // Windows 非法文件名字符（含盘符/ADS 的 ':' 与 <> " | ? *；'/' '\' 亦非法）
+  if (/[<>:"/\\|?*]/.test(name)) {
+    return { ok: false, error: makeError('ERR_ASSEMBLY_FIELD', `${what} 含 Windows 非法文件名字符：${JSON.stringify(name)}`) };
+  }
   if (TRAILING_DOT_OR_SPACE_RE.test(name)) {
     return { ok: false, error: makeError('ERR_ASSEMBLY_FIELD', `${what} 不得以 . 或空格结尾`) };
   }
-  const base = name.split('.')[0].toUpperCase();
+  // Windows 保留设备名判定（审计修复：补尾随空格/点与上标数字变体）。
+  // Windows 文件名归一化会把「基名 + 尾随空格/点」与「上标 ¹²³…」折叠为保留设备名：
+  // 例如 `CON .txt` 的基名 `CON `（尾随空格）→ `CON`、`COM¹` → `COM1`。
+  // 此前只取 `split('.')[0]` 原样比对，`CON .txt`/`NUL .md`/`COM¹` 等被放行，
+  // 破坏 CONTRACT §1「任何单段名均拒绝（含首段匹配）」。
+  const base = normalizeWinBaseName(name);
   if (RESERVED_WIN_NAMES.has(base)) {
     return { ok: false, error: makeError('ERR_ASSEMBLY_FIELD', `${what} 使用了 Windows 保留设备名 ${base}`) };
   }
   return { ok: true };
+}
+
+// 归一化 Windows 设备名基名：取第一个 `.` 之前的段，剥离尾随空格/点，
+// 并把上标数字 ⁰¹²³⁴⁵⁶⁷⁸⁹ 映射回 0-9，最后大写。
+// 与 Windows 文件名的设备名折叠语义对齐（COM¹≡COM1、CON ≡CON、NUL .md≡NUL）。
+const SUPERSCRIPT_DIGIT_MAP = {
+  '\u2070': '0',
+  '\u00b9': '1', '\u00b2': '2', '\u00b3': '3',
+  '\u2074': '4', '\u2075': '5', '\u2076': '6', '\u2077': '7', '\u2078': '8', '\u2079': '9'
+};
+function normalizeWinBaseName(name) {
+  return name.split('.')[0]
+    .replace(/[. ]+$/, '')
+    .replace(/[\u00b2\u00b3\u00b9\u2070\u2074-\u2079]/g, (c) => SUPERSCRIPT_DIGIT_MAP[c])
+    .toUpperCase();
 }
 
 /**
@@ -172,6 +201,8 @@ function safeJoin(root, ...parts) {
     if (CONTROL_CHAR_RE.test(part)) {
       return { ok: false, error: makeError('ERR_ARG_PATH_ESCAPE', 'safeJoin 段不得包含控制字符') };
     }
+    // Windows 非法文件名字符（盘符/ADS 的 ':' 及 < > " | ? *）由 checkWindowsSafeName
+    // 单一真源拒绝（下探该函数，避免各调用方各写一份正则）。
     const w = checkWindowsSafeName(part, 'safeJoin 段');
     if (!w.ok) return w;
     segments.push(part);

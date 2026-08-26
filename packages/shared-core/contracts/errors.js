@@ -1,5 +1,5 @@
 'use strict';
-// contracts/errors.js — CLI 域错误码（34 个错误码）与退出码映射（0-12）
+// contracts/errors.js — CLI 域错误码（数量以 ERROR_CODES 定义为准）与退出码映射（0-12）
 //
 // 退出码约定：
 //   2=参数/安全  3=装配  4=冲突  5=YAML  6=安装  7=harness
@@ -125,9 +125,15 @@ function makeError(code, message, extra = {}) {
   // D2 修复：name/stack 同为 Error 身份字段，一并剔除——此前 extra.name 可改写
   // err.name（Error 身份被替换）、extra.stack 可伪造调用栈，破坏 isDshError/日志
   // 对真实错误的可观测性；cause 属合法透传字段，保留。
+  // 审计修复（本轮根治）：__proto__/constructor/prototype 亦属身份字段——Object.assign
+  // 用 [[Set]] 语义，extra.__proto__ 会【替换 err 的原型】（err instanceof Error 变 false、
+  // err.name 丢失），而非设为普通属性。一并剔除，与 profile/patch.js stripUndefined 的
+  // __proto__ 拒绝口径一致。
   const {
     exitCode: _protectedExitCode, code: _protectedCode, message: _protectedMessage,
-    name: _protectedName, stack: _protectedStack, ...rest
+    name: _protectedName, stack: _protectedStack,
+    __proto__: _protectedProto, constructor: _protectedConstructor, prototype: _protectedPrototype,
+    ...rest
   } = extra || {};
   Object.assign(err, rest);
   return err;

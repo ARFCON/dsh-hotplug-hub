@@ -49,6 +49,12 @@ describe('token 协议', () => {
     expect(parseToken('123\nabc\n')).toBe(null);
     expect(parseToken('')).toBe(null);
     expect(parseToken('0\n1\n')).toBe(null);
+    // 审计回归 #14：宽松 parseInt 曾把损坏 token 误判为有效 (pid,at)
+    expect(parseToken('123abc\n456xyz\n')).toBe(null);
+    expect(parseToken('1.5\n2\n')).toBe(null);
+    expect(parseToken('  123  \n  456  \n')).toBe(null);
+    expect(parseToken('999999999999999999999\n1\n')).toBe(null); // 超安全整数
+    expect(parseToken('-1\n2\n')).toBe(null);
   });
 
   it('rewriteToken：先整体覆盖、后截断（杜绝"truncate→write"空文件窗口）', () => {
@@ -289,6 +295,26 @@ describe('acquire / release（单进程）', () => {
     expect(isDirectoryLock(nodeFs, lock)).toBe(false);
     expect(readToken(nodeFs, lock).pid).toBe(process.pid + 1);
     releaseLock(nodeFs, lock, { owner: c.owner, pid: process.pid + 1, fd: c.fd });
+  });
+
+  it('v1 目录锁迁移：fs 端口仅具 rmSync（缺 rmdirSync）也能清理接管（根治消费方端口缺口）', () => {
+    const dir = tempDir();
+    const lock = path.join(dir, '.lock');
+    // 模拟 dseam-skillmcp / dsh-memory-hub 的直连端口：有 rmSync、无 rmdirSync
+    const portWithoutRmdir = Object.fromEntries(
+      Object.entries(nodeFs).filter(([k]) => k !== 'rmdirSync')
+    );
+    expect(portWithoutRmdir.rmSync).toBeTypeOf('function');
+    expect(portWithoutRmdir.rmdirSync).toBeUndefined();
+    // 已死 pid 的 v1 目录锁 → 应被 rmSync 清理并重建为文件锁
+    fs.mkdirSync(lock);
+    const gone = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+    fs.writeFileSync(path.join(lock, 'owner'), JSON.stringify({ owner: `pid-${gone.pid}`, at: new Date().toISOString() }));
+    const r = acquireLock(portWithoutRmdir, lock, { waitMs: 500, staleMs: 30000, pollMs: 20, refreshMs: 0, pid: process.pid + 1 });
+    expect(r.ok).toBe(true);
+    expect(isDirectoryLock(portWithoutRmdir, lock)).toBe(false);
+    expect(readToken(portWithoutRmdir, lock).pid).toBe(process.pid + 1);
+    releaseLock(portWithoutRmdir, lock, { owner: r.owner, pid: process.pid + 1, fd: r.fd });
   });
 });
 

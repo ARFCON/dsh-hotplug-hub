@@ -15,7 +15,7 @@ const Ajv = require('ajv');
 const assemblySchema = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   $id: 'dsh-hotplug-launcher/assembly.schema.json',
-  title: 'Hotpack Assembly 1.0',
+  title: 'Hotpack Assembly 1.0（形状佐证；全量校验以 format/hotpack.parseHotpack 为准）',
   type: 'object',
   required: ['hotpack', 'id', 'name', 'version', 'plugins'],
   additionalProperties: true,
@@ -24,7 +24,10 @@ const assemblySchema = {
     // C1 修复：pattern 显式表达大小写不敏感（PACK_ID_RE 带 /i 标志，
     // 而 regex.source 不带标志——此前 schema 拒绝运行时接受的 'MyPack'）
     id: { type: 'string', pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$', maxLength: 64 },
-    name: { type: 'string', minLength: 1 },
+    // 非空白（与 parseHotpack 的 name.trim() 非空对齐）
+    name: { type: 'string', minLength: 1, pattern: '\\S' },
+    // 精确版本形状（EXACT_VERSION_RE）；semver 双检（拒 1.02.3 等前导零/非法标识符）
+    // 由运行时 ids.validateVersion 完成，JSON Schema 无法表达。
     version: { type: 'string', pattern: EXACT_VERSION_RE.source },
     description: { type: 'string' },
     tags: { type: 'array', items: { type: 'string' } },
@@ -156,8 +159,9 @@ const stateSchema = {
 const cordisPatchSchema = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   $id: 'dsh-hotplug-launcher/cordis-patch.schema.json',
-  title: 'cordis.patch.yml（与 DSH 契约一致）',
+  title: 'cordis.patch.yml（形状佐证；全量校验以 profile/patch.validatePatchDocument 为准）',
   type: 'array',
+  minItems: 1,
   items: {
     type: 'object',
     required: ['insert'],
@@ -170,8 +174,13 @@ const cordisPatchSchema = {
           required: ['id', 'name', 'config'],
           additionalProperties: true,
           properties: {
-            id: { type: 'string', maxLength: 64 },
-            name: { type: 'string' },
+            // 与 ids.validateId 的 PACK_ID_RE 白名单对齐（大小写不敏感、字母数字开头、
+            // 允许 . _ -、1..64）；保留设备名/尾点空格/控制字符的【全量】拒绝由运行时
+            // 校验器（ids.validateId）完成——JSON Schema draft-07 无法表达大小写不敏感的
+            // 保留名枚举与尾点空格，故本 schema 只锁定可表达的字符集/长度子集。
+            id: { type: 'string', pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$', maxLength: 64 },
+            // 非空白（与 validatePatchDocument 的 name.trim() 非空对齐）
+            name: { type: 'string', minLength: 1, pattern: '\\S' },
             config: { type: 'object' }
           }
         }

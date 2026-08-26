@@ -19,8 +19,8 @@ afterEach(() => { if (restoreEnv) restoreEnv(); if (iso) iso.cleanup() })
 
 describe('patch 块构建（阶段 4 契约格式）', () => {
   it('patchInstanceId = vendor-shared patchIdFor（统一算法：清洗保留 . _ - + 64 上限 + 哈希后缀）', () => {
-    expect(patchInstanceId('pack.a', 'plugin-1')).toBe('hp-pack.a-plugin-1')
-    expect(patchInstanceId('pack.a', 'b')).toBe('hp-pack.a-b')
+    expect(patchInstanceId('pack.a', 'plugin-1')).toMatch(/^hp-pack\.a-plugin-1-[0-9a-f]{8}$/)
+    expect(patchInstanceId('pack.a', 'b')).toMatch(/^hp-pack\.a-b-[0-9a-f]{8}$/)
     expect(patchInstanceId('x'.repeat(40), 'y'.repeat(40)).length).toBeLessThanOrEqual(64)
     expect(patchMarker('pack.a')).toBe('## hotplug:pack.a')
   })
@@ -29,7 +29,7 @@ describe('patch 块构建（阶段 4 契约格式）', () => {
     const block = buildPatchBlock(samplePack())
     expect(block.ok).toBe(true)
     expect(block.text.startsWith('- insert:\n')).toBe(true)
-    expect(block.text).toContain('    - id: hp-pack.test-a')
+    expect(block.text).toContain('    - id: ' + patchInstanceId('pack.test', 'a'))
     expect(block.text).toContain('name: pkg-a')
     expect(block.text).not.toContain('# hotplug:pack.test') // marker 不在块内
     // 产物可回读且语义等价（vendor-shared serializePatch 的强保证）

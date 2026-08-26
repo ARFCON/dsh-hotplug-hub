@@ -97,11 +97,11 @@ describe('QA3 patch/YAML 安全性（审计 A/N10/N17 强化）', () => {
   });
 
   it('patch id 清洗：非法字符替换 / 整串首尾连字符去除 / ≤64（内部连字符串保留为允许字符）', () => {
-    expect(patchIdFor('example', 'lit')).toBe('hp-example-lit');
-    expect(patchIdFor('ExAmPle', 'LIT')).toBe('hp-example-lit'); // 小写化
-    expect(patchIdFor('example', 'a b c')).toBe('hp-example-a-b-c'); // 空格→连字符
+    expect(patchIdFor('example', 'lit')).toMatch(/^hp-example-lit-[0-9a-f]{8}$/);
+    expect(patchIdFor('ExAmPle', 'LIT')).toBe(patchIdFor('example', 'lit')); // 小写化（哈希基于小写化编码）
+    expect(patchIdFor('example', 'a b c')).toMatch(/^hp-example-a-b-c-[0-9a-f]{8}$/); // 空格→连字符
     // 内部连字符属于允许字符，连续连字符不折叠（记录行为）；仅整串首尾 '-' 被去除
-    expect(patchIdFor('example', '---x---')).toBe('hp-example----x');
+    expect(patchIdFor('example', '---x---')).toMatch(/^hp-example----x-[0-9a-f]{8}$/);
     expect(patchIdFor('example', 'x'.repeat(80)).length).toBeLessThanOrEqual(64);
   });
 

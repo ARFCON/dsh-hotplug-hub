@@ -24,8 +24,15 @@ function sha256(file) {
   return createHash('sha256').update(readFileSync(file)).digest('hex')
 }
 
+// 开发资产（不同步进分发副本，与 sync-vendored-shared.mjs 保持一致）
+const EXCLUDE = new Set(['test', 'vitest.config.js', 'node_modules', 'coverage'])
+
 function walk(dir, base, out) {
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    // 审计修复（根治）：与 sync-vendored-shared.mjs 的 copyRuntime 逐层排除语义一致——
+    // 此前只在顶层段过滤（f.split('/')[0]），嵌套的 test/coverage/node_modules 目录会被
+    // sync 跳过、却被 check 当作必须存在 → CI 对「缺少文件」误报（且 vendor-shared 多余）。
+    if (EXCLUDE.has(ent.name)) continue
     const p = join(dir, ent.name)
     const rel = base ? `${base}/${ent.name}` : ent.name
     if (ent.isDirectory()) walk(p, rel, out)
@@ -35,9 +42,7 @@ function walk(dir, base, out) {
 }
 
 let failed = false
-// 开发资产（不同步进分发副本，与 sync-vendored-shared.mjs 保持一致）
-const EXCLUDE = new Set(['test', 'vitest.config.js', 'node_modules', 'coverage'])
-const srcFiles = walk(src, '', []).filter((f) => !EXCLUDE.has(f.split('/')[0])).sort()
+const srcFiles = walk(src, '', []).sort()
 
 for (const target of targets) {
   if (!existsSync(target)) {

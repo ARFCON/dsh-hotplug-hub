@@ -31,7 +31,8 @@
 
 ## 2. 错误码与结果契约
 
-- CLI 域错误码 `ERR_*`（32 码）与退出码映射（`ERR_ARG_`=2 … `ERR_ENV_`=12）见
+- CLI 域错误码 `ERR_*`（数量以 `contracts/errors.js` 的 `ERROR_CODES` 定义为准，退出码映射
+  `ERR_ARG_`=2 … `ERR_ENV_`=12）见
   `contracts/errors.js`；`makeError(code, message, extra)` 构造统一错误，
   `isDshError(err)` 判定；**exitCode 只由 code 前缀推导，调用方 extra 中的 exitCode 一律忽略**。
 - 命令结果 `CommandResult{ok, code, message, data, exitCode}`；hotplug 网关 RPC 序列化为
@@ -98,8 +99,13 @@
 
 - 所有出站 HTTPS **默认校验证书**（`rejectUnauthorized: true` 恒成立，合并末位，
   不可经调用方选项/环境变量绕过）；内网自签环境通过显式 `ca` 钉 CA。
-- 子进程 env 净化清单（spawn 前删除）：`NODE_TLS_REJECT_UNAUTHORIZED`、
-  `NODE_OPTIONS`、`NODE_EXTRA_CA_CERTS`、`SSL_CERT_FILE`、`SSL_CERT_DIR`。
+- 子进程 env 净化清单（spawn 前删除，以 `security/net.js` 的 `CHILD_ENV_BLOCKLIST` 为准，
+  C# 侧等价）：TLS/Node 行为（`NODE_TLS_REJECT_UNAUTHORIZED`、`NODE_OPTIONS`、
+  `NODE_EXTRA_CA_CERTS`、`SSL_CERT_FILE`、`SSL_CERT_DIR`）、动态链接器注入
+  （`LD_PRELOAD`、`LD_LIBRARY_PATH`、`DYLD_INSERT_LIBRARIES`、`DYLD_LIBRARY_PATH`、
+  `DYLD_FRAMEWORK_PATH`）、git 命令/配置注入（`GIT_SSH_COMMAND`、`GIT_SSH`、
+  `GIT_ASKPASS`、`GIT_EXEC_PATH`、`GIT_CONFIG_PARAMETERS`、`GIT_CONFIG_COUNT`、
+  `GIT_CONFIG_GLOBAL`、`GIT_CONFIG_SYSTEM`）。
 - 下载完整性：node/pnpm/tgz/raw 统一 SHA256 校验。
 - zip 解包安全：成员路径拒绝绝对/盘符/UNC/`..`/反斜杠；解包后整树 realpath 校验
   在目标根内，拒绝符号链接成员逃逸（zip slip + 符号链接，M-39）。
@@ -107,7 +113,7 @@
 ## 7. 命令安全（CMD_SPECIAL_RE）
 
 - **原则**：不构造 shell 字符串；一律 `spawn(command, argsArray, {shell:false})`。
-- `CMD_SPECIAL_RE = /[\u0000-\u001f\u007f&|;`$()<>"'\\]/`（C# 等价正则）。
+- `CMD_SPECIAL_RE = /[\u0000-\u001f\u007f\u0080-\u009f&|;`$()<>"'\\]/`（C# 等价正则）。
 - 自由形态值（git ref/tag/profile/tarballUrl）进 argv 前过
   `assertShellSafe`（严格 `^[0-9A-Za-z][0-9A-Za-z._-]*$`，可放宽如 repo 的 `/`）
   或 `assertShellSafeUrl`（http(s) URL、无空白/元字符）。

@@ -19,6 +19,13 @@ describe('validateZipEntryPath（zip slip 防护）', () => {
       expect(r.ok, JSON.stringify(p)).toBe(false);
     }
   });
+
+  it('拒绝：Windows 保留名/尾点空格/ADS/非法字符（根治：NTFS 归一化 zip-slip 与设备名/流写入面）', () => {
+    for (const p of ['CON', 'a/../b', 'a/.. /b', 'a/NUL.txt', 'a/COM1', 'a/x.', 'a/x ', 'a/b:c', 'a/b*c', 'a/b?c', 'a/b|c', 'a/b<c', 'a/b>c', 'a/b"c', 'a/\u0001b']) {
+      const r = validateZipEntryPath(p);
+      expect(r.ok, JSON.stringify(p)).toBe(false);
+    }
+  });
 });
 
 describe('sanitizeChildEnv', () => {
@@ -138,5 +145,51 @@ describe('httpsGetText（本地 TLS 服务）', () => {
     const r = await httpsGetText(`https://127.0.0.1:${port}/a`, { timeoutMs: 5000, ca: fs.readFileSync(cert) });
     expect(r.ok).toBe(true);
     expect(r.text).toBe('landed');
+  });
+
+  it('协议相对重定向 //host/path 正确解析为 https://host/path（根治：不误拼同源畸形路径）', async () => {
+    if (!hasOpenssl) { console.log('SKIP: openssl 不可用'); return; }
+    await startServer((req, res) => {
+      if (req.url === '/start') { res.writeHead(302, { Location: `//127.0.0.1:${port}/target` }); res.end(); return; }
+      if (req.url === '/target') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('protocol-relative-ok'); return; }
+      res.writeHead(404);
+      res.end();
+    });
+    const r = await httpsGetText(`https://127.0.0.1:${port}/start`, { timeoutMs: 5000, ca: fs.readFileSync(cert) });
+    expect(r.ok).toBe(true);
+    expect(r.text).toBe('protocol-relative-ok');
+  });
+
+  it('裸相对重定向（无前导 /）按 RFC 3986 以当前 URL 为 base 解析（审计修复）', async () => {
+    if (!hasOpenssl) { console.log('SKIP: openssl 不可用'); return; }
+    await startServer((req, res) => {
+      if (req.url === '/dir/start') { res.writeHead(302, { Location: 'target' }); res.end(); return; }
+      if (req.url === '/dir/target') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('relative-ok'); return; }
+      res.writeHead(404); res.end();
+    });
+    const r = await httpsGetText(`https://127.0.0.1:${port}/dir/start`, { timeoutMs: 5000, ca: fs.readFileSync(cert) });
+    expect(r.ok).toBe(true);
+    expect(r.text).toBe('relative-ok');
+  });
+
+  it('跨源重定向剥离 Authorization（审计修复：凭证不外泄）', async () => {
+    if (!hasOpenssl) { console.log('SKIP: openssl 不可用'); return; }
+    let leakedAuth = null;
+    const server2 = https.createServer({ key: fs.readFileSync(key), cert: fs.readFileSync(cert) }, (req, res) => {
+      leakedAuth = req.headers.authorization || null;
+      res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('cross-origin');
+    });
+    await new Promise((resolve) => server2.listen(0, '127.0.0.1', () => resolve()));
+    const port2 = server2.address().port;
+    await startServer((req, res) => {
+      if (req.url === '/start') { res.writeHead(302, { Location: `https://127.0.0.1:${port2}/final` }); res.end(); return; }
+      res.writeHead(404); res.end();
+    });
+    const r = await httpsGetText(`https://127.0.0.1:${port}/start`, {
+      timeoutMs: 5000, ca: fs.readFileSync(cert), headers: { Authorization: 'Bearer SECRET' }
+    });
+    expect(r.ok).toBe(true);
+    expect(leakedAuth).toBe(null); // 跨源不得转发 Authorization
+    server2.close();
   });
 });

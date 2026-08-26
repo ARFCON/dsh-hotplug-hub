@@ -169,6 +169,19 @@ describe('dshpackToHotpack（H-11b/c 修复后语义）', () => {
     expect(r.pack.plugins[1].id).toBe('plugin2');
   });
 
+  it('H-11b 审计修复：role 前导下划线派生 id 首字符字母数字（不再被 validatePluginId 拒绝）', () => {
+    const r = dshpackToHotpack(JSON.stringify({
+      packId: 'x', name: 'n', version: '1.0.0',
+      bundles: [
+        { package: 'pkg-a', version: '1.0.0', role: '_foo' },
+        { package: 'pkg-b', version: '1.0.0', role: 'bar_baz' }
+      ]
+    }));
+    expect(r.ok).toBe(true);
+    expect(r.pack.plugins[0].id).toBe('foo');     // '_foo' → 'foo'（剥前导下划线）
+    expect(r.pack.plugins[1].id).toBe('bar_baz'); // 内部下划线保留
+  });
+
   it('H-11b：npm 缺精确 version → 显式报错（不再静默跳过）', () => {
     const r = dshpackToHotpack(JSON.stringify({
       packId: 'x', name: 'n', version: '1.0.0',

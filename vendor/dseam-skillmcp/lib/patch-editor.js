@@ -74,17 +74,17 @@ function flattenPatchRows(entries) {
     }
     return rows;
 }
-/** 提取契约单行 marker 之后的受管块文本（marker 行起至下一个 marker 或 EOF）。 */
+/** 提取契约单行 marker 之后的受管块文本（marker 行起至下一个 marker 或 EOF）。
+ * 审计修复：改用 shared findPatchBlock 定位——读兼容单 `#`（CONTRACT §4），且正确以
+ * 「下一个任意 marker」为块边界。此前用 `line.trim() === PANEL_MCP_BLOCK_MARKER` 精确
+ * 匹配 `##`，既不识别单 `#`，又把「下一 marker」误判为「下一 dseam marker」，可能把
+ * 后续其它写者的块一并卷入本块（读/写不对称）。 */
 function extractNewBlockText(raw) {
-    const lines = raw.split("\n");
-    const start = lines.findIndex((line) => line.trim() === PANEL_MCP_BLOCK_MARKER);
-    if (start === -1)
+    const located = findPatchBlock(raw, "dseam-skillmcp", "mcp");
+    if (!located.found)
         return null;
-    let end = lines.length;
-    for (let i = start + 1; i < lines.length; i += 1) {
-        if (lines[i].trim() === PANEL_MCP_BLOCK_MARKER) { end = i; break; }
-    }
-    return lines.slice(start + 1, end).join("\n");
+    const lines = raw.split("\n");
+    return lines.slice(located.start + 1, located.end).join("\n");
 }
 /** 提取受管行：先契约单行 marker，再旧 begin/end 形态（迁移期读兼容）。 */
 export function extractManagedRows(raw) {

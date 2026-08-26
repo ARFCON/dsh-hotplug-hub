@@ -59,7 +59,7 @@ function makePathSource(name, version = '1.0.0') {
 
 describe('patch id / marker 契约', () => {
   it('patchInstanceId：hp- 前缀、确定性、长输入 ≤64', () => {
-    expect(patchInstanceId('pack.a', 'b')).toBe('hp-pack.a-b')
+    expect(patchInstanceId('pack.a', 'b')).toMatch(/^hp-pack\.a-b-[0-9a-f]{8}$/)
     const once = patchInstanceId('pack.a', 'plug-1')
     expect(once.startsWith('hp-')).toBe(true)
     expect(patchInstanceId('pack.a', 'plug-1')).toBe(once) // 确定性（同输入同输出）

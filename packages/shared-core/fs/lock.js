@@ -41,11 +41,6 @@ function sleepSync(ms) {
   Atomics.wait(arr, 0, 0, ms);
 }
 
-function pathJoin(dir, name) {
-  const sep = dir.endsWith('/') || dir.endsWith('\\') ? '' : '/';
-  return dir + sep + name;
-}
-
 /**
  * 解析 token 文本（`pid\nunix_ms`）。
  * @param {string} text
@@ -55,9 +50,14 @@ function parseToken(text) {
   if (typeof text !== 'string') return null;
   const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
   if (lines.length < 2) return null;
-  const pid = Number.parseInt(lines[0], 10);
-  const at = Number.parseInt(lines[1], 10);
-  if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(at) || at <= 0) return null;
+  // 严格十进制（审计修复）：token 契约是「纯十进制 pid + unix 毫秒时间戳」。
+  // 此前 Number.parseInt 对 `123abc`/`1.5`/超长数字都返回前缀整数，且 Number.isInteger
+  // 对 parseInt 结果恒真，导致损坏 token 被误判为有效 (pid,at)——与「token 缺失/损坏
+  // → 回退 mtime 判定」的意图相悖。现要求两行均为纯十进制且在安全整数范围，否则 null。
+  if (!/^[0-9]+$/.test(lines[0]) || !/^[0-9]+$/.test(lines[1])) return null;
+  const pid = Number(lines[0]);
+  const at = Number(lines[1]);
+  if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(at) || at <= 0) return null;
   return { pid, at };
 }
 
@@ -158,9 +158,10 @@ function isDirectoryLock(fsPort, lockPath) {
 function checkV1DirectoryLock(fsPort, lockPath, opts) {
   const now = opts.now || Date.now;
   const staleMs = opts.staleMs === undefined ? LOCK_STALE_MS : opts.staleMs;
+  const ownerPath = join(lockPath, 'owner');
   let ownerInfo = null;
   try {
-    ownerInfo = JSON.parse(fsPort.readFileSync(pathJoin(lockPath, 'owner'), 'utf8'));
+    ownerInfo = JSON.parse(fsPort.readFileSync(ownerPath, 'utf8'));
   } catch (_) {
     ownerInfo = null;
   }
@@ -175,10 +176,18 @@ function checkV1DirectoryLock(fsPort, lockPath, opts) {
       if (alive !== 1 && fresh) return { held: true }; // 持有者存活且未过期
     }
   }
-  // 无有效 owner 或已过期：清理目录（unlink owner → rmdir），返回未持有
+  // 无有效 owner 或已过期：清理目录重建为文件锁。
+  // 审计修复（根治）：fsPort 方法契约此前未文档化，消费方（dseam-skillmcp / dsh-memory-hub）
+  // 的直连端口缺 rmdirSync → `fsPort.rmdirSync(lockPath)` 抛 TypeError 被吞、v1 目录锁
+  // 永久残留、锁获取恒失败（子进程实证）。改为优先 rmSync（四个消费方均具备；递归 +
+  // force 容错竞态），回退 unlink owner + rmdirSync（老端口兼容）。
   try {
-    if (fsPort.existsSync(pathJoin(lockPath, 'owner'))) fsPort.unlinkSync(pathJoin(lockPath, 'owner'));
-    fsPort.rmdirSync(lockPath);
+    if (typeof fsPort.rmSync === 'function') {
+      fsPort.rmSync(lockPath, { recursive: true, force: true });
+    } else {
+      if (fsPort.existsSync(ownerPath)) fsPort.unlinkSync(ownerPath);
+      if (typeof fsPort.rmdirSync === 'function') fsPort.rmdirSync(lockPath);
+    }
   } catch (_) { /* 清理失败：交由后续 openSync 的 EEXIST 路径等待 */ }
   return { held: false };
 }
@@ -198,9 +207,11 @@ function checkV1DirectoryLock(fsPort, lockPath, opts) {
  * @param {number} pid 持有者 pid
  * @param {number} refreshMs 刷新周期（0=不刷新，返回 null）
  * @param {number} fd 主线程已打开的锁 fd（Worker 经此写；回退路径重写 token 用）
+ * @param {Function} [now] 时钟注入（默认 Date.now；仅 setInterval 回退路径使用。
+ *   Worker 线程无法结构化克隆函数、固定用 Date.now——生产 now≡Date.now 语义一致）
  * @returns {{stop: Function}|object|null} heartbeat 句柄或 interval 句柄
  */
-function startHeartbeat(fsPort, pid, refreshMs, fd) {
+function startHeartbeat(fsPort, pid, refreshMs, fd, now) {
   if (!(refreshMs > 0)) return null;
   try {
     const { Worker } = require('worker_threads');
@@ -228,7 +239,9 @@ function startHeartbeat(fsPort, pid, refreshMs, fd) {
     if (typeof setInterval !== 'function') return null;
     const timer = setInterval(() => {
       try {
-        rewriteToken(fd, pid, { fsImpl: fsPort });
+        // 审计修复：注入时钟须贯穿回退路径——此前 rewriteToken 缺省 Date.now()，
+        // 与 acquireLock/isStale 的 opts.now 陈旧判定脱钩（冻结时钟下 token 永不陈旧）。
+        rewriteToken(fd, pid, { fsImpl: fsPort, at: (now || Date.now)() });
       } catch (_) { /* 刷新失败：陈旧接管兜底 */ }
     }, refreshMs);
     if (typeof timer.unref === 'function') timer.unref();
@@ -238,7 +251,10 @@ function startHeartbeat(fsPort, pid, refreshMs, fd) {
 
 /**
  * 获取文件锁。
- * @param {object} fsPort fs 端口
+ * @param {object} fsPort fs 端口。本函数与 releaseLock/checkV1DirectoryLock 依赖的方法：
+ *   mkdirSync / openSync / writeFileSync / fsyncSync / closeSync / existsSync / statSync /
+ *   unlinkSync / readFileSync，以及 v1 目录锁迁移所需的 rmSync（优先）或 rmdirSync。
+ *   消费方直连 node:fs 端口必须含上述方法（缺失 rmdirSync 时 rmSync 兜底，见 checkV1DirectoryLock）。
  * @param {string} lockPath 锁文件路径
  * @param {object} [opts]
  * @param {number} [opts.waitMs] 等待上限（默认 10s）
@@ -277,7 +293,8 @@ function acquireLock(fsPort, lockPath, opts = {}) {
     try {
       // 先确保父目录存在
       fsPort.mkdirSync(dirname(lockPath), { recursive: true });
-      fd = fsPort.openSync(lockPath, 'wx', 0o600);      const token = { pid, at: now() };
+      fd = fsPort.openSync(lockPath, 'wx', 0o600);
+      const token = { pid, at: now() };
       try {
         fsPort.writeFileSync(fd, formatToken(pid, token.at), 'utf8');
         if (typeof fsPort.fsyncSync === 'function') fsPort.fsyncSync(fd);
@@ -288,7 +305,7 @@ function acquireLock(fsPort, lockPath, opts = {}) {
       }
       // 持锁期刷新：Worker 线程心跳（独立事件循环）——主线程阻塞 spawnSync 时
       // setInterval 无法触发，token 会陈旧被第二写者接管（P1）；Worker 不受影响。
-      const refresh = startHeartbeat(fsPort, pid, refreshMs, fd);
+      const refresh = startHeartbeat(fsPort, pid, refreshMs, fd, now);
       const release = () => releaseLock(fsPort, lockPath, { owner, pid, fd, refresh });
       // 审计修复：返回 refresh 句柄——此前调用方（pipeline/index 等）直接 releaseLock
       // {owner,pid,fd} 而不传 refresh，导致持锁期 setInterval 定时器在释放后泄漏、

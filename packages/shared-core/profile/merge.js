@@ -68,8 +68,17 @@ function findPatchBlock(text, owner, id) {
  */
 function mergePatchFile(fsPort, filePath, owner, id, blockYaml, opts = {}) {
   const marker = patchMarker(owner, id);
-  const blockText = `${marker}\n${String(blockYaml).replace(/\r\n/g, '\n').replace(/\n+$/, '')}\n`;
+  const blockYamlNorm = String(blockYaml).replace(/\r\n/g, '\n').replace(/\n+$/, '');
   const errorCode = opts.errorCode || 'ERR_INSTALL_FAILED';
+  // 防御（审计修复）：blockYaml 内若含列 0 的 marker 形态行（`# x:y` / `## x:y`），
+  // findPatchBlock 会把它误判为块边界——替换路径因此非幂等、内容逐次重复（实测）。
+  // 此类行无法无歧义地表示为「单个 YAML 顶层数组项」，显式拒绝而非静默损坏文件。
+  for (const line of blockYamlNorm.split('\n')) {
+    if (PATCH_MARKER_RE.test(line)) {
+      return { ok: false, error: makeError(errorCode, `块内容含 marker 形态行，无法安全合并：${JSON.stringify(line)}`) };
+    }
+  }
+  const blockText = `${marker}\n${blockYamlNorm}\n`;
   try {
     const raw = fsPort.existsSync(filePath) ? fsPort.readFileSync(filePath, 'utf8') : '';
     const text = String(raw).replace(/\r\n/g, '\n');
@@ -117,7 +126,11 @@ function removePatchBlock(fsPort, filePath, owner, id, opts = {}) {
     const lines = text.split('\n');
     const head = lines.slice(0, located.start).join('\n');
     const tail = lines.slice(located.end).join('\n');
-    // 清理接缝处的多余空行（head 结尾与 tail 开头各至多保留一个换行）
+    // 清理接缝处的多余空行（head 结尾与 tail 开头各至多保留一个换行）。
+    // 注（审计结论）：此「接缝空行清理」与 C# MergePatchSection("") 的「空行原样保留」
+    // 存在低危漂移——C# 删除时保留相邻块尾随空行，JS 删除时清理接缝空行。两者产物
+    // 均为合法 YAML 且语义等价（空行对 YAML 无意义），且本清理被消费者测试（B11
+    // 「文件尾不留双空行缝」）锁定为预期行为，故保留 JS 侧清理语义、不对齐 C#。
     let next = head.replace(/\n+$/, '');
     if (tail !== '') next = next === '' ? tail : next + '\n' + tail.replace(/^\n+/, '');
     if (next === '') next = '';
