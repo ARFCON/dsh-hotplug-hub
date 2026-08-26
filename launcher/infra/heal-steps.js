@@ -32,7 +32,10 @@ async function executeActionSteps(core, action, ctx) {
     switch (step.type) {
       case 'reinstall': {
         const { installPlugins } = require('./install');
-        r = await installPlugins(core, ctx.plugins || [], { profile: ctx.profile });
+        // 审计根因修正：reinstall 落地目标是 sandbox（持久源）——与 stageInstall 一致；
+        // 装进 profile 会在下次 launch 的 syncProfile 重新链接 node_modules 时被丢弃。
+        // 测试最小 ctx 可能无 sandbox，回退 profile 保持兼容（生产路径 buildHealContext 恒提供 sandbox）。
+        r = await installPlugins(core, ctx.plugins || [], { profile: ctx.sandbox || ctx.profile });
         break;
       }
       case 'rollback-snapshot': {
@@ -120,10 +123,12 @@ async function executeActionSteps(core, action, ctx) {
         // （复制壳），自愈后插件劣化：无真实链接（DSH require 不到代码）、陈旧占位
         // 目录不被清理（复制壳混进残留垃圾）。installPathPlugin 的语义与 install
         // 阶段完全一致（校验目标存在 → 清占位 → junction/dir symlink → 失败回退复制壳）。
+        // 审计根因修正：落地目标 = sandbox（持久源），与 install 阶段一致。
         const { installPathPlugin } = require('./install');
+        const linkProfile = ctx.sandbox || ctx.profile;
         for (const p of ctx.plugins || []) {
           if (p.source.type !== 'path') continue;
-          const lr = installPathPlugin(core, p, ctx.profile);
+          const lr = installPathPlugin(core, p, linkProfile);
           if (!lr.ok) {
             r = { ok: false, error: lr.error };
             break;
@@ -170,25 +175,26 @@ async function executeActionSteps(core, action, ctx) {
         break;
       }
       case 'regenerate-patch': {
-        // 重新生成 cordis.patch.yml（UTF-8 损坏修复）
+        // 重新生成 cordis.patch.yml（UTF-8 损坏修复）——分节合并，不整文件覆盖（P0-1）
         const { serializePatch } = require('../domain/patch');
-        const { writeFileAtomic } = require('./atomic');
         const { withPatchLock } = require('./patch-lock');
+        const { mergePatchFile } = require('@dsh/shared-core/profile/merge');
         const path = require('path');
         const patchFile = path.join(ctx.profile, 'cordis.patch.yml');
         const pack = ctx.pack || { id: ctx.state && ctx.state.id, plugins: ctx.plugins || [] };
         const sp = serializePatch(pack);
         if (!sp.ok) r = { ok: false, error: sp.error };
-        else {
-          // 审计修复（四写者锁）：regenerate-patch 整文件重写与 hub 的分节保留合并互斥
-          // （<profile>/.dsh-patch.lock，CONTRACT.md §5——此前 launcher 此写点不取锁）。
+        else if (!pack.id) {
+          r = { ok: false, error: makeError('ERR_YAML_SERIALIZE', '重新生成 patch 缺少 pack id，无法分节合并') };
+        } else {
+          // 审计修复（四写者锁 + P0-1）：regenerate-patch 与 hub 分节保留合并互斥，且
+          // 只替换 launcher 自己的块（<profile>/.dsh-patch.lock，CONTRACT.md §4/§5——
+          // 此前 launcher 此写点不取锁且整文件覆盖，会抹掉 hub 块）。
           r = withPatchLock(core.ports.fs, ctx.profile, () => {
-            // R3：原子写（writeFileAtomic tmp+rename）——此前 writeFileSync 裸写
-            // cordis.patch.yml，崩溃时留下半截 patch 文件。
-            const w = writeFileAtomic(core.ports.fs, patchFile, sp.yamlText);
-            if (!w.ok) {
+            const merged = mergePatchFile(core.ports.fs, patchFile, 'launcher', pack.id, sp.yamlText.replace(/\r?\n+$/, ''));
+            if (!merged.ok) {
               // C1 修复：写路径不裸抛
-              return { ok: false, error: makeError('ERR_YAML_SERIALIZE', `重写 cordis.patch.yml 失败：${w.error.message}`) };
+              return { ok: false, error: makeError('ERR_YAML_SERIALIZE', `重写 cordis.patch.yml 失败：${merged.error.message}`) };
             }
             return { ok: true };
           });

@@ -66,7 +66,7 @@ async function stageAssemble(core, state, args) {
   });
   if (!cleaned.ok) return errResult(cleaned.error);
 
-  const manifest = buildManifest(pack, resolved.resolved.plugins, roots.storeRoot);
+  const manifest = buildManifest(pack, resolved.resolved.plugins);
   const w1 = core.infra.atomic.writeFileAtomic(fsPort, path.join(sbDir, PROFILE_MANIFEST), JSON.stringify(manifest, null, 2) + '\n');
   if (!w1.ok) return errResult(w1.error);
   const w2 = core.infra.atomic.writeFileAtomic(fsPort, path.join(sbDir, PATCH_FILE), patch.yamlText);
@@ -152,6 +152,9 @@ async function stageLaunch(core, state, args) {
   const logFile = runLogFileFor(core, id);
   const runLog = core.infra.runlog.createRunLog(fsPort, logFile, { now: core.ports.now.now });
   const profileDir = sync.result.profile;
+  // 审计修复（P2-5）：syncProfile 的 note（node_modules 链接失败/隔离排除部分失败）
+  // 此前被丢弃——DSH 以缺依赖/陈旧依赖启动成功却无任何告警。透传到返回数据可观测。
+  const syncNote = sync.result.note || null;
   const env = { DSH_PROFILE: id };
   const argsList = core.config.platform !== 'win32' ? ['--profile', id] : [];
   // FIX-2：rollback 快照 = 同步前快照（回滚即恢复 launch 前内容）。
@@ -237,7 +240,7 @@ async function stageLaunch(core, state, args) {
   state.phase = launched.result.mode === 'wait' ? STATES.LAUNCHED : STATES.MONITORING;
   return okResult(
     launched.result.mode === 'wait' ? `LAUNCH OK：退出码 ${launched.result.exitCode}` : `LAUNCH OK pid=${launched.result.pid}`,
-    { id, pid: launched.result.pid, mode: launched.result.mode, profile: profileDir, logFile, harness: harness.harness, logWarnings }
+    { id, pid: launched.result.pid, mode: launched.result.mode, profile: profileDir, logFile, harness: harness.harness, logWarnings, syncNote }
   );
 }
 

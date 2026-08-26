@@ -44,7 +44,7 @@ describe('QA4 buildManifest（三源依赖形态）', () => {
       { id: 'b', name: 'pkg-b', source: { type: 'path', path: 'C:/src/pkg-b' }, version: null, resolvedVersion: null, pinned: false, installPath: 'C:/src/pkg-b', ref: null, config: {} },
       { id: 'c', name: 'pkg-c', source: { type: 'github', repo: 'o/r', ref: 'main' }, version: null, resolvedVersion: 'main', pinned: false, installPath: null, ref: 'main', config: {} }
     ];
-    const m = buildManifest(pack, plugins, '/store');
+    const m = buildManifest(pack, plugins);
     expect(m.dependencies['pkg-a']).toBe('^1.2.3');
     expect(m.dependencies['pkg-b']).toBe('link:C:/src/pkg-b');
     // github 源指向安装器实际落地位置（C3：不再指向未被填充的 storeRoot/<name>@<ref>）
@@ -59,13 +59,13 @@ describe('QA4 buildManifest（三源依赖形态）', () => {
       { id: 'c', name: 'pkg-c', source: { type: 'npm' }, version: '1.0.0', resolvedVersion: '1.0.0', config: { 'dsh.bundle.patch': true } },
       { id: 'd', name: 'pkg-d', source: { type: 'npm' }, version: '1.0.0', resolvedVersion: '1.0.0', config: {} }
     ];
-    const m = buildManifest(pack, plugins, '/store');
+    const m = buildManifest(pack, plugins);
     expect(m.dsh.profile.bundles).toEqual(['pkg-a', 'pkg-c']);
     expect(m.dsh.profile.bundles).toHaveLength(2);
   });
 
   it('manifest.name 由 pack.id 派生（N42：杜绝 ../ 注入进包名）', () => {
-    const m = buildManifest({ id: 'demo', plugins: [] }, [], '/store');
+    const m = buildManifest({ id: 'demo', plugins: [] }, []);
     expect(m.name).toBe('dsh-launcher-demo');
     expect(m.private).toBe(true);
     expect(m.version).toBe('0.1.0');
@@ -78,7 +78,7 @@ describe('QA4 buildManifest（三源依赖形态）', () => {
       { id: 'a', name: 'pkg-a', source: { type: 'npm' }, version: '3.0.0', resolvedVersion: null, pinned: false, config: {} },
       { id: 'b', name: 'pkg-b', source: { type: 'npm' }, version: null, resolvedVersion: null, pinned: false, config: {} }
     ];
-    const m = buildManifest(pack, plugins, '/store');
+    const m = buildManifest(pack, plugins);
     expect(m.dependencies['pkg-a']).toBe('^3.0.0');
     expect(m.dependencies['pkg-b']).toBe('latest');
   });

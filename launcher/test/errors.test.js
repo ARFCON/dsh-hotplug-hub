@@ -3,10 +3,10 @@
 const { ERROR_CODES, EXIT_CODE_BY_PREFIX, exitCodeForCode, makeError } = require('../contracts/errors');
 
 describe('contracts/errors 错误码→退出码契约（QA Bug #1 回归 + M-36/37）', () => {
-  it('34 个错误码唯一且全部有前缀映射（32 基线 + M-36 ERR_ARG_BAD_STATE + ERR_AI_SESSION_WRITE→RPC 域兜底 1）', () => {
+  it('35 个错误码唯一且全部有前缀映射（32 基线 + M-36 ERR_ARG_BAD_STATE + ERR_AI_SESSION_WRITE + P3-8 ERR_STATE_WRITE）', () => {
     const codes = Object.values(ERROR_CODES);
-    expect(codes.length).toBe(34);
-    expect(new Set(codes).size).toBe(34); // 无重复
+    expect(codes.length).toBe(35);
+    expect(new Set(codes).size).toBe(35); // 无重复
     for (const code of codes) {
       const prefix = Object.keys(EXIT_CODE_BY_PREFIX).find((p) => code.startsWith(p));
       expect(prefix, `code=${code} 无匹配前缀`).toBeTruthy();
@@ -30,6 +30,7 @@ describe('contracts/errors 错误码→退出码契约（QA Bug #1 回归 + M-36
       ['ERR_LAUNCH_EXIT', 8],
       ['ERR_HEAL_BUDGET', 9],
       ['ERR_LOCK_ACQUIRE', 10],
+      ['ERR_STATE_WRITE', 10],
       ['ERR_LOG_WRITE', 11],
       ['ERR_ENV_UNSUPPORTED', 12]
     ];

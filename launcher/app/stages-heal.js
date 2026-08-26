@@ -36,6 +36,22 @@ async function stageHeal(core, state, args) {
     return errResult(makeError('ERR_HEAL_NO_ACTION', '无自愈信号，无需动作（检查 run.jsonl 是否有故障日志）'));
   }
   const profileDir = path.join(core.config.roots.profilesRoot, id);
+  // 审计根因修正（heal 安装族目标）：install/reinstall/rebuild-link/onMirror 的落地目标
+  // 是【sandbox】（持久源）而非 profile——stageInstall 装进 sandbox，随后 syncProfile
+  // 把 sandbox → profile 再建 junction。heal 若把插件直接装进 profile，下一次 launch 的
+  // syncProfile 会重新链接 profile/node_modules → sandbox（仍是坏的），heal 的修复被
+  // 无声丢弃（假自愈）。故 heal 上下文同时携带 profile（部署产物：package.json/patch/
+  // 回滚目标）与 sandbox（安装族落地目标）。
+  // 审计根因修正（m7 越界防护）：heal 向 sandboxRoot/<id> 直写（npm/git/link），与
+  // syncProfile 对 sandbox 的 realpath 越界校验同一真源——预置 junction 于 sandboxRoot/<id>
+  // 会把 heal 的写副作用重定向到根域外，须先 realpath 比真根再落盘。
+  let sandboxDirForHeal;
+  if (core.config.roots && core.config.roots.sandboxRoot) {
+    const sandboxLexical = path.join(core.config.roots.sandboxRoot, id);
+    const sandboxCheck = core.domain.ids.assertWithinRealpath(fsPort, core.config.roots.sandboxRoot, sandboxLexical, `sandbox(id=${id})`);
+    if (!sandboxCheck.ok) return errResult(sandboxCheck.error);
+    sandboxDirForHeal = sandboxCheck.resolvedPath;
+  }
   // C7 修复：heal 执行前确保 profile 目录存在（此前从未 launch 的 id 直接 heal 时，
   // reinstall 的 npm install 以缺失目录为 cwd → 误导性的 ENOENT/ERR_INSTALL_FAILED）。
   // 审计修复：mkdirSync 是持久副作用，必须只在执行模式（--yes）下做——预览（无 --yes）
@@ -43,11 +59,12 @@ async function stageHeal(core, state, args) {
   if (yes) {
     try {
       fsPort.mkdirSync(profileDir, { recursive: true });
+      if (sandboxDirForHeal) fsPort.mkdirSync(sandboxDirForHeal, { recursive: true });
     } catch (e) {
-      return errResult(makeError('ERR_INSTALL_DEP', `无法创建 profile 目录 ${profileDir}：${e.message}`));
+      return errResult(makeError('ERR_INSTALL_DEP', `无法创建 profile/sandbox 目录：${e.message}`));
     }
   }
-  const ctx = buildHealContext(core, state, id, profileDir);
+  const ctx = buildHealContext(core, state, id, profileDir, sandboxDirForHeal);
   const run = await core.infra.heal.runHeal(core, planned.actions, ctx, { dryRun: !yes });
   if (!run.ok) {
     // C7 修复：预览（无 --yes）零持久副作用——不写 phase/history/dirty；
@@ -72,13 +89,16 @@ async function stageHeal(core, state, args) {
 // FIX-16/17：heal 上下文（quarantine 写 quarantined；onMirror 镜像重试）
 // C3 修复：quarantine 支持指定目标插件（disable-recent 显式传入"解析序末位"插件，
 // 而非依赖 quarantine 的缺省末位逻辑——两者目标一致但路径显式、可测试）。
-function buildHealContext(core, state, id, profileDir) {
+// 审计根因修正：ctx 同时携带 profile（部署产物/回滚目标）与 sandbox（安装族落地目标）——
+// install/reinstall/rebuild-link/onMirror 必须装进 sandbox（持久源），否则下一次 launch
+// 的 syncProfile 会重新链接 profile/node_modules → sandbox 把 heal 修复丢弃。
+function buildHealContext(core, state, id, profileDir, sandboxDirForHeal) {
   // C6 修复：heal 上下文只含未被隔离的插件——INSTALL_FAIL 重装/LINK_FAIL 重建等
   // 动作不得把已隔离插件装回来（quarantine 消费一致性）。
   const qset = new Set(quarantinedNames(state));
   const plugins = ((state.resolved && state.resolved.plugins) || []).filter((p) => !qset.has(p.name));
   return {
-    state, profile: profileDir, plugins, pack: { id, plugins },
+    state, profile: profileDir, sandbox: sandboxDirForHeal, plugins, pack: { id, plugins },
     // B1 修复：heal 回滚（rollback-snapshot 步骤 / rollbackAction）复用此根做 realpath
     // 越界校验，与 stageRollback/syncProfile 同一真源——防 profilesRoot/<id> 被预置
     // junction/symlink 时回滚逃出根域。测试最小 core 可能无 config.roots，缺省 undefined
@@ -99,11 +119,13 @@ function buildHealContext(core, state, id, profileDir) {
       const githubs = plugins.filter((p) => p.source && p.source.type === 'github');
       if (githubs.length === 0) return { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', '无 github 源插件可重试') };
       const fsPort = core.ports.fs;
-      const missing = githubs.filter((p) => !fsPort.existsSync(path.join(profileDir, 'node_modules', p.name, 'package.json')));
+      // 安装族落地目标 = sandbox（持久源，与 install 阶段一致）
+      const targetDir = sandboxDirForHeal || profileDir;
+      const missing = githubs.filter((p) => !fsPort.existsSync(path.join(targetDir, 'node_modules', p.name, 'package.json')));
       if (missing.length === 0) return { ok: true };
       let lastErr = null;
       for (const gh of missing) {
-        const r = await core.infra.install.installGithubPluginWithMirror(core, gh, profileDir, mirror);
+        const r = await core.infra.install.installGithubPluginWithMirror(core, gh, targetDir, mirror);
         if (!r.ok) { lastErr = r.error; break; }
       }
       return lastErr ? { ok: false, error: lastErr } : { ok: true };

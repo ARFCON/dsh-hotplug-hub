@@ -28,13 +28,13 @@ describe('infra/atomic 错误码语义（QA #6 回归）', () => {
     expect(r.error.code).toBe('ERR_INSTALL_FAILED');
   });
 
-  it('writeState 失败归状态域 ERR_LOCK_ACQUIRE（exit=10）', () => {
+  it('writeState 失败归状态持久化域 ERR_STATE_WRITE（exit=10，P3-8 语义纠正）', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'launcher-atomic-'));
     const parentFile = path.join(dir, 'afile');
     fs.writeFileSync(parentFile, 'x');
     const r = writeState(fsPort, path.join(parentFile, 'state.json'), { schemaVersion: 1 });
     expect(r.ok).toBe(false);
-    expect(r.error.code).toBe('ERR_LOCK_ACQUIRE');
+    expect(r.error.code).toBe('ERR_STATE_WRITE');
     expect(r.error.exitCode).toBe(10);
   });
 

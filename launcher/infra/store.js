@@ -146,7 +146,8 @@ function migrateState(raw) {
 }
 
 /**
- * 原子写 state（QA 修复：写失败归状态域 exit=10，而非日志域）。
+ * 原子写 state（QA 修复：写失败归状态持久化域 exit=10；P3-8 语义纠正——
+ * 用专属 ERR_STATE_WRITE 而非 ERR_LOCK_ACQUIRE，区分「持久化失败」与「锁冲突」）。
  * C4/C7 修复：剥离运行时标志 dirty 后再序列化（state.json 不得出现
  * schema 未定义的运行时字段）；state 文件以 0600 写入（含启动环境信息，POSIX 下
  * 不向同机其他用户暴露）。
@@ -160,7 +161,7 @@ function writeState(fsPort, stateFile, state) {
   // 后者若被未来某个降级写路径带上盘，会让后续所有 status 永久 stateOk:false。
   const { dirty: _dirty, _corrupted: _corrupted, ...persistable } = state;
   const json = JSON.stringify(persistable, null, 2) + '\n';
-  const r = writeFileAtomic(fsPort, stateFile, json, { errorCode: 'ERR_LOCK_ACQUIRE', mode: 0o600 });
+  const r = writeFileAtomic(fsPort, stateFile, json, { errorCode: 'ERR_STATE_WRITE', mode: 0o600 });
   if (!r.ok) return r;
   return { ok: true };
 }

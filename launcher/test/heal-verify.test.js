@@ -36,6 +36,7 @@ describe('infra/heal-verify.js verifyAction 全动作（C3：无恒通过）', (
     it('全部落地 → ok', async () => {
       const root = tempDir('hv-install-ok-');
       fs.mkdirSync(path.join(root, 'node_modules', 'a'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'node_modules', 'a', 'package.json'), '{}');
       const r = await verifyAction(makeCore(), { code: 'INSTALL_FAIL' }, { plugins: [npmPlugin('a', '1.0.0', { resolvedVersion: '1.0.0' })], profile: root });
       expect(r).toEqual({ ok: true });
       fs.rmSync(root, { recursive: true, force: true });

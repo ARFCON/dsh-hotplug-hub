@@ -98,6 +98,11 @@ function checkConflicts(plugins) {
         continue;
       }
       const ov = semver.valid(other.resolvedVersion || other.version);
+      // 审计根因修正（预发布冲突）：依赖图校验必须用【严格 semver.satisfies】——npm 语义下
+      // `1.0.0-beta.2` 不满足 `^1.0.0`（预发布版本除非 range 自身含预发布标识，否则不匹配）。
+      // 此前用 satisfiesRelaxed 做「元组宽松匹配」，会把「声明要求稳定版、实际却是 beta」的
+      // 真实冲突静默判为满足（resolve 的 registry-prerelease 分支是为「候选仅含 beta」场景
+      // 的 pin 兜底，属顶层解析语义，与依赖图的 range 满足判定是两回事，不应共用放宽语义）。
       if (ov && !semver.satisfies(ov, depRange)) {
         conflicts.push({
           severity: 'error',
