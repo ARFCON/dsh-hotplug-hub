@@ -5,9 +5,9 @@ const {
 } = require('../contracts/errors');
 
 describe('ERROR_CODES / 退出码映射', () => {
-  it('34 个错误码全部带 ERR_ 前缀（32 基线 + M-36 新增 ERR_ARG_BAD_STATE + ERR_AI_SESSION_WRITE）', () => {
+  it('35 个错误码全部带 ERR_ 前缀（32 基线 + M-36 ERR_ARG_BAD_STATE + ERR_AI_SESSION_WRITE + P3-8 ERR_STATE_WRITE）', () => {
     const codes = Object.values(ERROR_CODES);
-    expect(codes).toHaveLength(34);
+    expect(codes).toHaveLength(35);
     for (const c of codes) expect(c.startsWith('ERR_')).toBe(true);
   });
   it('ERR_ARG_BAD_STATE 属参数域（exit=2，M-36 专属错误码）', () => {
@@ -24,6 +24,7 @@ describe('ERROR_CODES / 退出码映射', () => {
     expect(exitCodeForCode('ERR_LAUNCH_SPAWN')).toBe(8);
     expect(exitCodeForCode('ERR_HEAL_NO_ACTION')).toBe(9);
     expect(exitCodeForCode('ERR_LOCK_ACQUIRE')).toBe(10);
+    expect(exitCodeForCode('ERR_STATE_WRITE')).toBe(10);
     expect(exitCodeForCode('ERR_LOG_WRITE')).toBe(11);
     expect(exitCodeForCode('ERR_ENV_UNSUPPORTED')).toBe(12);
     expect(exitCodeForCode('ERR_AI_SESSION_WRITE')).toBe(1); // RPC 域兜底

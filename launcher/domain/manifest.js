@@ -16,12 +16,13 @@ const semver = require('semver');
 
 /**
  * 构建 sandbox manifest。
+ * 审计 E（可维护性）：移除死参 storeRoot——C3 修复把 github 依赖改为
+ * `link:./node_modules/<name>` 后唯一使用点消失，函数体不再引用。
  * @param {object} pack parseHotpack 产物
  * @param {Array<object>} plugins resolved 插件
- * @param {string} storeRoot 本地 store 根
  * @returns {object} manifest
  */
-function buildManifest(pack, plugins, storeRoot) {
+function buildManifest(pack, plugins) {
   const dependencies = {};
   const bundles = [];
   for (const p of plugins) {

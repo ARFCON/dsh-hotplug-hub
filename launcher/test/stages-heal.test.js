@@ -187,4 +187,24 @@ describe('app/stages-heal.js buildHealContext', () => {
     expect(r.ok).toBe(true);
     expect(install.installGithubPluginWithMirror).toHaveBeenCalledWith(core, gh, '/p', 'https://m');
   });
+
+  it('审计根因修正：onMirror 落地目标是 sandbox（持久源），非 profile', async () => {
+    const gh = { name: 'g', source: { type: 'github', ref: 'main' } };
+    const state = { heal: {}, resolved: { plugins: [gh] } };
+    const install = { installGithubPluginWithMirror: vi.fn(async () => ({ ok: true, channel: 'github', mirror: 'https://m' })) };
+    const core = { infra: { install }, ports: { fs: fsPort } };
+    const c = buildHealContext(core, state, 'demo', '/p', '/s');
+    const r = await c.onMirror('https://m');
+    expect(r.ok).toBe(true);
+    // 落地到 sandbox（/s），而非 profile（/p）——否则下次 launch 的 syncProfile 会重新链接
+    // profile/node_modules → sandbox 丢弃 heal 修复（假自愈）。
+    expect(install.installGithubPluginWithMirror).toHaveBeenCalledWith(core, gh, '/s', 'https://m');
+  });
+
+  it('buildHealContext：同时暴露 profile（部署产物）与 sandbox（安装族落地目标）', () => {
+    const state = { heal: {}, resolved: { plugins: [] } };
+    const c = buildHealContext({}, state, 'demo', '/p', '/s');
+    expect(c.profile).toBe('/p');
+    expect(c.sandbox).toBe('/s');
+  });
 });

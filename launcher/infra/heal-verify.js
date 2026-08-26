@@ -28,15 +28,17 @@ async function verifyActionUnchecked(core, action, ctx) {
   switch (action.code) {
     case 'INSTALL_FAIL': {
       const { verifyInstall } = require('./install');
-      const v = verifyInstall(core, ctx.plugins || [], ctx.profile);
+      // 审计根因修正：验证落地目标 = sandbox（持久源，与 reinstall 步骤/stageInstall 一致）
+      const v = verifyInstall(core, ctx.plugins || [], ctx.sandbox || ctx.profile);
       return v.ok ? { ok: true } : { ok: false, error: makeError('ERR_INSTALL_DEP', `安装验证失败，缺失：${v.missing.join(', ')}`) };
     }
     case 'LINK_FAIL': {
       const fsPort = core.ports.fs;
       const path = require('path');
+      const linkProfile = ctx.sandbox || ctx.profile;
       for (const p of ctx.plugins || []) {
         if (p.source.type !== 'path') continue;
-        if (!fsPort.existsSync(path.join(ctx.profile, 'node_modules', p.name))) {
+        if (!fsPort.existsSync(path.join(linkProfile, 'node_modules', p.name))) {
           return { ok: false, error: makeError('ERR_INSTALL_DEP', `link 验证失败：${p.name}`) };
         }
       }
@@ -97,12 +99,13 @@ async function verifyActionUnchecked(core, action, ctx) {
       return { ok: true };
     }
     case 'GITHUB_ACQUIRE_FAIL': {
-      // 验证 github 源插件已落地（node_modules/<name>/package.json 存在）
+      // 验证 github 源插件已落地（node_modules/<name>/package.json 存在）；目标 = sandbox（持久源）
       const fsPort = core.ports.fs;
       const path = require('path');
+      const ghProfile = ctx.sandbox || ctx.profile;
       for (const p of ctx.plugins || []) {
         if (p.source.type !== 'github') continue;
-        if (!fsPort.existsSync(path.join(ctx.profile, 'node_modules', p.name, 'package.json'))) {
+        if (!fsPort.existsSync(path.join(ghProfile, 'node_modules', p.name, 'package.json'))) {
           return { ok: false, error: makeError('ERR_INSTALL_ACQUIRE', `github 插件未落地：${p.name}`) };
         }
       }

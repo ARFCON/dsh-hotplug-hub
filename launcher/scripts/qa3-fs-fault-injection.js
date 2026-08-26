@@ -66,12 +66,12 @@ console.log('== QA3 文件系统故障注入 ==');
   check('atomic EBUSY 原文件完好', fs.readFileSync(file, 'utf8') === 'ORIGINAL');
 }
 
-// 3) store.writeState ENOSPC → ERR_LOCK_ACQUIRE（exit=10）
+// 3) store.writeState ENOSPC → ERR_STATE_WRITE（exit=10，P3-8 语义纠正）
 {
   const dir = tmpDir('qa3-fi-store-');
   const badFs = fsWithError('renameSync', 'ENOSPC');
   const r = writeState(badFs, path.join(dir, 'state.json'), { schemaVersion: 1 });
-  check('store ENOSPC → ERR_LOCK_ACQUIRE', r.ok === false && r.error.code === 'ERR_LOCK_ACQUIRE', JSON.stringify(r));
+  check('store ENOSPC → ERR_STATE_WRITE', r.ok === false && r.error.code === 'ERR_STATE_WRITE', JSON.stringify(r));
   check('store ENOSPC exit=10', r.ok === false && r.error.exitCode === 10);
 }
 

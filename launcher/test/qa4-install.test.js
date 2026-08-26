@@ -42,29 +42,25 @@ function recordingProc(status, opts = {}) {
   return { port, calls };
 }
 
-function dshOk() {
-  return { pluginAdd: async () => ({ ok: true }), isInstalled: () => false };
-}
-
-function dshFail() {
-  return { pluginAdd: async () => ({ ok: false, error: new Error('dsh CLI 不可用') }), isInstalled: () => false };
-}
-
-describe('QA4 installNpmPlugin（dsh 通道 + npm 降级）', () => {
-  it('dsh 通道成功 → channel dsh，不降级 npm', async () => {
-    const core = makeCore({ dshPort: dshOk(), procPort: recordingProc(0).port });
+describe('QA4 installNpmPlugin（npm 直装 sandbox + 落地校验）', () => {
+  it('npm 直装成功且落地 → channel npm', async () => {
+    const rec = recordingProc(0);
+    const core = makeCore({ procPort: rec.port });
     const profile = tempDir('qa4i1-');
+    fs.mkdirSync(path.join(profile, 'node_modules', 'pkg-a'), { recursive: true }); // 预置落地
+    fs.writeFileSync(path.join(profile, 'node_modules', 'pkg-a', 'package.json'), '{}');
     const r = await installNpmPlugin(core, { name: 'pkg-a', version: '1.0.0', resolvedVersion: '1.0.0' }, profile);
     expect(r.ok).toBe(true);
-    expect(r.channel).toBe('dsh');
+    expect(r.channel).toBe('npm');
     fs.rmSync(profile, { recursive: true, force: true });
   });
 
-  it('dsh 通道失败 → npm 降级；win32 用 cmd.exe /c 包装且带 spec', async () => {
+  it('win32 用 cmd.exe /c 包装且带 spec', async () => {
     const rec = recordingProc(0);
-    const core = makeCore({ dshPort: dshFail(), procPort: rec.port });
+    const core = makeCore({ procPort: rec.port });
     const profile = tempDir('qa4i2-');
     fs.mkdirSync(path.join(profile, 'node_modules', 'pkg-a'), { recursive: true }); // 落地校验
+    fs.writeFileSync(path.join(profile, 'node_modules', 'pkg-a', 'package.json'), '{}');
     const r = await installNpmPlugin(core, { name: 'pkg-a', version: '1.0.0', resolvedVersion: '1.0.0' }, profile);
     expect(r.ok).toBe(true);
     expect(r.channel).toBe('npm');
@@ -78,11 +74,12 @@ describe('QA4 installNpmPlugin（dsh 通道 + npm 降级）', () => {
     fs.rmSync(profile, { recursive: true, force: true });
   });
 
-  it('POSIX 平台 npm 降级直接 spawn npm（无 cmd 包装）', async () => {
+  it('POSIX 平台直接 spawn npm（无 cmd 包装）', async () => {
     const rec = recordingProc(0);
-    const core = makeCore({ dshPort: dshFail(), procPort: rec.port, platform: 'linux' });
+    const core = makeCore({ procPort: rec.port, platform: 'linux' });
     const profile = tempDir('qa4i3-');
     fs.mkdirSync(path.join(profile, 'node_modules', 'pkg-a'), { recursive: true });
+    fs.writeFileSync(path.join(profile, 'node_modules', 'pkg-a', 'package.json'), '{}');
     const r = await installNpmPlugin(core, { name: 'pkg-a' }, profile);
     expect(r.ok).toBe(true);
     expect(rec.calls[0].bin).toBe('npm');
@@ -92,7 +89,7 @@ describe('QA4 installNpmPlugin（dsh 通道 + npm 降级）', () => {
 
   it('npm 失败 → ERR_INSTALL_FAILED + childExitCode 透传真实退出码（C6）', async () => {
     const rec = recordingProc(7, { stderr: 'npm ERR! EACCES' });
-    const core = makeCore({ dshPort: dshFail(), procPort: rec.port });
+    const core = makeCore({ procPort: rec.port });
     const profile = tempDir('qa4i4-');
     const r = await installNpmPlugin(core, { name: 'pkg-a', version: '1.0.0', resolvedVersion: '1.0.0' }, profile);
     expect(r.ok).toBe(false);
@@ -104,7 +101,7 @@ describe('QA4 installNpmPlugin（dsh 通道 + npm 降级）', () => {
 
   it('npm 成功但 node_modules/<name> 未落地 → ERR_INSTALL_DEP（复制壳识别）', async () => {
     const rec = recordingProc(0);
-    const core = makeCore({ dshPort: dshFail(), procPort: rec.port });
+    const core = makeCore({ procPort: rec.port });
     const profile = tempDir('qa4i5-');
     const r = await installNpmPlugin(core, { name: 'pkg-a', version: '1.0.0', resolvedVersion: '1.0.0' }, profile);
     expect(r.ok).toBe(false);
@@ -114,7 +111,6 @@ describe('QA4 installNpmPlugin（dsh 通道 + npm 降级）', () => {
 
   it('spawnSync 同步抛错（npm 无法执行）→ ERR_INSTALL_FAILED 不崩溃', async () => {
     const core = makeCore({
-      dshPort: dshFail(),
       procPort: createProcPort({
         spawn: () => { throw new Error('x'); },
         spawnSync: () => { const e = new Error('ENOENT: npm'); e.code = 'ENOENT'; throw e; }
@@ -133,9 +129,9 @@ describe('QA4 installGithubPluginWithMirror（镜像链语义）', () => {
     const calls = [];
     const port = createProcPort({
       spawn: () => { throw new Error('x'); },
-      spawnSync: (bin, args) => {
-        calls.push({ bin, args });
-        if (opts.onCall) opts.onCall(args);
+      spawnSync: (bin, args, sp) => {
+        calls.push({ bin, args, cwd: sp && sp.cwd });
+        if (opts.onCall) opts.onCall(args, sp || {});
         return { status, error: null, stderr: '', stdout: '' };
       }
     });
@@ -147,13 +143,16 @@ describe('QA4 installGithubPluginWithMirror（镜像链语义）', () => {
   }
 
   it('explicitMirror 只试该镜像（heal onMirror 语义：不直连、不串行全部镜像）', async () => {
-    // onCall 模拟真实 git clone 产物：创建 target 目录 + package.json
-    // win32 包装后 args = ['/c','git','clone','--depth','1','--branch',ref,url,target]
-    const rec = gitProc(0, { onCall: (args) => {
-      const target = args[8];
-      // 防污染防护：target 必须是绝对路径且位于系统临时目录内
-      //（索引错位曾把 ref 'main' 当 target 在 vitest cwd 下创建相对路径残留）
-      if (!path.isAbsolute(target) || !target.startsWith(os.tmpdir())) {
+    // onCall 模拟真实 git clone 产物：在 cwd + 相对目标 处创建 package.json
+    // win32 包装后 args = ['/c','git','clone','--depth','1','--branch',ref,url,relTarget]
+    // m8 修复：relTarget 相对路径（node_modules/<name>），cwd=<profile>
+    const rec = gitProc(0, { onCall: (args, sp) => {
+      const relTarget = args[8];
+      if (!relTarget || path.isAbsolute(relTarget) || !relTarget.startsWith('node_modules')) {
+        throw new Error(`git 相对目标非法（防测试污染）：${relTarget}`);
+      }
+      const target = path.join(sp.cwd, relTarget);
+      if (!target.startsWith(os.tmpdir())) {
         throw new Error(`git target 越界（防测试污染）：${target}`);
       }
       fs.mkdirSync(target, { recursive: true });
@@ -187,9 +186,13 @@ describe('QA4 installGithubPluginWithMirror（镜像链语义）', () => {
   });
 
   it('POSIX 平台不包装：直接 spawn git（无 /c 前缀）', async () => {
-    const rec = gitProc(0, { onCall: (args) => {
-      const target = args[6]; // ['clone','--depth','1','--branch',ref,url,target]
-      if (!path.isAbsolute(target) || !target.startsWith(os.tmpdir())) {
+    const rec = gitProc(0, { onCall: (args, sp) => {
+      const relTarget = args[6]; // ['clone','--depth','1','--branch',ref,url,relTarget]
+      if (!relTarget || path.isAbsolute(relTarget) || !relTarget.startsWith('node_modules')) {
+        throw new Error(`git 相对目标非法（防测试污染）：${relTarget}`);
+      }
+      const target = path.join(sp.cwd, relTarget);
+      if (!target.startsWith(os.tmpdir())) {
         throw new Error(`git target 越界（防测试污染）：${target}`);
       }
       fs.mkdirSync(target, { recursive: true });
@@ -227,25 +230,53 @@ describe('QA4 installGithubPluginWithMirror（镜像链语义）', () => {
     expect(r.error.childExitCode).toBe(128);
     fs.rmSync(profile, { recursive: true, force: true });
   });
+
+  it('40 位十六进制 SHA ref → 全量克隆（无 --depth，审计 F 修复）', async () => {
+    const rec = gitProc(0, { onCall: (args, sp) => {
+      const relTarget = args[args.length - 1];
+      if (!relTarget || path.isAbsolute(relTarget) || !relTarget.startsWith('node_modules')) {
+        throw new Error(`git 相对目标非法（防测试污染）：${relTarget}`);
+      }
+      const target = path.join(sp.cwd, relTarget);
+      if (!target.startsWith(os.tmpdir())) {
+        throw new Error(`git target 越界（防测试污染）：${target}`);
+      }
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(target, 'package.json'), '{}');
+    } });
+    const core = makeCore({ procPort: rec.port });
+    const profile = tempDir('qa4g6-');
+    const sha = 'a'.repeat(40);
+    const r = await installGithubPluginWithMirror(core, githubPlugin('org/repo', sha), profile, null);
+    expect(r.ok).toBe(true);
+    expect(rec.calls).toHaveLength(1);
+    expect(rec.calls[0].args).not.toContain('--depth');
+    expect(rec.calls[0].args).toContain('--branch');
+    expect(rec.calls[0].args).toContain(sha);
+    fs.rmSync(profile, { recursive: true, force: true });
+  });
 });
 
 describe('QA4 verifyInstall / installPlugins（批量语义）', () => {
-  it('verifyInstall 返回缺失清单', () => {
+  it('verifyInstall 返回缺失清单（落地校验要求 package.json，与 npm/github 通道一致）', () => {
     const core = makeCore({});
     const profile = tempDir('qa4v1-');
     fs.mkdirSync(path.join(profile, 'node_modules', 'pkg-a'), { recursive: true });
+    fs.writeFileSync(path.join(profile, 'node_modules', 'pkg-a', 'package.json'), '{}');
+    // pkg-c 只有目录无 package.json → 仍判缺失（空目录/桩目录不算落地成功）
+    fs.mkdirSync(path.join(profile, 'node_modules', 'pkg-c'), { recursive: true });
     const r = verifyInstall(core, [
       { name: 'pkg-a', source: { type: 'npm' } },
-      { name: 'pkg-b', source: { type: 'npm' } }
+      { name: 'pkg-b', source: { type: 'npm' } },
+      { name: 'pkg-c', source: { type: 'npm' } }
     ], profile);
     expect(r.ok).toBe(false);
-    expect(r.missing).toEqual(['pkg-b']);
+    expect(r.missing).toEqual(['pkg-b', 'pkg-c']);
     fs.rmSync(profile, { recursive: true, force: true });
   });
 
   it('installPlugins 中途失败即中断返回错误（不留半批成功掩盖）', async () => {
     const core = makeCore({
-      dshPort: dshFail(),
       procPort: recordingProc(1, { stderr: 'npm ERR!' }).port
     });
     const profile = tempDir('qa4v2-');

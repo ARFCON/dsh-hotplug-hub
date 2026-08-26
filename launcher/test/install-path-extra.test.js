@@ -26,7 +26,7 @@ function makeCore(overrides = {}) {
 
 const realFsPort = createFsPort(fs);
 
-describe('installPathPlugin（真实链接 + 复制壳回退，C6）', () => {
+describe('installPathPlugin（真实链接 + 目录复制回退，C6/审计C）', () => {
   it('junction 链接成功 → ok', () => {
     const root = tempDir('ipp-link-');
     const target = path.join(root, 'src');
@@ -49,22 +49,26 @@ describe('installPathPlugin（真实链接 + 复制壳回退，C6）', () => {
     expect(r.error.code).toBe('ERR_INSTALL_DEP');
   });
 
-  it('symlinkSync 抛错 → 复制壳回退并返回 note（显式可观测）', () => {
+  it('symlinkSync 抛错 → 目录复制回退并返回 note（插件代码真正落地）', () => {
     const root = tempDir('ipp-fallback-');
     const target = path.join(root, 'src');
     const profile = path.join(root, 'profile');
     fs.mkdirSync(target, { recursive: true });
     fs.writeFileSync(path.join(target, 'package.json'), '{"name":"p"}');
+    // 关键：插件 main 入口代码必须随回退一并落地（审计 C：旧复制壳只复制 package.json）
+    fs.mkdirSync(path.join(target, 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(target, 'lib', 'index.js'), 'module.exports = 42;');
     const badFs = createFsPort({ ...fs, symlinkSync: () => { throw new Error('EPERM'); } });
     const core = makeCore({ fsPort: badFs });
     const r = installPathPlugin(core, { name: 'p', installPath: target }, profile);
     expect(r.ok).toBe(true);
-    expect(r.note).toContain('复制壳');
+    expect(r.note).toContain('目录复制');
     expect(fs.readFileSync(path.join(profile, 'node_modules', 'p', 'package.json'), 'utf8')).toContain('p');
+    expect(fs.readFileSync(path.join(profile, 'node_modules', 'p', 'lib', 'index.js'), 'utf8')).toContain('42');
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('无 symlinkSync 方法（旧 fs 端口）→ 复制壳回退', () => {
+  it('无 symlinkSync 方法（旧 fs 端口）→ 目录复制回退', () => {
     const root = tempDir('ipp-nosym-');
     const target = path.join(root, 'src');
     const profile = path.join(root, 'profile');
@@ -116,6 +120,48 @@ describe('installPathPlugin（真实链接 + 复制壳回退，C6）', () => {
     expect(r.error.code).toBe('ERR_INSTALL_FAILED');
     fs.rmSync(root, { recursive: true, force: true });
   });
+
+  it('审计 H5：目录复制回退【解引用】复制符号链接目标，不静默丢代码（假成功根治）', () => {
+    const root = tempDir('ipp-symlink-');
+    const target = path.join(root, 'src');
+    const profile = path.join(root, 'profile');
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'package.json'), '{"name":"p","main":"lib/index.js"}');
+    fs.mkdirSync(path.join(target, 'real'), { recursive: true });
+    fs.writeFileSync(path.join(target, 'real', 'index.js'), 'module.exports = 1;');
+    // 插件源码内含一个指向自身目录的 junction（lib → real）——旧实现会静默跳过
+    // 链接条目，导致 main 入口代码缺失却仍返回 ok:true（假成功）。junction 在 Windows
+    // 无需管理员权限（与 launcher 建 node_modules 链接同机制）。
+    fs.symlinkSync(path.join(target, 'real'), path.join(target, 'lib'), 'junction');
+    const badFs = createFsPort({ ...fs, symlinkSync: () => { throw new Error('EPERM'); } });
+    const core = makeCore({ fsPort: badFs });
+    const r = installPathPlugin(core, { name: 'p', installPath: target }, profile);
+    expect(r.ok).toBe(true);
+    // 链接条目被解引用复制为真实目录内容，插件入口代码不丢
+    const landed = path.join(profile, 'node_modules', 'p', 'lib', 'index.js');
+    expect(fs.existsSync(landed)).toBe(true);
+    expect(fs.readFileSync(landed, 'utf8')).toContain('module.exports = 1');
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('审计 H5：目录复制回退跳过 node_modules / .git（派生依赖与 VCS 不复制）', () => {
+    const root = tempDir('ipp-skipnm-');
+    const target = path.join(root, 'src');
+    const profile = path.join(root, 'profile');
+    fs.mkdirSync(path.join(target, 'node_modules'), { recursive: true });
+    fs.writeFileSync(path.join(target, 'node_modules', 'dep.js'), 'x');
+    fs.mkdirSync(path.join(target, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(target, '.git', 'config'), 'y');
+    fs.writeFileSync(path.join(target, 'package.json'), '{"name":"p"}');
+    const badFs = createFsPort({ ...fs, symlinkSync: () => { throw new Error('EPERM'); } });
+    const core = makeCore({ fsPort: badFs });
+    const r = installPathPlugin(core, { name: 'p', installPath: target }, profile);
+    expect(r.ok).toBe(true);
+    expect(fs.existsSync(path.join(profile, 'node_modules', 'p', 'package.json'))).toBe(true);
+    expect(fs.existsSync(path.join(profile, 'node_modules', 'p', 'node_modules'))).toBe(false);
+    expect(fs.existsSync(path.join(profile, 'node_modules', 'p', '.git'))).toBe(false);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
 });
 
 describe('installGithubPluginWithMirror 剩余分支', () => {
@@ -159,12 +205,16 @@ describe('installGithubPluginWithMirror 剩余分支', () => {
       }),
       procPort: createProcPort({
         spawn: () => { throw new Error('x'); },
-        spawnSync: (bin, args) => {
+        spawnSync: (bin, args, sp) => {
           calls.push(args);
-          const target = args[8];
-          if (path.isAbsolute(target) && target.startsWith(os.tmpdir())) {
-            fs.mkdirSync(target, { recursive: true });
-            fs.writeFileSync(path.join(target, 'package.json'), '{}');
+          // m8 修复：相对目标 node_modules/<name> + cwd=<profile>
+          const relTarget = args[8];
+          if (relTarget && !path.isAbsolute(relTarget) && sp && sp.cwd) {
+            const target = path.join(sp.cwd, relTarget);
+            if (target.startsWith(os.tmpdir())) {
+              fs.mkdirSync(target, { recursive: true });
+              fs.writeFileSync(path.join(target, 'package.json'), '{}');
+            }
           }
           return { status: 0, error: null, stderr: '', stdout: '' };
         }

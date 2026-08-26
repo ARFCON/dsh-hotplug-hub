@@ -61,4 +61,15 @@ describe('domain/conflicts semver 冲突矩阵（审计 I 回归）', () => {
     const r = checkConflicts(plugins);
     expect(r.ok).toBe(true);
   });
+
+  it('依赖图：预发布版本不满足稳定 range → error（严格 semver 语义，不掩盖真实冲突）', () => {
+    const plugins = [
+      { id: 'a', name: 'a', source: { type: 'npm' }, resolvedVersion: '1.0.0', config: { dependencies: { b: '^1.0.0' } } },
+      { id: 'b', name: 'b', source: { type: 'npm' }, resolvedVersion: '1.0.0-beta.2' }
+    ];
+    const r = checkConflicts(plugins);
+    // 严格语义：`1.0.0-beta.2` 不满足 `^1.0.0`（npm 预发布匹配规则）——声明要稳定版、实际是 beta，必须报冲突
+    expect(r.ok).toBe(false);
+    expect(r.conflicts.some((c) => c.severity === 'error' && c.type === 'dependency')).toBe(true);
+  });
 });

@@ -126,18 +126,21 @@ describe('FIX-17 镜像重试链', () => {
       env: { LOCALAPPDATA: os.tmpdir(), USERPROFILE: os.tmpdir(), HOME: os.tmpdir(), ProgramFiles: os.tmpdir(), 'ProgramFiles(x86)': os.tmpdir(), PATH: os.tmpdir(), DSH_HOME: os.tmpdir() },
       procPort: createProcPort({
         spawn: () => { throw new Error('n/a'); },
-        spawnSync: (bin, args) => {
-          calls.push({ bin, args });
-          // win32 经 cmd /c 包装（C6 对称修复）：['/c','git','clone','--depth','1','--branch',ref,url,target]
-          // POSIX 直接 git：['clone','--depth','1','--branch',ref,url,target]
+        spawnSync: (bin, args, sp) => {
+          calls.push({ bin, args, cwd: sp && sp.cwd });
+          // win32 经 cmd /c 包装（C6 对称修复）：['/c','git','clone','--depth','1','--branch',ref,url,relTarget]
+          // POSIX 直接 git：['clone','--depth','1','--branch',ref,url,relTarget]
+          // m8 修复：relTarget 为相对路径（node_modules/<name>），cwd=<profile>（本地路径含空格不再破坏 cmd 切分）
           const isWin = process.platform === 'win32';
           const urlIdx = isWin ? 7 : 5;
-          const targetIdx = isWin ? 8 : 6;
+          const relTargetIdx = isWin ? 8 : 6;
           const url = args[urlIdx];
-          const target = args[targetIdx];
-          // 防污染防护：target 必须位于系统临时目录内（索引错位曾把 ref 当 target
-          // 在 vitest cwd 下创建相对路径残留）
-          if (!path.isAbsolute(target) || !target.startsWith(os.tmpdir())) {
+          const relTarget = args[relTargetIdx];
+          if (!relTarget || path.isAbsolute(relTarget) || !relTarget.startsWith('node_modules')) {
+            throw new Error(`git 相对目标非法（防测试污染）：${relTarget}`);
+          }
+          const target = path.join(sp.cwd, relTarget);
+          if (!target.startsWith(os.tmpdir())) {
             throw new Error(`git target 越界（防测试污染）：${target}`);
           }
           // 第 1 次直连失败，镜像成功（模拟）

@@ -52,8 +52,12 @@ const ERROR_CODES = {
   ERR_HEAL_NO_ACTION: 'ERR_HEAL_NO_ACTION',
   ERR_HEAL_BUDGET: 'ERR_HEAL_BUDGET',
   ERR_HEAL_ROLLBACK: 'ERR_HEAL_ROLLBACK',
-  // --- 状态锁（退出码 10）---
+  // --- 状态锁 / 状态持久化（退出码 10）---
   ERR_LOCK_ACQUIRE: 'ERR_LOCK_ACQUIRE',
+  // 审计修复（P3-8）：state.json 的【写盘失败】（磁盘满/EACCES/rename 失败）此前复用
+  // ERR_LOCK_ACQUIRE（状态锁获取失败），语义错位——机器消费方无法区分「锁冲突」与
+  // 「持久化失败」。独立成码，与 ERR_LOCK_ACQUIRE 同域（exit=10）。
+  ERR_STATE_WRITE: 'ERR_STATE_WRITE',
   // --- 日志（退出码 11）---
   ERR_LOG_WRITE: 'ERR_LOG_WRITE',
   // --- AI 装配间（RPC 域内消费，无独立退出码——经 exitCodeForCode 兜底为 1）---
@@ -73,6 +77,7 @@ const EXIT_CODE_BY_PREFIX = {
   ERR_LAUNCH_: 8,
   ERR_HEAL_: 9,
   ERR_LOCK_: 10,
+  ERR_STATE_: 10,
   ERR_LOG_: 11,
   ERR_ENV_: 12,
   ERR_AI_: 1 // RPC 域（AI 装配间等，不经 CLI 退出码语义，兜底 1）
