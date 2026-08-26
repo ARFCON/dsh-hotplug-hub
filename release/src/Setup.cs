@@ -43,7 +43,7 @@ namespace DseamWorldSetup
         private const string LoaderDllFileName = "WebView2Loader.dll";
         private const string UninstallerFileName = "Uninstall_Hotplug_Hub.exe";
         // v1.1（PC21）：与 Main.cs APP_VERSION / package.json 一致；scripts/check-version-consistency.mjs 锁定四处同源
-        private const string AppVersion = "1.0.3";
+        private const string AppVersion = "1.0.4";
 
         private TextBox _pathBox;
         private CheckBox _desktopCheck;
@@ -59,7 +59,7 @@ namespace DseamWorldSetup
 
         private void BuildUi()
         {
-            Text = "Dseam世界 DSH-Hotplug-Hub v1.0.3 安装程序";
+            Text = "Dseam世界 DSH-Hotplug-Hub v1.0.4 安装程序";
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -68,7 +68,7 @@ namespace DseamWorldSetup
             Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
 
             Label title = new Label();
-            title.Text = "Dseam世界 DSH-Hotplug-Hub v1.0.3";
+            title.Text = "Dseam世界 DSH-Hotplug-Hub v1.0.4";
             title.Font = new Font("Microsoft YaHei UI", 14F, FontStyle.Bold, GraphicsUnit.Point);
             title.Location = new Point(24, 18);
             title.AutoSize = true;

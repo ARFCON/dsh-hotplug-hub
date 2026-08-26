@@ -4,7 +4,7 @@
 // dependencies 与 dsh.profile.bundles），不再复制目录或手写 cordis.patch.yml。
 //
 // 可选环境变量：
-//   DSH_MEMORY_HUB_URL  自定义 tgz 下载地址（缺省使用 GitHub Release v1.0.3 资产）
+//   DSH_MEMORY_HUB_URL  自定义 tgz 下载地址（缺省使用 GitHub Release v1.0.4 资产）
 //   DSH_PROFILE          目标 profile（缺省 web）
 //   DSH_ALLOW_INSTALL_SCRIPTS=1  显式放行依赖 install scripts（R-v5-17 放行通道；
 //                                缺省 npm_config_ignore_scripts=true 纵深防御）

@@ -65,7 +65,10 @@ function winForwardPath(p) {
   return p.replace(/\\/g, '/')
 }
 function posixPath(p) {
-  return p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, '/$1').toLowerCase()
+  const slash = p.replace(/\\/g, '/')
+  // Windows 用 System32 bsdtar：不认 MSYS 风格 /d/...（会把盘符当目录名），保留盘符 + 正斜杠。
+  if (process.platform === 'win32') return slash
+  return slash.replace(/^([A-Za-z]):/, '/$1').toLowerCase()
 }
 
 rmSync(distDir, { recursive: true, force: true })
