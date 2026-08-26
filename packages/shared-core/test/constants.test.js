@@ -57,6 +57,20 @@ describe('resolveDshRoot（优先级 DSH_HOTPLUG_ROOT > DSH_HOME > ~/.dsh）', (
     const r = resolveDshRoot({ DSH_HOTPLUG_ROOT: '   ', DSH_HOME: 'C:/x/.dsh' });
     expect(r.dshRoot).toBe(path.resolve('C:/x/.dsh'));
   });
+  it('无参调用默认读 process.env（JSDoc 与实现对齐：DSH_HOTPLUG_ROOT 生效）', () => {
+    const saved = process.env.DSH_HOTPLUG_ROOT;
+    const savedHome = process.env.DSH_HOME;
+    try {
+      process.env.DSH_HOTPLUG_ROOT = 'C:/qa/bare-root';
+      delete process.env.DSH_HOME;
+      const r = resolveDshRoot();
+      expect(r.home).toBe(path.resolve('C:/qa/bare-root'));
+      expect(r.dshRoot).toBe(path.join(path.resolve('C:/qa/bare-root'), '.dsh'));
+    } finally {
+      if (saved === undefined) delete process.env.DSH_HOTPLUG_ROOT; else process.env.DSH_HOTPLUG_ROOT = saved;
+      if (savedHome === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = savedHome;
+    }
+  });
   it('dshRootPaths 全部由 dshRoot 派生', () => {
     const r = resolveDshRoot({ DSH_HOTPLUG_ROOT: 'D:/iso' });
     const p = dshRootPaths(r);

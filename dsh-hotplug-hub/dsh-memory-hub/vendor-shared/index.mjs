@@ -82,7 +82,7 @@ export const { hashBuffer, entryType, walkFiles, collectAll, removePath } = mod
 export const { createRunLog, nextRunSeq, readLastSeq, RUNLOG_LOCK_FILE } = mod
 
 // fs/utf8
-export const { isValidUtf8 } = mod
+export const { isValidUtf8, isValidUtf8Manual } = mod
 
 // security/shell
 export const { CMD_SPECIAL_RE, assertShellSafe, assertShellSafeUrl, SHELL_SAFE_LIST } = mod

@@ -26,7 +26,7 @@ describe('domain/patch YAML 生成（审计 A 回归）', () => {
     const parsed = YAML.parse(r.yamlText);
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed[0].insert).toHaveLength(2);
-    expect(parsed[0].insert[0].id).toBe('hp-example-lit');
+    expect(parsed[0].insert[0].id).toBe(patchIdFor('example', 'lit'));
     expect(parsed[0].insert[0].name).toBe('@dsh-community/dsh-tool-literature');
     expect(parsed[0].insert[0].config.role).toBe('文献检索');
     expect(parsed[0].insert[1].config).toEqual({});
@@ -36,13 +36,13 @@ describe('domain/patch YAML 生成（审计 A 回归）', () => {
     const r = serializePatch(pack);
     const back = parsePatchYaml(r.yamlText);
     expect(back.ok).toBe(true);
-    expect(back.doc[0].insert[1].id).toBe('hp-example-web');
+    expect(back.doc[0].insert[1].id).toBe(patchIdFor('example', 'web'));
   });
 
   it('buildPatchDocument 与 DSH 契约结构一致（顶层序列 + insert）', () => {
     const b = buildPatchDocument(pack);
     expect(b.ok).toBe(true);
-    expect(b.doc[0].insert[0]).toEqual({ id: 'hp-example-lit', name: '@dsh-community/dsh-tool-literature', config: { role: '文献检索' } });
+    expect(b.doc[0].insert[0]).toEqual({ id: patchIdFor('example', 'lit'), name: '@dsh-community/dsh-tool-literature', config: { role: '文献检索' } });
   });
 
   it('超长插件 id 清洗后仍 ≤64 且可解析（N10 回归）', () => {

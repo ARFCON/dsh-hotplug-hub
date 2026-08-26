@@ -2,6 +2,7 @@
 // security/net.js — 网络安全：TLS 默认开 + 子进程 env 净化（H-6/M-47/M-50）
 // 与 zip 成员安全（zip slip + 符号链接成员，M-39）
 const https = require('https');
+const { checkWindowsSafeName } = require('../fs/path-safe');
 
 // 子进程 env 净化清单：任何被本仓库 spawn 的子进程都不得携带这些变量。
 // 审计修复（进程隔离缺口）：此前只含 5 个 TLS/Node 变量，与注释声称的「npm/git/dsh
@@ -26,7 +27,12 @@ const CHILD_ENV_BLOCKLIST = [
   'GIT_ASKPASS',
   'GIT_EXEC_PATH',
   'GIT_CONFIG_PARAMETERS',
-  'GIT_CONFIG_COUNT'
+  'GIT_CONFIG_COUNT',
+  // 审计修复：补「指向外部 config 文件」的注入路径变量——GIT_CONFIG_GLOBAL/SYSTEM
+  // 可让 git 从攻击者指定文件读配置（如 `[core] sshCommand=恶意`），与
+  // GIT_CONFIG_PARAMETERS/COUNT 主向量同属配置注入面，须一并剥离。
+  'GIT_CONFIG_GLOBAL',
+  'GIT_CONFIG_SYSTEM'
 ];
 
 /**
@@ -61,6 +67,18 @@ function sanitizeChildEnv(env = {}, opts = {}) {
   return out;
 }
 
+// 重定向时须剥离的敏感请求头（跨源重定向凭证外泄防护；同源保留）。
+const SENSITIVE_HEADER_NAMES = new Set(['authorization', 'cookie', 'proxy-authorization']);
+
+/** 返回剥离敏感请求头后的 headers 副本（不修改入参）。 */
+function stripSensitiveHeaders(headers) {
+  const out = { ...headers };
+  for (const key of Object.keys(out)) {
+    if (SENSITIVE_HEADER_NAMES.has(key.toLowerCase())) delete out[key];
+  }
+  return out;
+}
+
 /**
  * GET 文本（默认拒绝自签：rejectUnauthorized 恒为 true 且置合并末位，不可被
  * 调用方选项覆盖；TLS 失败即返回 {ok:false}，绝不降级为不校验）。
@@ -90,19 +108,31 @@ function httpsGetText(url, opts = {}) {
       req = https.get(url, requestOptions, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && hops < 3) {
           res.resume();
-          let next = res.headers.location;
-          if (next.startsWith('/')) {
-            try { next = new URL(url).origin + next; } catch (_) { done({ ok: false, status: 0, text: '' }); return; }
-          } else {
-            // 审计修复：只允许继续 https 重定向。非 https 目标（http/ftp/file/…）会让
-            // 下一跳 https.get 同步抛 ERR_INVALID_PROTOCOL，此前该抛错在 response 回调内
-            // 裸抛 → 进程级 uncaughtException 且首 Promise 永不 settle；且存在 TLS 降级
-            // （302 → http://）。现显式拒绝并 settle，绝不降级、绝不崩溃。
-            try {
-              if (new URL(next).protocol !== 'https:') { done({ ok: false, status: 0, text: '' }); return; }
-            } catch (_) { done({ ok: false, status: 0, text: '' }); return; }
+          // 统一按 RFC 3986 以「当前 URL」为 base 解析重定向目标，覆盖四种形态：
+          // 绝对 URL（https://…）、协议相对（//host/path）、绝对路径（/path）、
+          // 裸相对路径（relpath）。此前只处理前三种，裸相对 302 被 fail-closed 拒绝
+          // （审计修复）；解析失败或非 https 目标一律显式拒绝并 settle，绝不降级/崩溃。
+          let next;
+          try {
+            next = new URL(res.headers.location, url).toString();
+          } catch (_) {
+            done({ ok: false, status: 0, text: '' });
+            return;
           }
-          done(httpsGetText(next, { ...opts, _hops: hops + 1 }));
+          if (!next.startsWith('https:')) {
+            // 只允许继续 https 重定向（拒绝 http/ftp/file 降级）
+            done({ ok: false, status: 0, text: '' });
+            return;
+          }
+          // 审计修复（凭证外泄）：跨域重定向时剥离敏感请求头（Authorization/Cookie/
+          // Proxy-Authorization），防止凭证经恶意/第三方重定向目标外泄；同源重定向保留全部头。
+          let nextHeaders = headers;
+          try {
+            if (new URL(url).origin !== new URL(next).origin) nextHeaders = stripSensitiveHeaders(headers);
+          } catch (_) {
+            nextHeaders = stripSensitiveHeaders(headers); // origin 解析失败保守剥离
+          }
+          done(httpsGetText(next, { ...opts, headers: nextHeaders, _hops: hops + 1 }));
           return;
         }
         let data = '';
@@ -147,6 +177,12 @@ function validateZipEntryPath(entryPath) {
     if (seg === '' || seg === '.' || seg === '..') {
       return { ok: false, error: new Error(`zip 成员路径不得包含空段或 . / ..：${JSON.stringify(entryPath)}`) };
     }
+    // 审计修复（根治，Windows zip-slip）：单段名须过 Windows 安全名（保留设备名 /
+    // 尾点空格 / 控制字符 / 非法字符）。此前 '.. '（尾空格被 NTFS 归一化为 '..'）、
+    // 'CON'（保留设备名）、'a:b'（ADS）均被放行，解包到 Windows 时构成穿越/设备名/
+    // 流写入面。复用 checkWindowsSafeName 单一真源（与 ids.validateSourcePath 同源）。
+    const w = checkWindowsSafeName(seg, 'zip 成员路径段');
+    if (!w.ok) return { ok: false, error: new Error(w.error.message) };
   }
   return { ok: true };
 }

@@ -18,11 +18,21 @@ function samplePack() {
   };
 }
 
-describe('patchIdFor（清洗 + 64 上限 + 哈希后缀）', () => {
-  it('常规清洗', () => {
-    expect(patchIdFor('pack.a', 'lit')).toBe('hp-pack.a-lit');
-    expect(patchIdFor('PACK.B', 'LIT')).toBe('hp-pack.b-lit');
-    expect(patchIdFor('pack a', 'x y')).toBe('hp-pack-a-x-y');
+describe('patchIdFor（清洗 + 单射哈希 + 64 上限）', () => {
+  it('常规清洗 + 固定哈希后缀格式', () => {
+    const id = patchIdFor('pack.a', 'lit');
+    expect(id).toMatch(/^hp-pack\.a-lit-[0-9a-f]{8}$/);
+    expect(id.length).toBeLessThanOrEqual(64);
+    // 确定性：同输入恒同输出
+    expect(patchIdFor('pack.a', 'lit')).toBe(id);
+    // 大小写不敏感（哈希基于小写化的 (packId, pluginId) 编码）
+    expect(patchIdFor('PACK.A', 'LIT')).toBe(id);
+  });
+  it('分隔符歧义单射（审计回归 #11）', () => {
+    // packId/pluginId 均含 '-' 时，`hp-${a}-${b}` 拼接不可逆；哈希基于无歧义编码
+    expect(patchIdFor('ab-c', 'd')).not.toBe(patchIdFor('ab', 'c-d'));
+    expect(patchIdFor('a-b-c', 'd')).not.toBe(patchIdFor('a', 'b-c-d'));
+    expect(patchIdFor('x-y', 'z-w')).not.toBe(patchIdFor('x', 'y-z-w'));
   });
   it('超长截断 + 哈希后缀防碰撞', () => {
     const longA = patchIdFor('x'.repeat(40), 'a'.repeat(40));
@@ -40,8 +50,8 @@ describe('buildPatchDocument / serializePatch', () => {
     expect(r.doc).toEqual([
       {
         insert: [
-          { id: 'hp-pack.research-lit', name: '@dsh-community/dsh-tool-literature', config: { apiKeyEnv: 'X' } },
-          { id: 'hp-pack.research-cite', name: 'dsh-cite', config: {} }
+          { id: patchIdFor('pack.research', 'lit'), name: '@dsh-community/dsh-tool-literature', config: { apiKeyEnv: 'X' } },
+          { id: patchIdFor('pack.research', 'cite'), name: 'dsh-cite', config: {} }
         ]
       }
     ]);

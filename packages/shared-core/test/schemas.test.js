@@ -4,6 +4,9 @@ const {
   assemblySchema, stateSchema, cordisPatchSchema, runLineSchema, commandResultSchema, SCHEMAS,
   validateState, validateRunLine, validateCommandResult, validateAssemblyShape
 } = require('../contracts/schemas');
+const { validatePatchDocument } = require('../profile/patch');
+const { validateVersion } = require('../ids');
+const Ajv = require('ajv');
 
 describe('SCHEMAS', () => {
   it('5 个 schema 齐全', () => {
@@ -82,5 +85,34 @@ describe('ajv 校验器（M-28/H-14：I/O 边界）', () => {
     };
     expect(validateAssemblyShape(good)).toEqual({ ok: true });
     expect(validateAssemblyShape({ hotpack: '1.0', id: 'x', plugins: [] }).ok).toBe(false);
+  });
+
+  it('assemblySchema/cordisPatchSchema 与运行时校验器在可表达子集上一致（根治：形状佐证不得比运行时更松）', () => {
+    const ajv = new Ajv({ allErrors: true });
+    const vPatch = ajv.compile(cordisPatchSchema);
+    const vAsm = ajv.compile(assemblySchema);
+    // cordisPatch：可表达子集（非空数组 / id 字符集与长度 / name 非空白 / NUL 拒绝）
+    const badPatches = [
+      [], // 空顶层数组（运行时 reject）
+      [{ insert: [{ id: '', name: 'x', config: {} }] }], // 空 id
+      [{ insert: [{ id: 'a\u0000b', name: 'x', config: {} }] }], // NUL
+      [{ insert: [{ id: 'a', name: '  ', config: {} }] }], // 空白 name
+      [{ insert: [{ id: 'a', name: 'x', config: [] }] }], // 数组 config
+    ];
+    for (const doc of badPatches) {
+      expect(vPatch(doc), JSON.stringify(doc)).toBe(false);
+      expect(validatePatchDocument(doc).ok, JSON.stringify(doc)).toBe(false);
+    }
+    // 合法 patch 双方都接受（schema 不得假拒绝运行时接受的输入）
+    const goodPatch = [{ insert: [{ id: 'hp-pack-p1', name: 'pkg-a', config: {} }] }];
+    expect(vPatch(goodPatch)).toBe(true);
+    expect(validatePatchDocument(goodPatch).ok).toBe(true);
+    // assembly：name 非空白 / version 精确形状
+    const badAsm = { hotpack: '1.0', id: 'x', name: ' ', version: '1.0.0', plugins: [{ id: 'p', name: 'q', version: '1.0.0', source: { type: 'npm' } }] };
+    expect(vAsm(badAsm)).toBe(false);
+    // 运行时 accept ⟹ schema accept（schema 是超集：不假拒绝）
+    const goodAsm = { hotpack: '1.0', id: 'x', name: 'n', version: '1.0.0', plugins: [{ id: 'p', name: 'q', version: '1.0.0', source: { type: 'npm' } }] };
+    expect(vAsm(goodAsm)).toBe(true);
+    expect(validateVersion('1.02.3').ok).toBe(false); // semver 双检为运行时专属（schema 无法表达）
   });
 });

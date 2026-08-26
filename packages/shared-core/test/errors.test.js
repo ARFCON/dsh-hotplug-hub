@@ -53,6 +53,15 @@ describe('makeError', () => {
     expect(err.childExitCode).toBe(3);
     expect(err.cause.message).toBe('c');
   });
+  it('extra 中的 __proto__/constructor/prototype 不替换 Error 原型（根治：Object.assign [[Set]] 改写原型）', () => {
+    const polluted = JSON.parse('{"__proto__": {"polluted": true}, "constructor": "x", "prototype": "y", "cause": "keep"}');
+    const err = makeError('ERR_ARG_INVALID_ID', 'boom', polluted);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe('Error');
+    expect(Object.getPrototypeOf(err).polluted).toBeUndefined();
+    expect(Object.prototype.polluted).toBeUndefined();
+    expect(err.cause).toBe('keep'); // 合法透传字段仍保留
+  });
   it('isDshError / isLauncherError', () => {
     expect(isDshError(makeError('ERR_LOCK_ACQUIRE', 'x'))).toBe(true);
     expect(isDshError(new Error('plain'))).toBe(false);

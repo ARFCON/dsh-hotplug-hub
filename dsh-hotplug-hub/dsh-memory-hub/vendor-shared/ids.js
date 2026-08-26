@@ -68,10 +68,23 @@ function isValidSemverString(v) {
   }
   const m = SEMVER_CORE_RE.exec(rest);
   if (!m) return false;
+  // 语义等价于 npm semver.valid：主/次/补丁三段为数值，须 ≤ Number.MAX_SAFE_INTEGER
+  //（semver 对超界数值段返回 null；此前缺此判定，`999999999999999999999999999.1.2`
+  //  被误判为合法，与「semver 双检」契约违背——validateVersion 放行 semver 拒绝的版本）。
   for (const part of [m[1], m[2], m[3]]) {
     if (part.length > 1 && part.startsWith('0')) return false;
+    if (numericExceedsSafeInteger(part)) return false;
   }
   return true;
+}
+
+// 数值段（已保证无前导零、非空）是否超过 Number.MAX_SAFE_INTEGER（2^53-1）。
+// 用字符串长度 + 等长字典序比较，避免浮点舍入误差。
+function numericExceedsSafeInteger(digits) {
+  const MAX = '9007199254740991'; // Number.MAX_SAFE_INTEGER 的十进制表示（16 位）
+  if (digits.length < MAX.length) return false;
+  if (digits.length > MAX.length) return true;
+  return digits > MAX; // 等长数值串的字典序 == 数值序
 }
 
 /**
@@ -190,10 +203,16 @@ function validateSourcePath(p) {
   // 穿越段拒绝（C2 修复：'../x'、'..\\x'、'a/../../../x'、'a\\..\\..\\x' 全拒；
   // 绝对路径中的 '..' 段同样禁止，防止链接目标逃逸）
   const segments = String(p).split(/[\\/]/);
-  for (const seg of segments) {
+  for (let i = 0; i < segments.length; i += 1) {
+    const seg = segments[i];
     if (seg === '..' || seg === '.') {
       return { ok: false, error: makeError('ERR_ASSEMBLY_FIELD', 'source.path 不得包含 . 或 .. 路径段') };
     }
+    // 盘符首段（如 'C:'）是 Windows 绝对路径的合法形态，单独放行；其余段一律过
+    // Windows 安全名校验（含非法字符/ADS/保留名拒绝）。审计修复：此前 'C:\\Users\\
+    // ads.txt:stream'、'C:\\a\\b*' 被逐段放行（checkWindowsSafeName 不查非法字符），
+    // 产生 NTFS ADS 写入面与畸形路径。
+    if (i === 0 && /^[a-zA-Z]:$/.test(seg)) continue;
     const w = checkWindowsSafeName(seg, 'source.path 段');
     if (!w.ok) return w;
   }

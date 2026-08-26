@@ -19,7 +19,8 @@ const { makeError } = require('../contracts/errors');
 const ids = require('../ids');
 
 /**
- * 生成 patch 插入 id：仅对值做清洗，保留结构；超长时截断并追加哈希后缀保证唯一。
+ * 生成 patch 插入 id：仅对值做清洗，保留结构；无条件追加基于无歧义编码的短哈希
+ * 保证单射（跨包/分隔符歧义不碰撞），超长时截断前缀、整体 ≤64。
  * @param {string} packId
  * @param {string} pluginId
  * @returns {string}
@@ -27,9 +28,16 @@ const ids = require('../ids');
 function patchIdFor(packId, pluginId) {
   const raw = `hp-${packId}-${pluginId}`.toLowerCase();
   const clean = raw.replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-  if (clean.length <= MAX_PATCH_ID_LENGTH) return clean;
-  // 截断后追加 8 位短哈希：不同源 id 即使共享 64 前缀也不碰撞（QA3 patch id 碰撞修复）
-  const digest = crypto.createHash('sha1').update(clean).digest('hex').slice(0, 8);
+  // 注入性修复（审计）：`hp-${packId}-${pluginId}` 用 '-' 拼接，但 '-' 同时是 packId
+  // 与 pluginId 的合法字符，拼接不可逆——`patchIdFor('ab-c','d')` 与
+  // `patchIdFor('ab','c-d')` 都产出 `hp-ab-c-d`（两对输入各自通过 validateId /
+  // validatePluginId，见 test）。原哈希只在超长截断时追加、且对「歧义串」clean 计算，
+  // 无法区分歧义输入。现无条件追加基于【无歧义编码】（NUL 分隔 packId/pluginId）的
+  // 8 位短哈希，保证单射：同 clean 前缀但源对不同 ⇒ 哈希不同；截断与歧义共用同一哈希。
+  const digest = crypto.createHash('sha1')
+    .update(`${packId}\u0000${pluginId}`.toLowerCase())
+    .digest('hex')
+    .slice(0, 8);
   return clean.slice(0, MAX_PATCH_ID_LENGTH - 9) + '-' + digest;
 }
 

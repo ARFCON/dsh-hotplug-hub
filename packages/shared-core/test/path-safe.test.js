@@ -166,10 +166,32 @@ describe('safeJoin（H-5/M-5 拒绝集）', () => {
     expect(isWithin(root, r.path)).toBe(true);
   });
 
+  it('拒绝：盘符相对/冒号(ADS)/Windows 非法文件名字符（经 checkWindowsSafeName 单一真源）', () => {
+    for (const bad of ['C:evil', 'C:', 'a:b', 'a*b', 'a|b', 'a?b', 'a<b', 'a>b', 'a"b']) {
+      const r = safeJoin(root, bad);
+      expect(r.ok, JSON.stringify(bad)).toBe(false);
+      expect(r.error.code).toBe('ERR_ASSEMBLY_FIELD');
+    }
+  });
+
   it('checkWindowsSafeName 独立行为', () => {
     expect(checkWindowsSafeName('ok-name').ok).toBe(true);
     expect(checkWindowsSafeName('CON').ok).toBe(false);
     expect(checkWindowsSafeName('x.').ok).toBe(false);
     expect(checkWindowsSafeName('x\u0000').ok).toBe(false);
+    // 非法文件名字符（含盘符/ADS 的 ':'）拒绝
+    for (const bad of ['a:b', 'C:', 'a*b', 'a|b', 'a?b', 'a<b', 'a>b', 'a"b']) {
+      expect(checkWindowsSafeName(bad).ok, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it('checkWindowsSafeName 保留名变体（审计回归 #12：尾随空格/点 + 上标数字）', () => {
+    // Windows 归一化会把「基名 + 尾随空格/点」与「上标 ¹²³…」折叠为保留设备名
+    for (const bad of ['CON .txt', 'NUL .md', 'COM1 .x', 'CON  .x', 'COM¹', 'COM²', 'COM³', 'LPT¹', 'COM¹.txt', 'COM⁹']) {
+      expect(checkWindowsSafeName(bad).ok, JSON.stringify(bad)).toBe(false);
+    }
+    // 非保留名的正常变体仍接受
+    expect(checkWindowsSafeName('CONSOLE.txt').ok).toBe(true);
+    expect(checkWindowsSafeName('foo.CON').ok).toBe(true);
   });
 });

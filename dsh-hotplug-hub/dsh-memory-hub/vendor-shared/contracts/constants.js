@@ -84,10 +84,10 @@ const PATCH_LOCK_FILE = '.dsh-patch.lock';
  *   - DSH_HOME 指向 .dsh 域目录本身（harness 语义），home = dirname(dshRoot)；
  *   - 缺省：<homedir>/.dsh。
  *
- * @param {object} [env] 环境变量（默认 process.env）
+ * @param {object} [env] 环境变量（默认 process.env；传 {} 表示「无任何环境变量」→ 回落 ~/.dsh）
  * @returns {{home: string, dshRoot: string}} 根域结果（子目录经 dshRootPaths 派生）
  */
-function resolveDshRoot(env = {}) {
+function resolveDshRoot(env = process.env) {
   const hotplugRootEnv = typeof env.DSH_HOTPLUG_ROOT === 'string' ? env.DSH_HOTPLUG_ROOT.trim() : '';
   if (hotplugRootEnv !== '') {
     const base = path.resolve(hotplugRootEnv);

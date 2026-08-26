@@ -102,6 +102,25 @@ describe('validateVersion（regex + 严格 semver 双检）', () => {
       expect(isValidSemverString(s), JSON.stringify(s)).toBe(semver.valid(s) !== null);
     }
   });
+
+  it('数值段超 Number.MAX_SAFE_INTEGER 与 semver.valid 同判（根治：大数版本曾被放行）', () => {
+    const MAX = '9007199254740991'; // 2^53-1
+    const OVER = '9007199254740992'; // 2^53
+    const cases = [
+      [`${MAX}.1.2`, true],
+      [`${OVER}.1.2`, false], // major 超界
+      [`1.${OVER}.2`, false], // minor 超界
+      [`1.2.${OVER}`, false], // patch 超界
+      ['1.2.3-' + OVER, true], // prerelease 数值标识符不受 MAX_SAFE_INTEGER 限制
+      ['1.2.3-' + MAX, true],
+      ['1.2.3-01', false], // prerelease 前导零拒绝
+    ];
+    for (const [v, expected] of cases) {
+      expect(isValidSemverString(v), JSON.stringify(v)).toBe(semver.valid(v) !== null);
+      expect(isValidSemverString(v), JSON.stringify(v)).toBe(expected);
+      expect(validateVersion(v).ok, JSON.stringify(v)).toBe(expected);
+    }
+  });
 });
 
 describe('validateSourcePath', () => {
@@ -121,6 +140,16 @@ describe('validateSourcePath', () => {
     for (const p of ['/etc', 'C:/x/y', path.join(os.tmpdir(), 'a')]) {
       expect(validateSourcePath(p).ok, JSON.stringify(p)).toBe(true);
     }
+  });
+
+  it('拒绝 ADS/Windows 非法文件名字符（根治：盘符首段放行、其余段拒绝 : * ? " < > |）', () => {
+    for (const p of ['C:\\Users\\ads.txt:stream', 'C:\\Users\\foo:bar', 'C:\\a\\b*', 'C:\\a\\b?', 'C:\\a\\b|', 'C:\\a\\b<c', 'C:\\a\\b>c', 'C:\\a\\b"c']) {
+      const r = validateSourcePath(p);
+      expect(r.ok, JSON.stringify(p)).toBe(false);
+    }
+    // 盘符首段仍放行（Windows 绝对路径合法形态）
+    expect(validateSourcePath('C:\\x\\y').ok).toBe(true);
+    expect(validateSourcePath('C:/x/y').ok).toBe(true);
   });
 });
 

@@ -101,6 +101,18 @@ describe('mergePatchFile 换行拼接边界', () => {
     const out = fs.readFileSync(file, 'utf8');
     expect(out).toBe('## a:1\nA-NEW\n## b:2\nB\n');
   });
+
+  it('拒绝：块内容含 marker 形态行（审计回归 #13，防非幂等重复）', () => {
+    const dir = tempDir();
+    const file = path.join(dir, 'p.yml');
+    // 单 # 注释形态：会被误判为下一块 marker → 拒绝而非静默损坏
+    const r = mergePatchFile(nodeFs, file, 'hotplug', 'pack', '- insert:\n    - id: a\n# note:comment');
+    expect(r.ok).toBe(false);
+    expect(r.error.code).toBe('ERR_INSTALL_FAILED');
+    // 双 # marker 形态：同样拒绝
+    const r2 = mergePatchFile(nodeFs, file, 'hotplug', 'pack', '## inner:marker\n- insert: []');
+    expect(r2.ok).toBe(false);
+  });
 });
 
 describe('removePatchBlock 接缝清理边界', () => {

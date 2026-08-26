@@ -273,7 +273,14 @@ function dshpackToHotpack(text, opts = {}) {
       id = bundle.id;
     } else {
       const role = typeof bundle.role === 'string' && bundle.role !== '' ? bundle.role : 'plugin' + (index + 1);
-      id = role.toLowerCase().replace(/[^a-z0-9_]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'plugin' + (index + 1);
+      // 审计修复：派生 id 须保证首字符字母数字（validatePluginId 要求 /^[a-z0-9]/）。
+      // 此前 role='_foo' 派生 '_foo'（前导下划线未剥）被 parseHotpack 以「插件 id 非法」
+      // 拒绝，报错与「role 派生」意图脱节。现先剥前导下划线再剥首尾连字符。
+      id = role.toLowerCase()
+        .replace(/[^a-z0-9_]+/g, '-')
+        .replace(/^_+/, '')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40) || 'plugin' + (index + 1);
     }
     const source = { type: sourceType };
     if (sourceType === 'github') {
