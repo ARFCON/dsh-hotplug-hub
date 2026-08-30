@@ -37,6 +37,9 @@ $coreDll = Join-Path $root 'Microsoft.Web.WebView2.Core.dll'
 $winFormsDll = Join-Path $root 'Microsoft.Web.WebView2.WinForms.dll'
 $loaderDll = Join-Path $root 'WebView2Loader.dll'
 foreach ($pair in @(@($coreDllSrc,$coreDll), @($winFormsDllSrc,$winFormsDll), @($loaderSrc,$loaderDll))) {
+  # 目标 DLL 已存在则保留（仓库版本优先），防止本机 Office 旧版 WebView2 降级覆盖；
+  # 仅当目标缺失时才从源拷贝（环境变量源优先，其次本机 Office）。
+  if (Test-Path $pair[1]) { continue }
   if (-not (Test-Path $pair[0])) { throw "找不到 $($pair[0])" }
   Copy-Item $pair[0] $pair[1] -Force
 }

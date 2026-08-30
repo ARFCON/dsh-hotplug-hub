@@ -29,7 +29,7 @@ const profile = process.env.DSH_PROFILE || 'web'
 const profileRoot = path.join(dshRoot, 'profiles', profile)
 const pkgFile = path.join(profileRoot, 'node_modules', 'dsh-memory-hub', 'package.json')
 const tarballUrl = process.env.DSH_MEMORY_HUB_URL ||
-  'https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v1.0.3/dsh-memory-hub-0.8.0-pre.tgz'
+  'https://github.com/ARFCON/dsh-hotplug-hub/releases/download/v1.0.4/dsh-memory-hub-0.8.0-pre.tgz'
 
 function installedVersion() {
   try {

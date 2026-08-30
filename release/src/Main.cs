@@ -1777,7 +1777,7 @@ namespace DSHHotplugHub
                 // 审计修复（假自检行）：'Profile 清单' 基础行此前恒显示演示值「desktop/完好」，
                 // 外壳真实探测（DetectProfiles）只追加为独立行——现直接回填该行，删除冗余 push。
                 "if(r[i].name==='Profile 清单'){var pf=window.__nativeSelfCheck.profiles;if(pf){r[i].val=pf;r[i].status='ok';r[i].text='已探测';}else{r[i].val='未探测到';r[i].status='warn';r[i].text='~/.dsh/profiles 无既有 profile';}}" +
-                "if(r[i].name==='官方 Skill/MCP 面板'){var pi=window.__nativeSelfCheck.panelInstalled;var pl=window.__nativeSelfCheck.panelLatest;r[i].val=pi||'未安装';if(!pi){r[i].status='warn';r[i].text='可安装 v'+(pl||'?');}else if(pl&&pi!==pl){r[i].status='update';r[i].text='可更新至 v'+pl;}else{r[i].status='ok';r[i].text='已最新';}}" +
+                "if(r[i].name==='官方 Skill/MCP 面板'){var pi=window.__nativeSelfCheck.panelInstalled;var pl=window.__nativeSelfCheck.panelLatest;r[i].val=pi||'未安装';if(!pi){r[i].status='warn';r[i].text='可安装 v'+(pl||'?');}else if(pl&&nv(pl,pi)>0){r[i].status='update';r[i].text='可更新至 v'+pl;}else{r[i].status='ok';r[i].text='已最新';}}" +
                 "}" +
                 "if(window.__nativeSelfCheck.webview2){r.push({name:'WebView2',desc:'桌面渲染内核',val:window.__nativeSelfCheck.webview2,status:'ok',text:'可用'});}" +
                 "if(window.__nativeSelfCheck.dshCli){r.push({name:'dsh CLI',desc:'官方 DeepSeek Harness 命令行',val:window.__nativeSelfCheck.dshVersion||'已安装',status:'ok',text:'可用'});}" +
@@ -3827,17 +3827,90 @@ namespace DSHHotplugHub
                 if (File.Exists(settingsPath))
                 {
                     string yaml = File.ReadAllText(settingsPath);
-                    string providerId = cfg.provider == "DeepSeek 官方" ? "deepseek-official" : "dsh-hotplug-custom";
+                    string providerId = cfg.provider == "DeepSeek 官方" ? "deepseek-official" : MakeProviderId(cfg.provider);
+                    if (providerId != "deepseek-official")
+                    {
+                        // 自定义 provider 必须先有 llm-pi-ai.providers.<id> 块，否则 DSH 找不到路由
+                        yaml = EnsurePiAiProviderBlock(yaml, cfg, providerId, keyName);
+                    }
                     yaml = System.Text.RegularExpressions.Regex.Replace(
                         yaml,
                         @"(agent-default-model:\s*\r?\n\s+provider:\s*)\S+(\r?\n\s+model:\s*)\S+",
                         "$1" + providerId + "$2" + cfg.defaultModel);
+                    if (!yaml.Contains("agent-default-model:"))
+                    {
+                        yaml = yaml.TrimEnd() + Environment.NewLine + Environment.NewLine +
+                            "agent-default-model:" + Environment.NewLine +
+                            "  provider: " + providerId + Environment.NewLine +
+                            "  model: " + cfg.defaultModel + Environment.NewLine;
+                    }
                     File.WriteAllText(settingsPath, yaml);
                 }
             }
             catch
             {
             }
+        }
+
+        /// <summary>把 provider 显示名/ID 收敛为 llm-pi-ai 可用的 provider id（小写连字符）。</summary>
+        private static string MakeProviderId(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "custom";
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            foreach (char c in name.Trim().ToLowerInvariant())
+            {
+                if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_') sb.Append(c);
+                else sb.Append('-');
+            }
+            string id = sb.ToString().Trim('-');
+            return id.Length == 0 ? "custom" : id;
+        }
+
+        /// <summary>确保 settings.yaml 的 llm-pi-ai.providers 下存在 providerId 块，并按 cfg 更新内容。</summary>
+        private static string EnsurePiAiProviderBlock(string yaml, ApiConfig cfg, string providerId, string keyName)
+        {
+            string[] models = (cfg.models ?? "").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(m => m.Trim()).Where(m => m.Length > 0).ToArray();
+            if (models.Length == 0) models = new string[] { string.IsNullOrEmpty(cfg.defaultModel) ? "deepseek-chat" : cfg.defaultModel };
+            System.Text.StringBuilder block = new System.Text.StringBuilder();
+            block.AppendLine("    " + providerId + ":");
+            block.AppendLine("      displayName: " + (string.IsNullOrEmpty(cfg.provider) ? providerId : cfg.provider));
+            block.AppendLine("      apiKeyEnv: " + keyName);
+            block.AppendLine("      api: openai-completions");
+            block.AppendLine("      baseURL: " + cfg.baseUrl);
+            block.AppendLine("      models:");
+            foreach (string model in models)
+            {
+                block.AppendLine("        - id: " + model);
+                block.AppendLine("          name: " + model);
+                block.AppendLine("          contextWindow: 262144");
+            }
+            string newBlock = block.ToString();
+            string pattern = @"(?<=\n\s{4})" + System.Text.RegularExpressions.Regex.Escape(providerId) + @":[\s\S]*?(?=\n\s{4}[a-zA-Z0-9_-]+:|\n\s{2}[a-zA-Z0-9_-]+:|\z)";
+            if (System.Text.RegularExpressions.Regex.IsMatch(yaml, pattern))
+            {
+                yaml = System.Text.RegularExpressions.Regex.Replace(yaml, pattern, newBlock);
+            }
+            else
+            {
+                if (!yaml.Contains("llm-pi-ai:"))
+                {
+                    yaml = yaml.TrimEnd() + Environment.NewLine + Environment.NewLine + "llm-pi-ai:" + Environment.NewLine + "  providers:" + Environment.NewLine;
+                }
+                else if (!yaml.Contains("providers:"))
+                {
+                    int pi = yaml.IndexOf("llm-pi-ai:");
+                    yaml = yaml.Insert(pi + "llm-pi-ai:".Length, Environment.NewLine + "  providers:");
+                }
+                int provIdx = yaml.IndexOf("providers:");
+                if (provIdx >= 0)
+                {
+                    int insertAt = yaml.IndexOf('\n', provIdx);
+                    if (insertAt < 0) insertAt = yaml.Length;
+                    yaml = yaml.Insert(insertAt, Environment.NewLine + newBlock);
+                }
+            }
+            return yaml;
         }
 
         // ---------- AI 组装接入 API ----------
@@ -4499,7 +4572,8 @@ namespace DSHHotplugHub
                     bool hasUpdate = false;
                     if (!string.IsNullOrEmpty(versionN) && !string.IsNullOrEmpty(latestN))
                     {
-                        hasUpdate = versionN != latestN;
+                        // 版本判断必须用 semver：已装版本比远端新时不得误报“有更新”
+                        hasUpdate = PatchContract.IsNewerVersion(latestN, versionN);
                     }
                     else if (!string.IsNullOrEmpty(versionN) && !string.IsNullOrEmpty(spec))
                     {
