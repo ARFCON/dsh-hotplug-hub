@@ -116,7 +116,7 @@ export const STRINGS = {
     'pinned 已超稳定前缀预算（snapshotChars）。常驻规则请写入指令文件（AGENTS.md / REASONIX.md）而非背景记忆；如确需长期可改用 activation=relevant（不深入稳定前缀、保守期短）。',
   /** M2/M3 固定提示行：文本必须恒定（不产生新前缀快照；折进稳定前缀一次）。 */
   fixedPromptLine:
-    '[dsh-memory-hub 记忆约定：当用户说出重要信息（偏好/决定/约束/背景/纠正/长期目标）时，先提醒用户“这条我会记住”，然后调用 memory.suggest 提案记忆（ask 模式下进待确认提案，绝不绕过确认直接 commit）；用户要求修改或删除记忆时，用 memory.update / memory.forget。不要主动展开全部记忆；每完成若干用户任务，调用 memory.review_status 检查审查到期的沉淀建议。变更会在下一轮注入，不影响本会话前缀。]',
+    '[dsh-memory-hub 记忆约定：当用户说出重要信息（偏好/决定/约束/背景/纠正/长期目标）时，先提醒用户“这条我会记住”，然后调用 memory.commit / memory.suggest 写入（auto 默认直写；ask 模式进提案并自动通过）。修改或删除用 memory.update / memory.forget。每完成若干任务调用 memory.review_status。变更会在下一轮注入，不影响本会话前缀。]',
   /** 尾部变更注入的块头（仅在有变更时出现）。 */
   tailHeader: '[dsh-memory-hub: 记忆变更（仅下一轮注入一次，随后消失以保前缀稳定）]',
 }

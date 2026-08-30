@@ -34,7 +34,7 @@ function defaultConfig(config) {
   // 预算/上限必须为正数；非有限或 ≤0 一律回退默认，避免负数/0 让 slice(0, n) 出现反常截断。
   const pos = (v, fallback) => (Number.isFinite(v) && v > 0 ? v : fallback)
   cfg.hubDir = typeof cfg.hubDir === 'string' && cfg.hubDir !== '' ? cfg.hubDir : defaultHubDir()
-  cfg.writePolicy = ['ask', 'auto', 'off'].includes(cfg.writePolicy) ? cfg.writePolicy : 'ask'
+  cfg.writePolicy = ['ask', 'auto', 'off'].includes(cfg.writePolicy) ? cfg.writePolicy : 'auto'
   cfg.snapshotOrder = Number.isFinite(cfg.snapshotOrder) ? cfg.snapshotOrder : 50
   cfg.snapshotChars = pos(cfg.snapshotChars, DEFAULTS.snapshotChars)
   cfg.searchLimit = Math.min(pos(cfg.searchLimit, DEFAULTS.searchLimit), DEFAULTS.searchLimitMax)
@@ -86,7 +86,7 @@ function buildTools(service, config) {
 
   tools.push(defineTool({
     name: 'memory.commit',
-    description: `Record a durable fact into the memory hub (dsh-memory-hub). Under writePolicy=ask (default) this creates a PENDING proposal that a human must adopt via /memory proposals → adopt — AI proposes, the user decides, nothing is written unapproved. Provide title + body (or description) of something worth remembering across sessions. Returns the proposal id or the written entry.`,
+    description: `Record a durable fact into the memory hub (dsh-memory-hub). Under writePolicy=auto (default) this writes the entry directly; under writePolicy=ask it creates a PENDING proposal instead. Provide title + body (or description) of something worth remembering across sessions. Returns the written entry or the proposal id.`,
     parameters: {
       title: { type: 'string', required: true, description: 'Short title (also used to derive the entry name).' },
       body: { type: 'string', description: 'Markdown fact body. Use body OR description.' },
@@ -118,13 +118,13 @@ function buildTools(service, config) {
       if (res.approved && res.entry) {
         return `已写入记忆：${res.entry.name}（id ${res.entry.id}，revision ${res.entry.revision}）`
       }
-      return `已创建待确认提案：${res.proposalId}（writePolicy=ask，等待用户 /memory proposals 采纳）`
+      return `已创建待确认提案：${res.proposalId}（writePolicy=ask，等待 /memory proposals 采纳）`
     },
   }))
 
   tools.push(defineTool({
     name: 'memory.suggest',
-    description: `Propose a memory fact for human review (always goes to the pending proposal queue — never writes directly, even under writePolicy=auto). Use when the agent believes a fact is worth remembering but is not certain.`,
+    description: `Propose a memory fact. Under writePolicy=auto (default) this writes directly; under writePolicy=ask it goes to the pending proposal queue for human review. Use when the agent believes a fact is worth remembering but is not certain.`,
     parameters: {
       title: { type: 'string', required: true, description: 'Short title.' },
       body: { type: 'string', description: 'Markdown fact body.' },
@@ -145,13 +145,16 @@ function buildTools(service, config) {
         },
         reason: args.reason,
       })
+      if (res.approved && res.entry) {
+        return `已写入记忆：${res.entry.name}（id ${res.entry.id}）`
+      }
       return `已提案：${res.proposalId}（待确认，/memory proposals 查看）`
     },
   }))
 
   tools.push(defineTool({
     name: 'memory.update',
-    description: `Update a memory entry by id (title/body/description/keywords/type). Under writePolicy=ask (default) this creates a pending proposal like memory.commit; once approved the entry revision+1 and updatedAt refreshes. Fields you omit are preserved (activation/subjectKey/expiresAt etc. never silently wiped). Use when the user corrects, edits, or asks to modify a remembered fact.`,
+    description: `Update a memory entry by id (title/body/description/keywords/type). Under writePolicy=auto (default) this updates directly; under writePolicy=ask it creates a pending proposal. Fields you omit are preserved (activation/subjectKey/expiresAt etc. never silently wiped). Use when the user corrects, edits, or asks to modify a remembered fact.`,
     parameters: {
       id: { type: 'string', required: true, description: 'Entry id (mem-...) to update.' },
       title: { type: 'string', description: 'New title.' },
@@ -175,7 +178,7 @@ function buildTools(service, config) {
       if (args.type !== undefined) intent.type = args.type
       const res = await service.submit({ action: 'update', packId: found.packId, entry: intent, reason: 'memory.update' })
       if (res.approved && res.entry) return `已更新记忆：${res.entry.name}（id ${res.entry.id}，revision ${res.entry.revision}）`
-      return `已创建更新提案：${res.proposalId}（writePolicy=ask，等待用户 /memory proposals 采纳）`
+      return `已创建更新提案：${res.proposalId}（writePolicy=ask，等待 /memory proposals 采纳）`
     },
   }))
 
@@ -370,6 +373,11 @@ export function apply(ctx, config) {
     sourceLabel: NS,
     notify: pushChange,
   })
+
+  // writePolicy=auto：AI 自动通过历史遗留的待确认提案（AI 自动通提案）。
+  if (cfg.writePolicy === 'auto') {
+    Promise.resolve(service.autoAdoptPending()).catch(() => {})
+  }
 
   // 服务发布为 ctx.memory（types.d.ts 声明合并）
   ctx.provide('memory', service)

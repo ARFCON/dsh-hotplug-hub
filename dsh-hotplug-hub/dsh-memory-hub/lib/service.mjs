@@ -70,8 +70,8 @@ export class MemoryHubService extends MemoryProtocolCore {
   }
 
   /**
-   * 提案（永远进队列，绝不直写——FR-3）；未指定 pack 时按内容关键词路由。
-   * forceQueue 在协议层 authorize 强制 queued：writePolicy=auto 也不放行。
+   * 提案（writePolicy=auto 时 AI 自动直写通过；ask 时进提案队列）。
+   * forceQueue 在协议层 authorize 于 auto 模式下放行直写。
    */
   suggest(payload) {
     const packId = payload.pack ?? routePackId(this.store.readRoutes(), packText(payload.entry))

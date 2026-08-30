@@ -132,8 +132,8 @@ export class MemoryProtocolCore {
       throw new WriteDeniedError('记忆写入已被禁用（writePolicy=off）', { policy: 'off' })
     }
     let result
-    if (payload.forceQueue) {
-      // FR-3：suggest 永远进队列，绝不直写（auto 也不放行）；off 已在上面整体拒绝。
+    if (payload.forceQueue && policy !== 'auto') {
+      // ask 模式下 suggest 仍进队列（auto 模式则由 AI 自动直写通过）。
       result = { outcome: 'queued', source: 'suggest' }
     } else {
       try {
@@ -416,6 +416,14 @@ export class MemoryProtocolCore {
    * （check-then-act 竞态根治：并发双击/跨进程双采纳恰一个成功）。
    */
   async adopt(packId, proposalId) {
+    return this.adoptAs(packId, proposalId, 'user', 'user-action')
+  }
+
+  /**
+   * 采纳提案（operator 区分用户/AI 自动采纳）：提案状态复查 + 落条目 +
+   * 状态落定在同一把写锁内完成（check-then-act 竞态根治：并发双击/跨进程双采纳恰一个成功）。
+   */
+  async adoptAs(packId, proposalId, operator = 'user', via = 'user-action') {
     return this.store.withWriteLock(() => {
       const proposal = this.store.listProposals(packId, 'any').find((p) => p.id === proposalId)
       if (proposal === undefined) throw new NotFoundError(`提案不存在：${proposalId}`)
@@ -432,13 +440,29 @@ export class MemoryProtocolCore {
         }
       } catch (error) {
         this.store.setProposalStatus(packId, proposalId, 'rejected', { reason: String(error?.message ?? error) })
-        this.store.auditAppend({ action: 'adopt', packId, proposalId, operator: 'user', source: this.sourceLabel, via: 'user-action', outcome: 'failed', detail: String(error?.message ?? error) })
+        this.store.auditAppend({ action: 'adopt', packId, proposalId, operator, source: this.sourceLabel, via, outcome: 'failed', detail: String(error?.message ?? error) })
         throw error
       }
       this.store.setProposalStatus(packId, proposalId, 'adopted', { entryId: result?.id ?? null })
-      this.store.auditAppend({ action: 'adopt', packId, proposalId, operator: 'user', source: this.sourceLabel, via: 'user-action', outcome: 'ok', detail: `entry ${result?.id}` })
+      this.store.auditAppend({ action: 'adopt', packId, proposalId, operator, source: this.sourceLabel, via, outcome: 'ok', detail: `entry ${result?.id}` })
       return { adopted: proposalId, result }
     })
+  }
+
+  /** writePolicy=auto 时自动通过全部待确认提案（AI 自动通提案）；逐条失败不影响其余。 */
+  async autoAdoptPending() {
+    const pending = this.store.allProposals('pending')
+    const adopted = []
+    const failed = []
+    for (const proposal of pending) {
+      try {
+        const res = await this.adoptAs(proposal.packId, proposal.id, 'agent', 'auto-adopt')
+        adopted.push({ proposalId: proposal.id, entryId: res?.result?.id ?? null })
+      } catch (error) {
+        failed.push({ proposalId: proposal.id, error: String(error?.message ?? error) })
+      }
+    }
+    return { adopted, failed, count: pending.length }
   }
 
   /** 驳回提案（锁内改状态 + 审计 + 尾部通知）。 */
